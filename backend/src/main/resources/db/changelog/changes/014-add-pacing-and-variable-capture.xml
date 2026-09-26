@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Master prompt final (Lots A/B) - colonnes ADDITIONNELLES et
+        NULLABLES uniquement (aucun changeset 001-013 modifie) : un
+        Scenario/Step existant, jamais reconfigure pour ces options,
+        continue de se comporter EXACTEMENT comme avant.
+
+        scenario.target_rps        : debit cible optionnel (requetes/s,
+                                      Lot A) - null = comportement
+                                      historique inchange (aucun pacing).
+        step.capture_variable_name : nom de variable a produire depuis la
+                                      reponse de CETTE etape (Lot B).
+        step.capture_json_path     : chemin (sous-ensemble simple, voir
+                                      JsonPathExtractor cote backend, ex.
+                                      "$.token"/"token"/"data.token") dans
+                                      le corps JSON de la reponse. Les deux
+                                      champs sont nullables et n'ont d'effet
+                                      que si TOUS LES DEUX sont renseignes
+                                      (capture explicitement configuree,
+                                      jamais automatique).
+    -->
+    <changeSet id="014-add-pacing-and-variable-capture" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="target_rps" type="INT"/>
+        </addColumn>
+
+        <addColumn tableName="step">
+            <column name="capture_variable_name" type="VARCHAR(255)"/>
+            <column name="capture_json_path" type="VARCHAR(500)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

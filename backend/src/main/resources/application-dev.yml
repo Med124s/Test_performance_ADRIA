@@ -1,0 +1,52 @@
+# Profil "dev" : PostgreSQL local.
+#
+# Aucun secret en dur : URL/utilisateur/mot de passe viennent de variables
+# d'environnement. Les valeurs par defaut ci-dessous (DB_URL/DB_USERNAME) sont
+# des conventions locales sans caractere sensible ; DB_PASSWORD n'a
+# volontairement AUCUNE valeur par defaut (chaine vide) pour ne jamais faire
+# fonctionner l'appli "par accident" avec un mot de passe devine/trivial.
+#
+# Voir backend/README (a creer en Phase 15/Docker) pour la liste des
+# variables a definir avant de lancer ce profil.
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/loadpilot}
+    username: ${DB_USERNAME:loadpilot}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # IMPORTANT (Phase 4) : aucun Keycloak local n'est installe ou
+          # confirme fonctionnel a ce stade - cette valeur est une simple
+          # CONVENTION (realm "loadpilot") pour que la configuration soit
+          # prete a brancher un Keycloak reel, pas une preuve qu'il tourne.
+          #
+          # Consequence concrete : tant que Keycloak n'est pas reellement
+          # demarre a cette adresse, le profil "dev" NE DEMARRERA PAS
+          # (Spring Boot va chercher {issuer-uri}/.well-known/openid-configuration
+          # au demarrage pour construire le JwtDecoder). C'est attendu pour
+          # cette phase - Keycloak sera reellement provisionne en Phase 15
+          # (Docker Compose). Les tests (profil "test") ne dependent pas de
+          # cette propriete : ils utilisent un JwtDecoder mocke.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/loadpilot}
+
+# CORS : aucune valeur par defaut en base commune (application.yml) - ici,
+# uniquement pour le developpement local, le frontend Vite tourne par defaut
+# sur le port 3000 (voir perftest-frontend/vite.config.ts, non modifie).
+app:
+  cors:
+    allowed-origins:
+      - ${FRONTEND_ORIGIN:http://localhost:3000}
+
+logging:
+  level:
+    com.loadpilot.backend: DEBUG
+    liquibase: INFO

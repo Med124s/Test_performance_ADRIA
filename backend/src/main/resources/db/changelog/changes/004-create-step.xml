@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase 8 - table step. scenario_id reference scenario(id) (voir
+        003-create-scenario.xml, inclus avant celui-ci dans le changelog
+        maitre). Aucune colonne created_by (voir entity.Step - pas demande
+        pour cette entite, contrairement a Application/Scenario).
+
+        "order" est un mot reserve SQL - colonne nommee "step_order".
+    -->
+    <changeSet id="004-create-step" author="loadpilot">
+        <createTable tableName="step">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="scenario_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_step_scenario"
+                             references="scenario(id)"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="method" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="url" type="VARCHAR(2048)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="headers" type="VARCHAR(4000)"/>
+            <column name="body" type="VARCHAR(4000)"/>
+            <column name="step_order" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="expected_status" type="INT"/>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

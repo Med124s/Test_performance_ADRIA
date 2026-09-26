@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase 30 - suppression definitive du monitoring systeme (CPU/RAM/
+        Disk/Network/Health), jamais reellement exploitable dans ce depot
+        (le service Node externe qu'il ciblait, local-monitoring-server,
+        n'existe pas dans ce projet). Les changesets historiques 002 et 007
+        ne sont PAS modifies (deja executes en production/dev) : cette
+        migration ADDITIONNELLE retire proprement les colonnes devenues
+        mortes, plutot que de les laisser trainer indefiniment sans usage.
+
+        Conserve integralement : metric.response_time/status_code/
+        throughput/error_rate (vraies metriques de performance HTTP,
+        Phase 10/21) - aucune colonne de ce groupe n'est touchee ici.
+    -->
+    <changeSet id="009-drop-monitoring-columns" author="loadpilot">
+        <dropColumn tableName="metric" columnName="cpu"/>
+        <dropColumn tableName="metric" columnName="ram"/>
+        <dropColumn tableName="metric" columnName="disk"/>
+        <dropColumn tableName="metric" columnName="network"/>
+        <dropColumn tableName="application" columnName="monitoring_url"/>
+    </changeSet>
+
+</databaseChangeLog>

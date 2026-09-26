@@ -1,0 +1,57 @@
+# Profil "prod" — JAMAIS actif par defaut (voir application.yml,
+# spring.profiles.active: dev). A activer explicitement en deploiement reel
+# via SPRING_PROFILES_ACTIVE=prod.
+#
+# Master prompt final (Lot C) — a la difference du profil "dev"
+# (application-dev.yml), AUCUNE valeur par defaut n'est fournie ici pour les
+# parametres sensibles/dependants de l'environnement : le demarrage echoue
+# explicitement (erreur de resolution de placeholder Spring) si une
+# variable requise est absente, plutot que de demarrer silencieusement avec
+# une valeur locale (ex. "localhost") inappropriee en production. C'est un
+# choix delibere de "fail fast" plutot qu'un defaut dangereux devine.
+#
+# Ce fichier ne PRETEND PAS qu'une infrastructure de production (reverse
+# proxy TLS, cluster PostgreSQL, Keycloak durci) existe ou a ete testee ici
+# — voir keycloak/README.md (section "Production hardening") et le rapport
+# de cette phase pour ce qui reste explicitement NON VERIFIE.
+
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    show-sql: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI}
+
+# CORS : aucune valeur par defaut (voir application.yml, CorsProperties vide
+# par defaut = secure-by-default) — l'origine frontend reelle doit etre
+# fournie explicitement.
+app:
+  cors:
+    allowed-origins:
+      - ${FRONTEND_ORIGIN}
+
+# Master prompt final (Lot C) — documentation API desactivee en production
+# (mecanisme springdoc standard, aucune dependance/route inventee) : les
+# endpoints /v3/api-docs et /swagger-ui restent listes dans
+# SecurityConfig.PUBLIC_ENDPOINTS (code inchange), mais springdoc lui-meme
+# ne les enregistre plus quand ces deux proprietes sont a false — ils
+# repondent alors 404, jamais un endpoint metier expose par erreur (meme
+# principe deja verifie et teste pour /actuator/info, voir
+# SwaggerAndActuatorTest).
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  level:
+    com.loadpilot.backend: INFO
+    liquibase: INFO

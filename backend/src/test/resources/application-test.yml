@@ -1,0 +1,39 @@
+# Profil "test" : H2 en memoire UNIQUEMENT (jamais utilise en dev/prod).
+#
+# Place sous src/test/resources (et non src/main/resources) pour qu'il ne
+# soit jamais embarque dans le jar d'application - seul le classpath de test
+# le voit.
+#
+# MODE=PostgreSQL rapproche le comportement SQL de H2 de celui de PostgreSQL
+# (types, fonctions) pour que les changelogs Liquibase se comportent de
+# facon coherente entre tests (H2) et dev/prod (PostgreSQL reel).
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:loadpilot_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.xml
+
+logging:
+  level:
+    com.loadpilot.backend: DEBUG
+    liquibase: INFO
+
+app:
+  scheduler:
+    # P1-B - intervalle tres long en test (1h) : le poller reste actif
+    # (@EnableScheduling n'est jamais desactive - on veut que le contexte
+    # Spring reel demarre exactement comme en production) mais ne doit
+    # jamais interferer, en arriere-plan, avec des assertions ecrites pour
+    # un declenchement DETERMINISTE (voir les tests de
+    # ScheduledExecutionPoller, qui appellent pollAndTrigger() directement
+    # plutot que d'attendre un vrai tick).
+    poll-interval-ms: 3600000

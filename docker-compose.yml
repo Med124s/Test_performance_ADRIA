@@ -1,0 +1,118 @@
+# Reproductibilité complète de la stack LoadPilot (PostgreSQL → Keycloak →
+# Backend → Frontend). Ceci est une VOIE SUPPLÉMENTAIRE, pas un
+# remplacement : les procédures manuelles documentées dans
+# postgresql/README.md, keycloak/README.md et le README principal
+# (`mvn spring-boot:run` / `npm run dev`) restent valides et ne sont pas
+# retirées.
+#
+# Master prompt final (Lot E) — backend/frontend AJOUTÉS (Dockerfiles
+# multi-stage réels : backend/Dockerfile, perftest-frontend/Dockerfile),
+# après évaluation que l'architecture actuelle (Maven/pom.xml Java 21,
+# package.json/vite build) le permet proprement sans inventer de nouvelle
+# convention.
+#
+# IMPORTANT : la disponibilité de Docker sur la machine où ce fichier a été
+# écrit N'A JAMAIS pu être vérifiée (`docker` introuvable dans tout
+# l'environnement de développement de ce projet) — seules la syntaxe YAML
+# et la cohérence statique (ports/variables/dépendances) ont été validées.
+# DOCKER RUNTIME TEST — NOT VERIFIED (voir rapport de phase).
+#
+# Utilisation :
+#   cp .env.example .env   # puis renseigner de vrais mots de passe locaux
+#   docker compose up -d --build
+#
+# Aucun secret réel dans ce fichier : toutes les valeurs sensibles viennent
+# de variables d'environnement (voir .env.example à la racine).
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-loadpilot}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD doit etre defini (voir .env.example)}
+      POSTGRES_DB: ${DB_NAME:-loadpilot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - loadpilot_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-loadpilot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    restart: unless-stopped
+    command: start-dev --http-port=8080 --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD doit etre defini (voir .env.example)}
+    ports:
+      - "8081:8080"
+    volumes:
+      # Import automatique au demarrage (realm/roles/clients reels, voir
+      # keycloak/README.md) - aucun utilisateur, aucun secret reel dans ce
+      # fichier (secret du client confidentiel masque a l'export).
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  # Master prompt final (Lot E) — build reel depuis backend/Dockerfile
+  # (multi-stage Maven, voir ce fichier). "keycloak: service_started"
+  # uniquement (jamais "service_healthy") : ce realme Keycloak (start-dev,
+  # sans son endpoint /health active) n'expose ici aucun healthcheck
+  # verifie - attendre seulement son demarrage est une simplification
+  # honnete, jamais une garantie qu'il repond deja reellement.
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      # Noms de service Docker internes (reseau compose), jamais
+      # "localhost" - le backend tourne DANS un conteneur distinct de
+      # postgres/keycloak, "localhost" y designerait le conteneur backend
+      # lui-meme.
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-loadpilot}
+      DB_USERNAME: ${DB_USERNAME:-loadpilot}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD doit etre defini (voir .env.example)}
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/loadpilot
+      KEYCLOAK_ADMIN_SERVER_URL: http://keycloak:8080
+      # Genere par Keycloak a l'import du realm (jamais une valeur connue a
+      # l'avance) - voir keycloak/README.md, section "Apres l'import".
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:?KEYCLOAK_ADMIN_CLIENT_SECRET doit etre recupere dans la Console Admin Keycloak apres import (voir keycloak/README.md)}
+      # Origine du NAVIGATEUR (cote hote, voir frontend ci-dessous) - jamais
+      # un nom de service Docker interne.
+      FRONTEND_ORIGIN: http://localhost:3000
+    ports:
+      - "8080:8080"
+
+  # Master prompt final (Lot E) — build reel depuis
+  # perftest-frontend/Dockerfile (multi-stage Node+nginx). Les URLs
+  # VITE_* sont des ARGS DE BUILD (voir Dockerfile) resolues par le
+  # NAVIGATEUR de l'utilisateur : elles pointent donc vers les ports
+  # EXPOSES A L'HOTE (localhost:8081/8080 ci-dessus), jamais vers les noms
+  # de service internes "keycloak"/"backend" que le navigateur ne peut pas
+  # resoudre.
+  frontend:
+    build:
+      context: ./perftest-frontend
+      args:
+        VITE_KEYCLOAK_URL: http://localhost:8081
+        VITE_KEYCLOAK_REALM: loadpilot
+        VITE_KEYCLOAK_CLIENT_ID: loadpilot-frontend
+        VITE_SPRING_API_URL: http://localhost:8080
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "3000:80"
+
+volumes:
+  loadpilot_postgres_data:

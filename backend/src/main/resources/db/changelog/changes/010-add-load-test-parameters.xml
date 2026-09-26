@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase P0-A - vrai moteur de charge (voir rapport dedie). Les
+        changesets historiques 002/003/005 ne sont PAS modifies (deja
+        executes) : cette migration ADDITIONNELLE ajoute les colonnes
+        necessaires.
+
+        scenario.virtual_users/ramp_up_seconds/duration_seconds/iterations/
+        think_time_ms : parametres de charge REELLEMENT utilises par
+        HttpClientExecutionEngine (voir LoadTestSpec). Valeurs par defaut
+        (1 VU, 0s de ramp-up, aucune duree/iteration, 0ms de think time)
+        appliquees a TOUS les scenarios existants : reproduisent exactement
+        le comportement historique a une seule passe, aucune regression.
+
+        execution.virtual_users/ramp_up_seconds/duration_seconds/iterations :
+        copie figee des memes parametres au moment du lancement (comme
+        Metric.throughput/errorRate le fait deja pour d'autres valeurs) -
+        pour que l'historique reste fidele si le Scenario est reconfigure
+        plus tard. defaultValue="1"/"0" pour les executions deja existantes
+        (comportement historique, 1 VU implicite).
+    -->
+    <changeSet id="010-add-load-test-parameters" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="virtual_users" type="INT" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ramp_up_seconds" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="duration_seconds" type="INT"/>
+            <column name="iterations" type="INT"/>
+            <column name="think_time_ms" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <addColumn tableName="execution">
+            <column name="virtual_users" type="INT" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ramp_up_seconds" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="duration_seconds" type="INT"/>
+            <column name="iterations" type="INT"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

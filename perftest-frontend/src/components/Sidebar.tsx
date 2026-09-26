@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getUnreadNotificationsCount } from '../utils/notificationsStore'
+import { notificationsBackendApi } from '../services/api/notificationsBackend'
+
+/** P1-B — intervalle de rafraîchissement du badge (léger : un seul COUNT
+ * côté backend, voir NotificationController#unreadCount) - même ordre de
+ * grandeur que le poll de statut d'une Execution en cours ailleurs dans
+ * l'app, jamais un websocket/SSE non demandé par le prompt. */
+const UNREAD_POLL_INTERVAL_MS = 20000
 
 interface SidebarProps {
   darkMode: boolean
@@ -28,6 +34,7 @@ const overviewItems: NavItem[] = [
   { path: '/rapports', icon: 'bi-file-earmark-bar-graph', label: 'Rapports' },
   { path: '/historique', icon: 'bi-clock-history', label: 'Historique' },
   { path: '/notifications', icon: 'bi-bell', label: 'Notifications' },
+  { path: '/planification', icon: 'bi-calendar-week', label: 'Planification' },
 ]
 
 // Section "ACCOUNT" : administration & réglages.
@@ -99,7 +106,21 @@ function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: Sideba
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
-  const unreadCount = getUnreadNotificationsCount()
+  // P1-B — compteur RÉEL (voir NotificationController#unreadCount), plus
+  // jamais lu depuis localStorage (utils/notificationsStore.ts, supprimé).
+  const [unreadCount, setUnreadCount] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    const poll = () => {
+      notificationsBackendApi.unreadCount()
+        .then((res) => { if (!cancelled) setUnreadCount(res.count) })
+        .catch(() => { /* silencieux : un badge qui ne se rafraîchit pas un cycle n'est jamais critique */ })
+    }
+    poll()
+    const interval = setInterval(poll, UNREAD_POLL_INTERVAL_MS)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [])
+
   const navOverviewItems = overviewItems.map((item) =>
     item.path === '/notifications' && unreadCount > 0 ? { ...item, badge: unreadCount } : item
   )

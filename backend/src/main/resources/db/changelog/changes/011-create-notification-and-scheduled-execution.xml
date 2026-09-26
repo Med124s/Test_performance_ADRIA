@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase P1-B - Notifications & Scheduling reels. Les changesets
+        historiques 001-010 ne sont PAS modifies (deja executes) : cette
+        migration ADDITIONNELLE cree les deux nouvelles tables et ajoute une
+        seule colonne nullable sur "execution".
+
+        notification : voir entity.Notification. FK reelle vers app_user
+        (recipient_id) - jamais de denormalisation ici (contrairement a
+        audit_log), une notification n'a de sens que tant que son
+        destinataire existe.
+
+        scheduled_execution : voir entity.ScheduledExecution. FK vers
+        scenario (la planification ne duplique jamais sa configuration de
+        charge) et vers app_user (createdBy). "next_run_at" indexe : c'est
+        l'UNIQUE colonne interrogee a haute frequence par
+        ScheduledExecutionPoller (toutes les app.scheduler.poll-interval-ms).
+
+        execution.triggered_by_app_user_id : colonne ADDITIONNELLE nullable
+        (jamais de valeur par defaut fabriquee - toute Execution existante
+        reste a null, aucun "createdBy" n'a jamais ete trace avant cette
+        phase) - voir entity.Execution pour la justification complete.
+    -->
+    <changeSet id="011-create-notification" author="loadpilot">
+        <createTable tableName="notification">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="recipient_id" type="UUID">
+                <constraints nullable="false" foreignKeyName="fk_notification_recipient" references="app_user(id)"/>
+            </column>
+            <column name="type" type="VARCHAR(40)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="title" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="message" type="VARCHAR(1000)"/>
+            <column name="related_execution_id" type="UUID"/>
+            <column name="related_schedule_id" type="UUID"/>
+            <column name="read" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="read_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </createTable>
+        <createIndex indexName="idx_notification_recipient_created" tableName="notification">
+            <column name="recipient_id"/>
+            <column name="created_at" descending="true"/>
+        </createIndex>
+        <createIndex indexName="idx_notification_recipient_read" tableName="notification">
+            <column name="recipient_id"/>
+            <column name="read"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="011-create-scheduled-execution" author="loadpilot">
+        <createTable tableName="scheduled_execution">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="scenario_id" type="UUID">
+                <constraints nullable="false" foreignKeyName="fk_scheduled_execution_scenario" references="scenario(id)"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="schedule_type" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="cron_expression" type="VARCHAR(120)"/>
+            <column name="run_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="timezone" type="VARCHAR(60)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="next_run_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="enabled" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="UUID">
+                <constraints nullable="false" foreignKeyName="fk_scheduled_execution_created_by" references="app_user(id)"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_triggered_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="last_execution_id" type="UUID"/>
+            <column name="last_trigger_error" type="VARCHAR(500)"/>
+        </createTable>
+        <createIndex indexName="idx_scheduled_execution_next_run" tableName="scheduled_execution">
+            <column name="enabled"/>
+            <column name="next_run_at"/>
+        </createIndex>
+        <createIndex indexName="idx_scheduled_execution_scenario" tableName="scheduled_execution">
+            <column name="scenario_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="011-add-execution-triggered-by" author="loadpilot">
+        <addColumn tableName="execution">
+            <column name="triggered_by_app_user_id" type="UUID">
+                <constraints nullable="true" foreignKeyName="fk_execution_triggered_by" references="app_user(id)"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

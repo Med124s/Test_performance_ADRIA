@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Changelog maitre.
+
+        Phase 3 : demarre volontairement vide (aucune entite metier).
+        Phase 5 : premiere table reelle, app_user (voir entity.AppUser) -
+        projection locale d'un utilisateur Keycloak, aucun mot de passe.
+        Phase 6 : table application (cible testee), FK vers app_user.
+        Phase 7 : table scenario, FK vers application et app_user.
+        Phase 8 : table step, FK vers scenario.
+        Phase 9 : tables execution et execution_step_result.
+        Phase 10 : table metric.
+        Phase 12 : table audit_log.
+
+        A partir des phases suivantes, chaque nouvelle ressource ajoutera
+        son propre fichier sous changes/ et sera reference ici via
+        <include>.
+    -->
+
+    <include file="db/changelog/changes/001-create-app-user.xml"/>
+    <include file="db/changelog/changes/002-create-application.xml"/>
+    <include file="db/changelog/changes/003-create-scenario.xml"/>
+    <include file="db/changelog/changes/004-create-step.xml"/>
+    <include file="db/changelog/changes/005-create-execution.xml"/>
+    <include file="db/changelog/changes/006-create-execution-step-result.xml"/>
+    <include file="db/changelog/changes/007-create-metric.xml"/>
+    <include file="db/changelog/changes/008-create-audit-log.xml"/>
+
+    <!--
+        Phase 30 : suppression du monitoring systeme (CPU/RAM/Disk/Network) -
+        voir changes/009-drop-monitoring-columns.xml. Les vraies metriques de
+        performance (responseTime/statusCode/throughput/errorRate) restent
+        inchangees.
+    -->
+    <include file="db/changelog/changes/009-drop-monitoring-columns.xml"/>
+
+    <!--
+        Phase P0-A : vrai moteur de charge - parametres de charge reels sur
+        scenario/execution (voir changes/010-add-load-test-parameters.xml).
+    -->
+    <include file="db/changelog/changes/010-add-load-test-parameters.xml"/>
+
+    <!--
+        Phase P1-B : Notifications & Scheduling reels - tables notification/
+        scheduled_execution, et colonne execution.triggered_by_app_user_id
+        (voir changes/011-create-notification-and-scheduled-execution.xml).
+    -->
+    <include file="db/changelog/changes/011-create-notification-and-scheduled-execution.xml"/>
+
+    <!--
+        Phase P1-D : preference de fuseau horaire sur app_user, et table
+        notification_preference (voir changes/012-add-app-user-timezone-
+        and-notification-preference.xml).
+    -->
+    <include file="db/changelog/changes/012-add-app-user-timezone-and-notification-preference.xml"/>
+
+    <!--
+        Phase P1-Q Etape B : options d'execution justifiees par decision
+        produit (variables/CSV data source, assertion de contenu simple,
+        think time/timeout/follow-redirects PAR ETAPE) - colonnes
+        additionnelles nullables sur step/scenario (voir changes/
+        013-add-step-engine-options.xml). Pacing/target-rate et variables
+        dynamiques capturees d'une reponse restent une decision produit non
+        tranchee (voir rapport) - aucune colonne ajoutee pour elles ici.
+    -->
+    <include file="db/changelog/changes/013-add-step-engine-options.xml"/>
+
+    <!--
+        Master prompt final (Lots A/B) : pacing (debit cible optionnel par
+        Scenario) et capture de variable dynamique depuis la reponse d'une
+        etape (voir changes/014-add-pacing-and-variable-capture.xml).
+    -->
+    <include file="db/changelog/changes/014-add-pacing-and-variable-capture.xml"/>
+
+</databaseChangeLog>

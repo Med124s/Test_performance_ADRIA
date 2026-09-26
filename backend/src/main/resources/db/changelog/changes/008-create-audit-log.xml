@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase 12 - table audit_log. Aucune FK vers app_user (voir
+        entity.AuditLog : userId/username sont des copies denormalisees,
+        volontairement independantes du cycle de vie d'AppUser). Index sur
+        chacun des champs de filtre exposes par GET /api/audit-logs
+        (userId/username/action/module/date/result, voir
+        specification.AuditLogSpecifications) - aucun index superflu.
+    -->
+    <changeSet id="008-create-audit-log" author="loadpilot">
+        <createTable tableName="audit_log">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="VARCHAR(255)"/>
+            <column name="username" type="VARCHAR(255)"/>
+            <column name="action" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="module" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="date" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ip" type="VARCHAR(45)"/>
+            <column name="result" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="VARCHAR(500)"/>
+        </createTable>
+
+        <createIndex indexName="idx_audit_log_user_id" tableName="audit_log">
+            <column name="user_id"/>
+        </createIndex>
+        <createIndex indexName="idx_audit_log_username" tableName="audit_log">
+            <column name="username"/>
+        </createIndex>
+        <createIndex indexName="idx_audit_log_action" tableName="audit_log">
+            <column name="action"/>
+        </createIndex>
+        <createIndex indexName="idx_audit_log_module" tableName="audit_log">
+            <column name="module"/>
+        </createIndex>
+        <createIndex indexName="idx_audit_log_date" tableName="audit_log">
+            <column name="date"/>
+        </createIndex>
+        <createIndex indexName="idx_audit_log_result" tableName="audit_log">
+            <column name="result"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

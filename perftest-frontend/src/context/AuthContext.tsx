@@ -1,4 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { AUTH_PROVIDER } from '../services/auth/keycloakConfig'
+import {
+  getCurrentClaims,
+  handleRedirectCallback,
+  redirectToLogin,
+  logout as keycloakLogout,
+} from '../services/auth/keycloakClient'
+import { backendRolesToFrontendRole } from '../utils/roleMapping'
 
 export type UserRole = 'Visiteur' | 'Testeur' | 'Admin'
 
@@ -12,17 +20,32 @@ export interface AuthUser {
 interface AuthContextValue {
   user: AuthUser | null
   isAuthenticated: boolean
+  /** `true` UNIQUEMENT pendant le traitement initial du retour Keycloak
+   * (échange du code d'autorisation contre les tokens, avant de savoir si
+   * l'utilisateur est réellement authentifié) — `ProtectedRoute` doit
+   * attendre cette résolution avant de rediriger vers `/login`, sous peine
+   * de boucle de redirection. */
+  isLoading: boolean
   /** Source de vérité unique pour le contrôle d'accès en écriture : false
    * pour le rôle Visiteur (accès "Consultation" en lecture seule — voir
    * RolesCatalog.tsx). Tout bouton ou route qui modifie des données doit
    * se fier à cette valeur plutôt que de retester `user.role` lui-même,
    * pour garder une seule règle appliquée partout. */
   canEdit: boolean
-  login: (email: string, role: UserRole, remember: boolean, name?: string) => void
+  /** P1-O — conservé comme simple étiquette (de nombreuses pages dérivent
+   * `isKeycloak = authProvider === 'keycloak'` avant d'autoriser une
+   * écriture Spring Boot) ; ne vaut plus jamais que 'keycloak' depuis le
+   * retrait du Mode mock. */
+  authProvider: 'keycloak'
+  /** Rôles techniques bruts (ROLE_SUPER_ADMIN/ROLE_PERFORMANCE_ENGINEER/
+   * ROLE_VIEWER) — alimentés par le vrai JWT Keycloak (voir
+   * utils/roleMapping.ts). */
+  rawRoles: string[]
+  /** Redirige vers la vraie page de login Keycloak (aucun mot de passe ne
+   * transite par React, voir services/auth/keycloakClient.ts). */
+  loginWithKeycloak: () => void
   logout: () => void
 }
-
-const STORAGE_KEY = 'perftest_auth_user'
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
@@ -34,56 +57,71 @@ function getInitials(email: string) {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
-function readStoredUser(): AuthUser | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as AuthUser) : null
-  } catch {
-    return null
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => readStoredUser())
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [rawRoles, setRawRoles] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Keep tabs in sync if the user logs out elsewhere
-    const onStorage = () => setUser(readStoredUser())
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    let cancelled = false
+    ;(async () => {
+      try {
+        // Traite un éventuel ?code=&state= de retour Keycloak (voir
+        // keycloakClient.ts) — no-op si absent (accès direct à l'app).
+        await handleRedirectCallback()
+      } catch (err) {
+        // Jamais de session fabriquée en cas d'échec de l'échange réel.
+        console.error('Échec du traitement du retour Keycloak :', err)
+      }
+      if (cancelled) return
+
+      const claims = await getCurrentClaims()
+      const roles = claims?.realm_access?.roles ?? []
+      const role = claims ? backendRolesToFrontendRole(roles) : null
+
+      setRawRoles(roles)
+      setUser(
+        claims && role
+          ? {
+              name: claims.name || claims.preferred_username || 'Utilisateur',
+              email: claims.email || '',
+              role,
+              initials: getInitials(claims.email || claims.preferred_username || claims.sub),
+            }
+          : null
+      )
+      setIsLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const login = (email: string, role: UserRole, remember: boolean, name?: string) => {
-    const displayName =
-      name ||
-      email
-        .split('@')[0]
-        .replace(/[._]/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase()) ||
-      'Utilisateur'
-
-    const authUser: AuthUser = {
-      name: displayName,
-      email,
-      role,
-      initials: getInitials(email),
-    }
-
-    setUser(authUser)
-    const storage = remember ? localStorage : sessionStorage
-    storage.setItem(STORAGE_KEY, JSON.stringify(authUser))
+  const loginWithKeycloak = () => {
+    void redirectToLogin()
   }
 
   const logout = () => {
-    setUser(null)
-    localStorage.removeItem(STORAGE_KEY)
-    sessionStorage.removeItem(STORAGE_KEY)
+    // Invalide la VRAIE session SSO Keycloak — ne se contente jamais de
+    // simuler une déconnexion locale.
+    keycloakLogout()
   }
 
   const canEdit = !!user && user.role !== 'Visiteur'
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, canEdit, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated: !!user,
+        isLoading,
+        canEdit,
+        authProvider: AUTH_PROVIDER,
+        rawRoles,
+        loginWithKeycloak,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

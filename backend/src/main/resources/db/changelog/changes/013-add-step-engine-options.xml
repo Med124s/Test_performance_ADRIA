@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase P1-Q Etape B (decision produit prealable) - options d'execution
+        REELLEMENT justifiees par etape, ajoutees en tant que colonnes
+        ADDITIONNELLES et NULLABLES (aucune valeur par defaut imposee) :
+        un Step/Scenario existant, jamais reconfigure pour ces options,
+        continue de se comporter EXACTEMENT comme avant (fallback vers le
+        comportement historique, voir HttpClientExecutionEngine).
+
+        step.think_time_ms       : pause optionnelle apres CETTE etape
+                                    precise (en plus, jamais a la place, du
+                                    think time de Scenario deja existant qui
+                                    reste applique apres l'iteration complete).
+        step.timeout_seconds     : timeout HTTP specifique a cette etape ;
+                                    null = utilise le timeout global existant
+                                    (app.execution.timeout-seconds).
+        step.follow_redirects    : null = comportement global existant
+                                    (HttpClient.Redirect.NORMAL) ; false =
+                                    ne jamais suivre une redirection pour
+                                    cette etape precise.
+        step.assertion_body_contains : sous-chaine optionnelle que le corps
+                                    de la reponse doit contenir pour que
+                                    l'etape soit consideree en succes (en
+                                    plus de expected_status, jamais a la
+                                    place) - null = comportement historique
+                                    inchange (corps jamais lu, voir
+                                    HttpClientExecutionEngine).
+
+        scenario.csv_data        : donnees CSV brutes (premiere ligne =
+                                    noms de colonnes/variables) optionnelles,
+                                    distribuees UNE ligne PAR utilisateur
+                                    virtuel (cyclique si moins de lignes que
+                                    de VUs) - alimente le mecanisme de
+                                    variables ${nomColonne} substituees dans
+                                    url/headers/body au moment de l'execution
+                                    (voir HttpClientExecutionEngine). null =
+                                    aucun impact, comportement historique
+                                    inchange.
+
+        ("${baseUrl}" n'a PAS besoin d'une variable dediee : deja resolu
+        reellement par UrlResolver.resolve(), voir cette classe - aucune
+        colonne necessaire pour ce cas.)
+    -->
+    <changeSet id="013-add-step-engine-options" author="loadpilot">
+        <addColumn tableName="step">
+            <column name="think_time_ms" type="INT"/>
+            <column name="timeout_seconds" type="INT"/>
+            <column name="follow_redirects" type="BOOLEAN"/>
+            <column name="assertion_body_contains" type="VARCHAR(500)"/>
+        </addColumn>
+
+        <addColumn tableName="scenario">
+            <!-- VARCHAR borne (pas TEXT/CLOB) : meme convention que
+                 step.headers/step.body, et evite un type de colonne
+                 different entre H2 (tests) et PostgreSQL (reel) qui ferait
+                 echouer la validation de schema Hibernate au demarrage. -->
+            <column name="csv_data" type="VARCHAR(50000)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

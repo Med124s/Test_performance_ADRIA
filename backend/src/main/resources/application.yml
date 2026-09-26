@@ -1,0 +1,94 @@
+# Configuration commune a tous les profils.
+# Les profils dev/test (application-dev.yml, application-test.yml) surchargent
+# uniquement ce qui differe (datasource, niveaux de log...).
+
+spring:
+  application:
+    name: loadpilot-backend
+  profiles:
+    active: dev
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Liquibase est l'unique source de verite du schema : Hibernate ne doit
+      # jamais creer/modifier de tables, seulement valider que les entites
+      # correspondent au schema deja migre.
+      ddl-auto: validate
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.xml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Phase 13 : uniquement "health" est expose - aucune information de
+        # build/environnement n'est configuree (pas de plugin git-commit-id/
+        # build-info), donc /actuator/info ne renverrait qu'un corps vide :
+        # mieux vaut ne pas l'exposer du tout que d'exposer un endpoint
+        # inutile. env/beans/configprops/mappings/heapdump/threaddump/
+        # loggers restent tous desactives (jamais dans cette liste).
+        include: health
+  endpoint:
+    health:
+      # Jamais "always"/"when-authorized" ici : aucun detail interne
+      # (composants DB/disque/etc.) n'est expose, seul le statut global
+      # {"status":"UP"} - voir SecurityConfig (permitAll) et
+      # ActuatorSecurityTest.
+      show-details: never
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+app:
+  availability:
+    # Timeout (secondes) du test de disponibilite reel d'une Application
+    # (voir service.http.HttpAvailabilityChecker) - configurable par
+    # environnement via la variable AVAILABILITY_TIMEOUT_SECONDS.
+    timeout-seconds: ${AVAILABILITY_TIMEOUT_SECONDS:5}
+  execution:
+    # Timeout (secondes) par requete HTTP reelle lors de l'execution d'un
+    # Scenario (voir service.execution.HttpClientExecutionEngine) -
+    # configurable via EXECUTION_TIMEOUT_SECONDS.
+    timeout-seconds: ${EXECUTION_TIMEOUT_SECONDS:10}
+    # P0-B - limites de capacite reelles, configurables par environnement
+    # (jamais codees en dur) - voir RunningExecutionRegistry/
+    # ScenarioServiceImpl et le rapport P0-B pour la justification des
+    # valeurs par defaut (issues du benchmark reel de cette phase, a ajuster
+    # via ces variables selon le materiel de production reel).
+    #
+    # Limite PAR EXECUTION (nombre d'utilisateurs virtuels d'un seul
+    # Scenario) - 500 preserve exactement le comportement deja valide en
+    # P0-A (ancienne borne fixe @Max(500) sur ScenarioRequest, desormais
+    # configurable ici ; ScenarioRequest ne garde plus qu'un plafond de bon
+    # sens tres eleve, voir son Javadoc).
+    max-virtual-users-per-execution: ${LOADPILOT_MAX_VUS_PER_EXECUTION:500}
+    # Limite GLOBALE (somme des utilisateurs virtuels de TOUTES les
+    # executions actives simultanement sur ce processus backend).
+    max-global-virtual-users: ${LOADPILOT_MAX_GLOBAL_VUS:200}
+    # Limite du nombre d'executions QUEUED/RUNNING simultanees.
+    max-concurrent-executions: ${LOADPILOT_MAX_CONCURRENT_EXECUTIONS:10}
+  keycloak:
+    admin:
+      # Phase 25 - compte de service DEDIE a l'administration des
+      # utilisateurs/roles (voir service.keycloak.HttpKeycloakAdminClient) -
+      # JAMAIS le compte admin Keycloak lui-meme. client-secret n'a
+      # volontairement aucune valeur par defaut (meme politique que
+      # DB_PASSWORD, voir application-dev.yml) : sans lui, /api/users
+      # repond 502 (KeycloakAdminException), jamais un succes simule.
+      server-url: ${KEYCLOAK_ADMIN_SERVER_URL:http://localhost:8081}
+      realm: ${KEYCLOAK_ADMIN_REALM:loadpilot}
+      client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:loadpilot-backend-admin}
+      client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:}
+      timeout-seconds: ${KEYCLOAK_ADMIN_TIMEOUT_SECONDS:5}
+  scheduler:
+    # P1-B - intervalle (ms) du poller reel de ScheduledExecution (voir
+    # service.impl.ScheduledExecutionPoller pour la comparaison argumentee
+    # face a Quartz/TaskScheduler). 5s par defaut : suffisant pour qu'un
+    # declenchement planifie a la minute pres reste percu comme ponctuel,
+    # sans solliciter excessivement la base (une seule requete legere par
+    # tick, voir ScheduledExecutionRepository#findDueScheduleIds).
+    poll-interval-ms: ${LOADPILOT_SCHEDULER_POLL_INTERVAL_MS:5000}

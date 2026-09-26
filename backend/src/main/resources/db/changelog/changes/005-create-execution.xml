@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase 9 - table execution. scenario_id reference scenario(id) (voir
+        003-create-scenario.xml). "duration" (Long, millisecondes) est
+        nomme "duration_ms" en colonne pour la clarte.
+    -->
+    <changeSet id="005-create-execution" author="loadpilot">
+        <createTable tableName="execution">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="scenario_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_execution_scenario"
+                             references="scenario(id)"/>
+            </column>
+            <column name="started_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="finished_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="total_steps" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="successful_steps" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="failed_steps" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="duration_ms" type="BIGINT"/>
+            <column name="error_message" type="VARCHAR(2000)"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

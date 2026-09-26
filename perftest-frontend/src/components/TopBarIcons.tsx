@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getUnreadNotificationsCount } from '../utils/notificationsStore'
+import { notificationsBackendApi } from '../services/api/notificationsBackend'
+
+const UNREAD_POLL_INTERVAL_MS = 20000
 
 interface TopBarIconsProps {
   onOpenMobileMenu: () => void
@@ -8,9 +11,21 @@ interface TopBarIconsProps {
 
 function TopBarIcons({ onOpenMobileMenu }: TopBarIconsProps) {
   const { user } = useAuth()
-  // Recalculé à chaque montage : reflète le vrai nombre de notifications
-  // non lues (store partagé), au lieu d'un badge figé à "5".
-  const unreadCount = getUnreadNotificationsCount()
+  // P1-B — compteur RÉEL (voir NotificationController#unreadCount), même
+  // source que Sidebar.tsx (chacun sondage indépendamment le backend, un
+  // simple GET léger — jamais de state partagé fabriqué entre les deux).
+  const [unreadCount, setUnreadCount] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    const poll = () => {
+      notificationsBackendApi.unreadCount()
+        .then((res) => { if (!cancelled) setUnreadCount(res.count) })
+        .catch(() => { /* silencieux */ })
+    }
+    poll()
+    const interval = setInterval(poll, UNREAD_POLL_INTERVAL_MS)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [])
 
   return (
     <div className="pt-global-topbar">

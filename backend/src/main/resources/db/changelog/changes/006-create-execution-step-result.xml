@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase 9 - table execution_step_result. execution_id reference
+        execution(id) (voir 005-create-execution.xml) ; step_id reference
+        step(id) (voir 004-create-step.xml). "timestamp" est nomme
+        "captured_at" en colonne (evite toute ambiguite avec le type SQL
+        TIMESTAMP).
+    -->
+    <changeSet id="006-create-execution-step-result" author="loadpilot">
+        <createTable tableName="execution_step_result">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="execution_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_result_execution"
+                             references="execution(id)"/>
+            </column>
+            <column name="step_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_result_step"
+                             references="step(id)"/>
+            </column>
+            <column name="http_status" type="INT"/>
+            <column name="response_time_ms" type="BIGINT"/>
+            <column name="success" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+            <column name="error" type="VARCHAR(2000)"/>
+            <column name="captured_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

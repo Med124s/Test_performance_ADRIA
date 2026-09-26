@@ -90,3 +90,14 @@ export function validateJson(value: string, label = 'Le contenu JSON'): string |
 export function firstError(...results: (string | null)[]): string | null {
   return results.find((r) => r !== null) ?? null
 }
+
+/** Master prompt final (Lot B) — deux champs qui n'ont d'effet QUE
+ * renseignés ensemble (ex: nom de variable capturée + chemin JSON) doivent
+ * être soit tous les deux vides, soit tous les deux renseignés — jamais un
+ * seul des deux silencieusement ignoré côté backend sans que l'utilisateur
+ * ne le sache. */
+export function validatePairedFields(valueA: string, valueB: string, label: string): string | null {
+  const aFilled = valueA.trim() !== ''
+  const bFilled = valueB.trim() !== ''
+  return aFilled !== bFilled ? `${label} doivent être renseignés ensemble (ou tous les deux vides).` : null
+}

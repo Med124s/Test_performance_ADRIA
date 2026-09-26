@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Phase 10 - table metric. application_id/scenario_id sont nullables
+        (schema pense pour de futures sources de Metric incompletes) ;
+        step_id/execution_id sont obligatoires (seule source actuelle :
+        generation automatique apres une Execution, voir
+        service.impl.MetricGenerationService).
+    -->
+    <changeSet id="007-create-metric" author="loadpilot">
+        <createTable tableName="metric">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="application_id" type="UUID">
+                <constraints nullable="true"
+                             foreignKeyName="fk_metric_application"
+                             references="application(id)"/>
+            </column>
+            <column name="scenario_id" type="UUID">
+                <constraints nullable="true"
+                             foreignKeyName="fk_metric_scenario"
+                             references="scenario(id)"/>
+            </column>
+            <column name="step_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_metric_step"
+                             references="step(id)"/>
+            </column>
+            <column name="execution_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_metric_execution"
+                             references="execution(id)"/>
+            </column>
+            <column name="response_time" type="INT"/>
+            <column name="status_code" type="INT"/>
+            <column name="throughput" type="DECIMAL(12,3)"/>
+            <column name="error_rate" type="DECIMAL(5,2)"/>
+            <column name="cpu" type="DECIMAL(5,2)"/>
+            <column name="ram" type="DECIMAL(5,2)"/>
+            <column name="disk" type="DECIMAL(5,2)"/>
+            <column name="network" type="DECIMAL(12,2)"/>
+            <column name="timestamp" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>
