@@ -151,7 +151,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         // Etalement reel du ramp-up : chaque VU demarre staggerMs apres le
         // precedent, jamais tous instantanement (voir rapport P0-A section 8).
         long staggerMs = (virtualUsers > 1 && loadSpec.rampUpSeconds() > 0)
-                ? (loadSpec.rampUpSeconds() * 1000L) / virtualUsers
+                ? (loadSpec.rampUpSeconds() * 1000L) / Math.max(1, virtualUsers - 1)
                 : 0L;
         Instant deadline = loadSpec.durationSeconds() != null
                 ? Instant.now().plusSeconds(loadSpec.durationSeconds())
@@ -205,6 +205,49 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
     }
 
     /**
+     * Passage produit reel (2026-09-30) — "Tester les etapes
+     * selectionnees" (voir StepController /test-batch) : envoie UNE VRAIE
+     * requete HTTP par etape fournie, en parallele (threads virtuels, comme
+     * les utilisateurs virtuels d'une vraie Execution), jamais une charge
+     * repetee - ce n'est PAS une Execution (aucune ligne Execution/
+     * ExecutionStepResult creee, voir StepServiceImpl.testBatch). Resultat
+     * reel par etape (HTTP status/temps/erreur/assertion), jamais simule.
+     */
+    @Override
+    public List<StepOutcome> testSteps(List<StepExecutionSpec> steps, String applicationBaseUrl) {
+        HttpClient clientFollowing = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(timeoutSeconds))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        HttpClient clientNotFollowing = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(timeoutSeconds))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+
+        List<Future<StepOutcome>> futures = new ArrayList<>();
+        for (StepExecutionSpec step : steps) {
+            futures.add(vuExecutor.submit(() -> {
+                HttpClient client = Boolean.FALSE.equals(step.followRedirects()) ? clientNotFollowing : clientFollowing;
+                return executeStep(client, step, applicationBaseUrl, new java.util.HashMap<>());
+            }));
+        }
+
+        List<StepOutcome> results = new ArrayList<>();
+        for (Future<StepOutcome> future : futures) {
+            try {
+                results.add(future.get());
+            } catch (ExecutionException e) {
+                log.warn("Test d'etape termine en erreur inattendue : {}", e.getCause() != null ? e.getCause().getClass().getSimpleName() : e.getClass().getSimpleName());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        return results;
+    }
+
+    /**
      * Boucle reelle d'UN utilisateur virtuel : demarre apres son delai de
      * ramp-up, puis enchaine des iterations jusqu'a la premiere condition
      * d'arret atteinte (dans cet ordre de verification, avant chaque
@@ -247,12 +290,21 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
 
+        // Passage produit reel (2026-09-30) - StopMode.MANUAL desactive
+        // TOUTES les conditions d'arret automatique (duree/iterations/passe
+        // unique par defaut) : seule une annulation explicite (voir
+        // handle.isCancelled()) arrete alors ce VU. AUTO reproduit EXACTEMENT
+        // le comportement historique ci-dessous, inchange.
+        boolean manualStop = loadSpec.stopMode() == com.loadpilot.backend.enums.StopMode.MANUAL;
+
         int iteration = 0;
         while (true) {
             if (handle.isCancelled()) break;
-            if (deadline != null && Instant.now().isAfter(deadline)) break;
-            if (loadSpec.iterations() != null && iteration >= loadSpec.iterations()) break;
-            if (deadline == null && loadSpec.iterations() == null && iteration >= 1) break;
+            if (!manualStop) {
+                if (deadline != null && Instant.now().isAfter(deadline)) break;
+                if (loadSpec.iterations() != null && iteration >= loadSpec.iterations()) break;
+                if (deadline == null && loadSpec.iterations() == null && iteration >= 1) break;
+            }
 
             // Une iteration en echec n'arrete PAS les iterations suivantes de
             // CE VU (seule l'iteration courante s'arrete au premier echec,
@@ -276,6 +328,14 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 // jamais appliquee apres une annulation ni si non configuree.
                 if (!handle.isCancelled() && step.thinkTimeMs() != null && step.thinkTimeMs() > 0
                         && !sleep(step.thinkTimeMs())) {
+                    break;
+                }
+                // Passage produit reel (2026-09-30) - pacing REEL apres
+                // l'envoi de cette etape, en plus (jamais a la place) du
+                // think time ci-dessus - meme garde (jamais apres une
+                // annulation, jamais si non configure).
+                if (!handle.isCancelled() && step.pacingAfterMs() != null && step.pacingAfterMs() > 0
+                        && !sleep(step.pacingAfterMs())) {
                     break;
                 }
                 if (!outcome.success()) {

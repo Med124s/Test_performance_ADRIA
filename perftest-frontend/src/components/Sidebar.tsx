@@ -125,9 +125,10 @@ function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: Sideba
     item.path === '/notifications' && unreadCount > 0 ? { ...item, badge: unreadCount } : item
   )
 
+  // logout() redirige déjà réellement le navigateur vers Keycloak
+  // (end_session) — plus de /login React vers lequel naviguer ensuite.
   const handleLogout = () => {
     logout()
-    navigate('/login', { replace: true })
   }
 
   const showHover = (path: string, label: string) => (e: React.MouseEvent<HTMLElement>) => {

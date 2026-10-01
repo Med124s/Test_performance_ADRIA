@@ -3,10 +3,12 @@ import MainLayout from './layouts/MainLayout'
 import { AuthProvider } from './context/AuthContext'
 import { ToastProvider } from './context/ToastContext'
 import ProtectedRoute from './components/ProtectedRoute'
-import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Applications from './pages/Applications'
 import Scenarios from './pages/Scenarios'
+import ScenarioLanding from './pages/ScenarioLanding'
+import ScenarioWizard from './pages/ScenarioWizard'
+import ScenarioStepEditor from './pages/ScenarioStepEditor'
 import Configurations from './pages/Configurations'
 import Executions from './pages/Executions'
 import ExecutionReport from './pages/ExecutionReport'
@@ -29,7 +31,6 @@ function App() {
       <ToastProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<Login />} />
             <Route
               path="/"
               element={
@@ -41,15 +42,18 @@ function App() {
               <Route index element={<Dashboard />} />
               <Route path="applications" element={<Applications />} />
               <Route path="scenarios" element={<Scenarios />} />
-              {/* P1-G — l'assistant de création (CreateScenarioLanding/CreateScenario/
-                  CreateStep, JSON Server) est retiré : la création/édition de
-                  Scénarios et Steps réels se fait désormais uniquement depuis
-                  /scenarios (Spring Boot), qui couvre la même fonctionnalité
-                  (métadonnées, paramètres de charge, Steps, lancement). Redirection
-                  pour tout lien/marque-page existant vers les anciennes routes. */}
-              <Route path="scenarios/new" element={<Navigate to="/scenarios" replace />} />
-              <Route path="scenarios/create" element={<Navigate to="/scenarios" replace />} />
-              <Route path="scenarios/create-step" element={<Navigate to="/scenarios" replace />} />
+              {/* Restauration du design ancien (workflow en assistant/stepper) —
+                  voir rapport d'analyse dédié : ces 3 routes reprennent les noms
+                  et le rôle des anciennes pages CreateScenarioLanding/
+                  CreateScenario/CreateStep, mais parlent exclusivement au
+                  backend Spring Boot réel (scenariosBackendApi/stepsBackendApi),
+                  jamais à JSON Server. Le contrôle d'accès en écriture (RBAC) se
+                  fait comme partout ailleurs dans cette version DANS chaque page
+                  (canWrite), pas via un composant wrapper de route dédié
+                  (RequireEditAccess a été retiré de ce projet, voir P1-O). */}
+              <Route path="scenarios/new" element={<ScenarioLanding />} />
+              <Route path="scenarios/create" element={<ScenarioWizard />} />
+              <Route path="scenarios/create-step" element={<ScenarioStepEditor />} />
               <Route path="configurations" element={<Configurations />} />
               <Route path="executions" element={<Executions />} />
               <Route path="executions/report/:id" element={<ExecutionReport />} />

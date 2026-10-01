@@ -48,6 +48,15 @@ const emptyForm = {
   name: '',
   description: '',
   url: '',
+  // Passage produit réel (2026-09-30) — ces 3 champs sont désormais
+  // RÉELLEMENT persistés (Application.type/authMethod/authToken côté
+  // backend/PostgreSQL, voir ApplicationRequest.java). authToken reste
+  // volontairement écriture seule (jamais relu, voir hasAuthToken sur
+  // BackendApplicationResponse) — laisser ce champ vide lors d'une
+  // modification conserve le token déjà enregistré.
+  type: 'Web' as 'Web' | 'API REST' | 'SOAP' | 'Mobile',
+  authMethod: 'Bearer Token' as 'Aucune' | 'Basic' | 'Bearer Token' | 'API Key' | 'OAuth2',
+  authToken: '',
 }
 
 type StatusKey = BackendApplicationStatus | 'UNTESTED'
@@ -186,6 +195,12 @@ function Applications() {
       name: app.name,
       description: app.description || '',
       url: app.url,
+      // Restaurés depuis les vraies valeurs persistées. authToken reste
+      // vide (jamais relu, voir hasAuthToken) — un champ vide au moment
+      // d'enregistrer signifie "ne pas modifier le token existant".
+      type: (app.type as typeof emptyForm.type) || 'Web',
+      authMethod: (app.authMethod as typeof emptyForm.authMethod) || 'Bearer Token',
+      authToken: '',
     })
     setTestStatus('idle')
     setTestResultMessage(null)
@@ -214,6 +229,11 @@ function Applications() {
     name: form.name.trim(),
     description: form.description.trim() || null,
     url: form.url.trim(),
+    type: form.type,
+    authMethod: form.authMethod === 'Aucune' ? null : form.authMethod,
+    // Vide = ne pas modifier le token déjà enregistré (voir
+    // ApplicationServiceImpl.update, authToken écriture seule).
+    authToken: form.authToken.trim() || undefined,
   })
 
   const handleSubmit = async () => {
@@ -595,6 +615,41 @@ function Applications() {
                   <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{descriptionError}</div>
                 )}
               </div>
+
+              <div className="col-6">
+                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Type</label>
+                <select className="pt-form-control" style={{ width: '100%' }} value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value as typeof form.type }))}>
+                  <option>Web</option>
+                  <option>API REST</option>
+                  <option>SOAP</option>
+                  <option>Mobile</option>
+                </select>
+              </div>
+              <div className="col-6">
+                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Méthode d'authentification</label>
+                <select className="pt-form-control" style={{ width: '100%' }} value={form.authMethod} onChange={e => setForm(p => ({ ...p, authMethod: e.target.value as typeof form.authMethod }))}>
+                  <option>Aucune</option>
+                  <option>Basic</option>
+                  <option>Bearer Token</option>
+                  <option>API Key</option>
+                  <option>OAuth2</option>
+                </select>
+              </div>
+              {form.authMethod !== 'Aucune' && (
+                <div className="col-12">
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Token</label>
+                  <input
+                    type="password" className="pt-form-control" style={{ width: '100%' }}
+                    placeholder={editingApp?.hasAuthToken ? '•••••••• (laisser vide pour conserver le token actuel)' : 'Collez votre token'}
+                    value={form.authToken}
+                    onChange={e => setForm(p => ({ ...p, authToken: e.target.value }))}
+                  />
+                  <div style={{ fontSize: '11px', color: 'var(--pt-text-muted)', marginTop: '4px' }}>
+                    Réellement enregistré côté serveur — jamais relu ni réaffiché en clair (comme un mot de passe).
+                    {editingApp?.hasAuthToken ? ' Un token est actuellement configuré.' : ''}
+                  </div>
+                </div>
+              )}
             </fieldset>
             )}
 

@@ -161,6 +161,7 @@ public class ScenarioServiceImpl implements ScenarioService {
         scenario.setDurationSeconds(request.durationSeconds());
         scenario.setIterations(request.iterations());
         scenario.setThinkTimeMs(request.thinkTimeMs() != null ? request.thinkTimeMs() : 0);
+        scenario.setStopMode(request.stopMode() != null ? request.stopMode() : com.loadpilot.backend.enums.StopMode.AUTO);
     }
 
     private Scenario findOrThrow(UUID id) {

@@ -73,6 +73,17 @@ public class Step {
     @Column(name = "step_order", nullable = false)
     private Integer order;
 
+    /** Texte libre documentant l'objectif de l'etape - jamais utilise par
+     * le moteur d'execution (documentation pure, comme Scenario.description). */
+    @Column(name = "description", length = 1000)
+    private String description;
+
+    /** Pause reelle APRES l'envoi de la requete de cette etape (en plus de
+     * thinkTimeMs, qui reste une pause AVANT la requete suivante) - voir
+     * HttpClientExecutionEngine. null = aucune pause supplementaire. */
+    @Column(name = "pacing_after_ms")
+    private Integer pacingAfterMs;
+
     @Column(name = "expected_status")
     private Integer expectedStatus;
 

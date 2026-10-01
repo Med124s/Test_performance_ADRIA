@@ -25,6 +25,12 @@ public interface StepMapper {
     @Mapping(target = "updatedAt", ignore = true)
     void updateEntityFromRequest(StepRequest request, @MappingTarget Step step);
 
+    /** Utilise par le nouvel endpoint POST /api/steps/test-batch (jamais
+     * une Execution) - construit une copie immuable des champs necessaires
+     * a l'envoi reel d'une requete, sans passer par une Execution/Scenario. */
+    @Mapping(target = "stepId", source = "id")
+    com.loadpilot.backend.service.execution.StepExecutionSpec toExecutionSpec(Step step);
+
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")
     @Mapping(target = "scenarioId", source = "scenario.id", qualifiedByName = "uuidToString")
     @Mapping(target = "scenarioName", source = "scenario.name")

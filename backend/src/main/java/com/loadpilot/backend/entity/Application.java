@@ -55,6 +55,24 @@ public class Application {
     @Column(name = "status")
     private ApplicationStatus status;
 
+    /** Identite declarative libre (ex: "REST", "SOAP", "GraphQL") - jamais
+     * interpretee par le moteur d'execution, purement informative. */
+    @Column(name = "type")
+    private String type;
+
+    /** Methode d'authentification declarative (ex: "Bearer Token", "API Key",
+     * "Basic Auth") - purement informative, ne modifie pas les requetes
+     * envoyees par le moteur (voir Step.headers pour les en-tetes reellement
+     * envoyes). */
+    @Column(name = "auth_method")
+    private String authMethod;
+
+    /** Secret potentiel - JAMAIS relu par l'API (voir ApplicationResponse/
+     * ApplicationMapper, qui l'omettent explicitement). Ecriture seule,
+     * comme un mot de passe. */
+    @Column(name = "auth_token", length = 500)
+    private String authToken;
+
     /** Utilisateur (projection locale, voir AppUser) ayant cree cette application. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false, updatable = false)

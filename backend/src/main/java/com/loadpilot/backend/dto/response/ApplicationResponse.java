@@ -14,6 +14,12 @@ public record ApplicationResponse(
         String description,
         String url,
         ApplicationStatus status,
+        String type,
+        String authMethod,
+        /** true si un token est enregistre - jamais sa valeur (voir
+         * Application.authToken/ApplicationMapper : ecriture seule, comme
+         * un secret). */
+        boolean hasAuthToken,
         String createdBy,
         Instant createdAt,
         Instant updatedAt

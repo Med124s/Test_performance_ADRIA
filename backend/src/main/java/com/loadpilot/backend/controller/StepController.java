@@ -1,7 +1,9 @@
 package com.loadpilot.backend.controller;
 
 import com.loadpilot.backend.dto.request.StepRequest;
+import com.loadpilot.backend.dto.request.StepTestBatchRequest;
 import com.loadpilot.backend.dto.response.StepResponse;
+import com.loadpilot.backend.dto.response.StepTestResultResponse;
 import com.loadpilot.backend.service.StepService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -81,5 +83,16 @@ public class StepController {
     @ApiResponse(responseCode = "204", description = "Etape supprimee")
     public void delete(@PathVariable UUID id) {
         stepService.delete(id);
+    }
+
+    @PostMapping("/test-batch")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Tester plusieurs etapes reellement (serveur-a-serveur)",
+            description = "Envoie une VRAIE requete HTTP par etape selectionnee (jamais une Execution/charge repetee) - toutes doivent appartenir au meme Scenario.")
+    @ApiResponse(responseCode = "200", description = "Resultat reel par etape")
+    @ApiResponse(responseCode = "404", description = "Une ou plusieurs etapes introuvables")
+    @ApiResponse(responseCode = "409", description = "Les etapes n'appartiennent pas toutes au meme scenario")
+    public List<StepTestResultResponse> testBatch(@Valid @RequestBody StepTestBatchRequest request) {
+        return stepService.testBatch(request);
     }
 }

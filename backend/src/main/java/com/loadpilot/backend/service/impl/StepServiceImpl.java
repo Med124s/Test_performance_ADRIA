@@ -1,21 +1,29 @@
 package com.loadpilot.backend.service.impl;
 
 import com.loadpilot.backend.dto.request.StepRequest;
+import com.loadpilot.backend.dto.request.StepTestBatchRequest;
 import com.loadpilot.backend.dto.response.StepResponse;
+import com.loadpilot.backend.dto.response.StepTestResultResponse;
 import com.loadpilot.backend.entity.Scenario;
 import com.loadpilot.backend.entity.Step;
 import com.loadpilot.backend.enums.AuditAction;
 import com.loadpilot.backend.enums.AuditModule;
 import com.loadpilot.backend.enums.AuditResult;
 import com.loadpilot.backend.enums.StepStatus;
+import com.loadpilot.backend.exception.ConflictException;
 import com.loadpilot.backend.exception.ResourceNotFoundException;
 import com.loadpilot.backend.mapper.StepMapper;
 import com.loadpilot.backend.repository.ScenarioRepository;
 import com.loadpilot.backend.repository.StepRepository;
 import com.loadpilot.backend.service.AuditLogService;
 import com.loadpilot.backend.service.StepService;
+import com.loadpilot.backend.service.execution.ExecutionEngine;
+import com.loadpilot.backend.service.execution.StepExecutionSpec;
+import com.loadpilot.backend.service.execution.StepOutcome;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -43,6 +51,7 @@ public class StepServiceImpl implements StepService {
     private final ScenarioRepository scenarioRepository;
     private final StepMapper stepMapper;
     private final AuditLogService auditLogService;
+    private final ExecutionEngine executionEngine;
 
     @Override
     @Transactional
@@ -54,7 +63,10 @@ public class StepServiceImpl implements StepService {
             step.setScenario(scenario);
             // Choix declaratif de l'utilisateur, vrai des la creation - voir
             // StepStatus (different d'un resultat d'execution invente).
-            step.setStatus(StepStatus.ACTIVE);
+            // Passage produit reel (2026-09-30) : desormais reellement
+            // honore par le moteur d'execution (voir
+            // ExecutionTransactionHelper) - null = ACTIVE par defaut.
+            step.setStatus(request.status() != null ? request.status() : StepStatus.ACTIVE);
 
             Step saved = stepRepository.saveAndFlush(step);
             auditLogService.record(AuditAction.CREATE, AuditModule.STEP, AuditResult.SUCCESS,
@@ -95,6 +107,11 @@ public class StepServiceImpl implements StepService {
 
             stepMapper.updateEntityFromRequest(request, step);
             step.setScenario(scenario);
+            // status : null = conserver la valeur deja enregistree (jamais
+            // un ecrasement silencieux) - voir StepRequest.
+            if (request.status() != null) {
+                step.setStatus(request.status());
+            }
 
             Step saved = stepRepository.saveAndFlush(step);
             auditLogService.record(AuditAction.UPDATE, AuditModule.STEP, AuditResult.SUCCESS,
@@ -120,6 +137,51 @@ public class StepServiceImpl implements StepService {
                     "Step deletion failed for id " + id + ": " + e.getClass().getSimpleName());
             throw e;
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StepTestResultResponse> testBatch(StepTestBatchRequest request) {
+        List<Step> steps = stepRepository.findAllById(request.stepIds());
+        if (steps.size() != request.stepIds().size()) {
+            throw new ResourceNotFoundException("Une ou plusieurs etapes selectionnees sont introuvables.");
+        }
+        long distinctScenarios = steps.stream().map(s -> s.getScenario().getId()).distinct().count();
+        if (distinctScenarios > 1) {
+            throw new ConflictException("Toutes les etapes selectionnees doivent appartenir au meme scenario.");
+        }
+        // L'URL de base est celle de l'Application du scenario - exactement
+        // comme une vraie Execution (voir ExecutionTransactionHelper),
+        // jamais une URL inventee.
+        String applicationBaseUrl = steps.get(0).getScenario().getApplication().getUrl();
+
+        Map<UUID, String> stepNameById = steps.stream()
+                .collect(Collectors.toMap(Step::getId, Step::getName));
+        List<StepExecutionSpec> specs = steps.stream().map(stepMapper::toExecutionSpec).toList();
+
+        List<StepOutcome> outcomes = executionEngine.testSteps(specs, applicationBaseUrl);
+
+        auditLogService.record(AuditAction.TEST, AuditModule.STEP, AuditResult.SUCCESS,
+                "Tested " + outcomes.size() + " step(s) in batch");
+
+        Map<UUID, StepExecutionSpec> specById = specs.stream()
+                .collect(Collectors.toMap(StepExecutionSpec::stepId, s -> s));
+        return outcomes.stream().map(outcome -> {
+            StepExecutionSpec spec = specById.get(outcome.stepId());
+            boolean assertionConfigured = spec != null && spec.assertionBodyContains() != null
+                    && !spec.assertionBodyContains().isBlank();
+            Boolean assertionPassed = assertionConfigured
+                    ? !(outcome.error() != null && outcome.error().startsWith("Assertion echouee"))
+                    : null;
+            return new StepTestResultResponse(
+                    outcome.stepId().toString(),
+                    stepNameById.get(outcome.stepId()),
+                    outcome.success(),
+                    outcome.httpStatus(),
+                    outcome.responseTimeMs(),
+                    outcome.error(),
+                    assertionPassed);
+        }).toList();
     }
 
     private Step findOrThrow(UUID id) {

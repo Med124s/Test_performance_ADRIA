@@ -94,15 +94,16 @@ public class ExecutionServiceImpl implements ExecutionService {
 
     @Override
     public ExecutionResponse execute(ExecutionRequest request, UUID triggeredByAppUserId) {
-        return doExecute(request.scenarioId(), triggeredByAppUserId, null);
+        return doExecute(request.scenarioId(), triggeredByAppUserId, null, request);
     }
 
     @Override
     public ExecutionResponse executeScheduled(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId) {
-        return doExecute(scenarioId, triggeredByAppUserId, scheduleId);
+        return doExecute(scenarioId, triggeredByAppUserId, scheduleId, null);
     }
 
-    private ExecutionResponse doExecute(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId) {
+    private ExecutionResponse doExecute(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId,
+            ExecutionRequest overrides) {
         boolean capacityReserved = false;
         int virtualUsers = 0;
         try {
@@ -111,10 +112,15 @@ public class ExecutionServiceImpl implements ExecutionService {
             // volontairement minimale (une seule PK) ; prepareAndStart relira
             // le Scenario juste apres dans sa propre transaction courte -
             // aucun etat n'est jamais transporte entre les deux, juste un
-            // entier.
-            virtualUsers = scenarioRepository.findById(scenarioId)
+            // entier. Passage produit reel (2026-10-01) : si une surcharge
+            // virtualUsers est fournie pour CETTE execution, la capacite
+            // reservee reflete cette valeur reelle, jamais celle
+            // (potentiellement differente) enregistree sur le Scenario.
+            int scenarioVirtualUsers = scenarioRepository.findById(scenarioId)
                     .map(Scenario::getVirtualUsers)
                     .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + scenarioId));
+            virtualUsers = overrides != null && overrides.virtualUsers() != null
+                    ? overrides.virtualUsers() : scenarioVirtualUsers;
 
             // Refus deterministe AVANT toute ecriture si une limite globale
             // serait depassee (prompt P0-B, section 7 ; P1-B, section 44 :
@@ -127,7 +133,7 @@ public class ExecutionServiceImpl implements ExecutionService {
 
             // Transaction courte : valide le scenario/ses steps, cree
             // l'Execution QUEUED avec les parametres de charge figes.
-            PreparedExecution prepared = transactionHelper.prepareAndStart(scenarioId, triggeredByAppUserId, scheduleId);
+            PreparedExecution prepared = transactionHelper.prepareAndStart(scenarioId, triggeredByAppUserId, scheduleId, overrides);
 
             RunningExecutionHandle handle = registry.registerReserved(prepared.executionId(), virtualUsers);
             // A partir d'ici, c'est registry.unregister() (voir runAsync,
@@ -394,7 +400,7 @@ public class ExecutionServiceImpl implements ExecutionService {
             // execution QUEUED qu'il cree : cet audit RETRY est un fait
             // distinct et reel ("une relance a ete demandee depuis
             // l'execution id"), pas un doublon.
-            ExecutionResponse response = doExecute(scenarioId, triggeredByAppUserId, null);
+            ExecutionResponse response = doExecute(scenarioId, triggeredByAppUserId, null, null);
             auditLogService.record(AuditAction.RETRY, AuditModule.EXECUTION, AuditResult.SUCCESS,
                     "Execution " + id + " retried as new execution " + response.id());
             return response;

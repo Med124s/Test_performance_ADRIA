@@ -60,6 +60,10 @@ public class ApplicationServiceImpl implements ApplicationService {
 
             Application application = applicationMapper.toEntity(request);
             application.setCreatedBy(createdBy);
+            // authToken est ignore par le mapper (ecriture seule, jamais
+            // auto-mappe pour eviter tout risque de le relire par erreur
+            // ailleurs) - affecte explicitement ici a la creation.
+            application.setAuthToken(request.authToken());
             // Aucun test n'a encore ete lance pour cette application : pas de
             // statut invente (voir ApplicationStatus).
 
@@ -97,6 +101,13 @@ public class ApplicationServiceImpl implements ApplicationService {
         try {
             Application application = findOrThrow(id);
             applicationMapper.updateEntityFromRequest(request, application);
+            // authToken : null = ne pas toucher au token deja enregistre
+            // (l'utilisateur n'a pas resaisi de nouveau token) ; une chaine
+            // (y compris vide) le remplace explicitement. Jamais un
+            // ecrasement silencieux a null.
+            if (request.authToken() != null) {
+                application.setAuthToken(request.authToken());
+            }
             Application saved = applicationRepository.saveAndFlush(application);
             auditLogService.record(AuditAction.UPDATE, AuditModule.APPLICATION, AuditResult.SUCCESS,
                     "Application updated: " + saved.getName());

@@ -1,6 +1,7 @@
 package com.loadpilot.backend.entity;
 
 import com.loadpilot.backend.enums.ScenarioStatus;
+import com.loadpilot.backend.enums.StopMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -107,6 +108,15 @@ public class Scenario {
      * rampUpSeconds/thinkTimeMs, qui restent tous actifs simultanement. */
     @Column(name = "target_rps")
     private Integer targetRps;
+
+    /** AUTO (historique, arret a durationSeconds/iterations) ou MANUAL
+     * (ignore durationSeconds/iterations, tourne jusqu'a annulation
+     * explicite) - copie sur l'Execution au lancement, voir
+     * ExecutionTransactionHelper/HttpClientExecutionEngine. */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stop_mode", nullable = false)
+    private StopMode stopMode = StopMode.AUTO;
 
     /** Utilisateur (projection locale, voir AppUser) ayant cree ce scenario. */
     @ManyToOne(fetch = FetchType.LAZY)

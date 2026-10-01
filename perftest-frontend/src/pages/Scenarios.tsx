@@ -1,18 +1,15 @@
-import React, { useMemo, useState } from 'react'
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  BackendScenarioRequest,
   BackendScenarioResponse,
-  BackendApplicationResponse,
-  BackendStepRequest,
   BackendStepResponse,
-  BackendHttpMethod,
   BackendExecutionResponse,
+  BackendExecutionStatusResponse,
+  BackendStopMode,
 } from '../types/backendContracts'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
-import { applicationsBackendApi } from '../services/api/applicationsBackend'
-import { stepsBackendApi } from '../services/api/stepsBackend'
 import { executionsBackendApi } from '../services/api/executionsBackend'
+import { stepsBackendApi } from '../services/api/stepsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { useApiList } from '../hooks/useApiResource'
 import { usePagination } from '../hooks/usePagination'
@@ -20,105 +17,36 @@ import Pagination from '../components/Pagination'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { backendToFrontendActiveStatus, backendToFrontendExecutionStatus } from '../utils/statusMapping'
-import { firstError, validateRequired, validateMaxLength, validateStepUrl, validatePairedFields, NAME_MAX_LENGTH, DESCRIPTION_MAX_LENGTH } from '../utils/validation'
 
 // ============================================================
-// Phase 18/19/20 — cette page parle au vrai backend Spring Boot pour les
-// Scénarios (scenariosBackend.ts), les Steps (stepsBackend.ts) et le
-// lancement d'Execution (executionsBackend.ts).
+// Restauration du design ancien (voir rapport d'analyse dédié) — cette page
+// redevient la LISTE (cartes stat, recherche, filtre statut, tableau,
+// pagination, modale de détail EN LECTURE SEULE), exactement comme avant
+// P1-G/P1-Q. La création et la modification d'un Scénario (métadonnées +
+// paramètres de charge) ainsi que la gestion de ses Steps se font désormais
+// sur les pages dédiées /scenarios/new, /scenarios/create et
+// /scenarios/create-step (stepper à 3 étapes, voir ScenarioWizard.tsx /
+// ScenarioStepEditor.tsx) — jamais dans une modale inline sur cette page.
 //
-// P1-G — l'assistant de création JSON Server (CreateScenario/
-// CreateScenarioLanding/CreateStep, "wizard" à 5 écrans) a été retiré : ses
-// routes (/scenarios/new, /scenarios/create, /scenarios/create-step)
-// redirigent désormais vers /scenarios (voir App.tsx). Cette page est
-// maintenant le SEUL point d'entrée réel pour créer/modifier un Scénario et
-// ses Steps — elle couvre déjà tout ce que Spring Boot supporte réellement
-// (métadonnées, paramètres de charge virtualUsers/rampUpSeconds/
-// durationSeconds/iterations/thinkTimeMs, Steps name/method/url/headers/
-// body/order/expectedStatus, lancement d'Execution).
-//
-// P1-Q Étape B (décision produit préalable, voir rapport) — le moteur réel
-// supporte désormais, PAR ÉTAPE : une assertion simple ("la réponse
-// contient"), un think time/timeout/comportement de redirection spécifiques
-// à cette étape (repli sur le réglage global si non renseignés) ; et, au
-// niveau du Scénario : des variables ${nom} alimentées par un jeu de
-// données CSV (une ligne par utilisateur virtuel, cyclique). "${baseUrl}"
-// n'a besoin d'aucune variable dédiée : déjà résolu par UrlResolver côté
-// backend. Restent HORS PÉRIMÈTRE (décision produit non tranchée, voir
-// rapport P1-Q Étape B) : le pacing/débit cible et les variables capturées
-// dynamiquement depuis une réponse précédente (chaînage d'authentification).
-//
-// services/api/scenarios.ts et services/api/steps.ts (JSON Server) restent
-// utilisés tels quels, mais uniquement par les écrans de CONSULTATION de
-// données historiques déjà présentes dans db.json (Applications, Dashboard,
-// Metriques, l'onglet Legacy d'Executions, ExecutionReport/ExecutionDetail)
-// — plus par aucun écran de création (voir rapport P1-G, section 15/16).
-//
-// P0-A — le moteur backend (HttpClientExecutionEngine, threads virtuels
-// Java 21) est un vrai moteur de charge ASYNCHRONE : POST /api/executions
-// répond immédiatement (202, statut QUEUED/RUNNING), la charge réelle
-// (utilisateurs virtuels, ramp-up, durée/itérations — configurés ci-dessous
-// sur le Scénario) s'exécute en arrière-plan. Le bouton "Exécuter" ne
-// bloque donc pas jusqu'à la fin réelle du test — voir handleExecuteScenario
-// et la page Exécutions (Spring Boot) pour suivre la progression réelle
-// jusqu'à un statut terminal.
+// Toutes les données restent 100% réelles (Spring Boot / PostgreSQL) :
+// scenariosBackendApi, stepsBackendApi, executionsBackendApi. Aucun JSON
+// Server, aucune donnée mock.
 // ============================================================
 
-const emptyForm = {
-  name: '',
-  applicationId: '',
-  description: '',
-  // P0-A — paramètres de charge réels (voir LoadTestSpec côté backend) :
-  // chaînes contrôlées par le formulaire, converties en nombres (ou null
-  // pour durationSeconds/iterations, tous deux optionnels) dans buildPayload.
-  virtualUsers: '1',
-  rampUpSeconds: '0',
-  durationSeconds: '',
-  iterations: '',
-  thinkTimeMs: '0',
-  // P1-Q Étape B — données CSV optionnelles (variables ${nom} pour le
-  // moteur, voir Scenario.csvData/CsvDataSource côté backend). Chaîne vide
-  // = aucune donnée (comportement historique inchangé).
-  csvData: '',
-  // Master prompt final (Lot A) — débit cible optionnel (requêtes/s), voir
-  // Scenario.targetRps/PacingGate côté backend. Chaîne vide = aucun pacing.
-  targetRps: '',
-}
-
-const STEP_METHODS: BackendHttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-
-const emptyStepForm = {
-  name: '', method: 'GET' as BackendHttpMethod, url: '', headers: '', body: '', order: '1', expectedStatus: '',
-  // P1-Q Étape B — options par étape, toutes optionnelles (chaîne vide =
-  // absente/null envoyé au backend, comportement historique inchangé).
-  thinkTimeMs: '', timeoutSeconds: '', followRedirects: '' as '' | 'true' | 'false', assertionBodyContains: '',
-  // Master prompt final (Lot B) — capture de variable dynamique depuis la
-  // réponse de cette étape (voir Step.captureVariableName/captureJsonPath).
-  captureVariableName: '', captureJsonPath: '',
-}
-
-/** Traduit une erreur RÉELLE (jamais masquée) en message utilisateur — même
- * politique que Applications.tsx (Phase 17). Le code HTTP prime toujours ;
- * 409/400 réutilisent le message backend tel quel (déjà explicite, ex:
- * "des etapes y sont encore rattachees"). */
 function describeApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     switch (err.status) {
       case 0:
         return err.message
-      case 400:
-        return `Données invalides : ${err.message}`
       case 401:
         return 'Vous devez être connecté (Keycloak) pour effectuer cette action.'
       case 403:
         return "Action refusée : votre rôle ne dispose pas des permissions nécessaires."
       case 404:
-        return 'Scénario, étape ou application introuvable (il/elle a peut-être déjà été supprimé(e)).'
+        return 'Scénario introuvable (il a peut-être déjà été supprimé).'
       case 409:
         return err.message
       case 429:
-        // P0-B — limite de capacite LoadPilot atteinte (voir
-        // RunningExecutionRegistry) : message backend deja explicite.
         return `Limite de capacité LoadPilot atteinte : ${err.message}`
       default:
         return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
@@ -136,177 +64,31 @@ function Scenarios() {
   const queryFilter = searchParams.get('q')
   const initialFilter = appFilter ?? queryFilter ?? ''
 
-  // Le backend Spring Boot exige un JWT réel : en mode "mock" (par défaut),
-  // aucune action d'écriture n'est proposée - la liste elle-même échouera
-  // en 401 (voir scenariosError ci-dessous), affiché tel quel.
   const isKeycloak = authProvider === 'keycloak'
-  // POST/PUT/DELETE /api/scenarios sont réservés à SUPER_ADMIN et
-  // PERFORMANCE_ENGINEER côté backend (voir ScenarioController) — même
-  // rôle pour les trois actions, contrairement à Applications où DELETE
-  // est réservé à SUPER_ADMIN seul.
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
   const canDelete = canWrite
 
   const { data: scenarios, loading: scenariosLoading, error: scenariosError, refetch: refetchScenarios } =
     useApiList<BackendScenarioResponse>(() => scenariosBackendApi.getAll())
-  const { data: applications } = useApiList<BackendApplicationResponse>(() => applicationsBackendApi.getAll())
   const { data: executions, refetch: refetchExecutions } = useApiList<BackendExecutionResponse>(() => executionsBackendApi.getAll())
-  // Étapes de TOUS les scénarios Spring Boot (Phase 19) — sert à afficher un
-  // aperçu réel sous le nom du scénario dans la liste.
-  const { data: allSteps, refetch: refetchAllSteps } = useApiList<BackendStepResponse>(() => stepsBackendApi.getAll())
+  const { data: allSteps } = useApiList<BackendStepResponse>(() => stepsBackendApi.getAll())
 
   const [searchTerm, setSearchTerm] = useState(initialFilter)
   const [selectedStatus, setSelectedStatus] = useState<'Tous' | 'ACTIVE' | 'INACTIVE'>('Tous')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
 
-  // Modale Détail (lecture seule pour le scénario, mais gestion réelle des
-  // étapes Spring Boot depuis cette même modale — voir Phase 19)
+  // Modale Détail — EN LECTURE SEULE (comme dans l'ancien design) : plus
+  // aucune action de création/modification/suppression d'étape depuis
+  // cette modale, tout cela se fait désormais sur /scenarios/create.
   const [selectedScenarioDetail, setSelectedScenarioDetail] = useState<BackendScenarioResponse | null>(null)
   const [showStepsInDetail, setShowStepsInDetail] = useState(false)
   const [detailSteps, setDetailSteps] = useState<BackendStepResponse[]>([])
   const [detailStepsLoading, setDetailStepsLoading] = useState(false)
 
-  // Modale Créer / Modifier Scénario (Spring Boot, métadonnées uniquement)
-  const [showModal, setShowModal] = useState(false)
-  const [editingScenario, setEditingScenario] = useState<BackendScenarioResponse | null>(null)
-  const [form, setForm] = useState(emptyForm)
-  const [touched, setTouched] = useState<{
-    name?: boolean
-    applicationId?: boolean
-    virtualUsers?: boolean
-    rampUpSeconds?: boolean
-    durationSeconds?: boolean
-    iterations?: boolean
-    thinkTimeMs?: boolean
-  }>({})
-  const [saving, setSaving] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-
-  // Confirmation de suppression Scénario
   const [deleteConfirm, setDeleteConfirm] = useState<BackendScenarioResponse | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  // Modale Créer / Modifier une Étape (Spring Boot) — accessible depuis la
-  // modale Détail d'un scénario. Champs alignés sur StepRequest
-  // (name/method/url/headers/body/order/expectedStatus + options
-  // d'exécution par étape ajoutées en P1-Q Étape B : thinkTimeMs/
-  // timeoutSeconds/followRedirects/assertionBodyContains). "headers" reste
-  // un texte libre (jamais une structure de liste) — même choix qu'à
-  // l'origine, aucune structure enrichie ajoutée pour ce champ précis.
-  const [showStepModal, setShowStepModal] = useState(false)
-  const [editingStep, setEditingStep] = useState<BackendStepResponse | null>(null)
-  const [stepForm, setStepForm] = useState(emptyStepForm)
-  const [stepTouched, setStepTouched] = useState<{ name?: boolean; url?: boolean; order?: boolean; expectedStatus?: boolean }>({})
-  const [savingStep, setSavingStep] = useState(false)
-  const [stepActionError, setStepActionError] = useState<string | null>(null)
-
-  // Confirmation de suppression Étape
-  const [deleteStepConfirm, setDeleteStepConfirm] = useState<BackendStepResponse | null>(null)
-  const [deletingStep, setDeletingStep] = useState(false)
-
-  const nameError = firstError(
-    validateRequired(form.name, 'Le nom du scénario'),
-    validateMaxLength(form.name, NAME_MAX_LENGTH, 'Le nom du scénario')
-  )
-  const descriptionError = validateMaxLength(form.description, DESCRIPTION_MAX_LENGTH, 'La description')
-
-  // P0-A — validation des paramètres de charge, mêmes bornes que
-  // ScenarioRequest côté backend (@Min/@Max) : jamais de valeur envoyée que
-  // le backend rejetterait de toute façon en 400.
-  const virtualUsersNum = Number(form.virtualUsers)
-  const virtualUsersError = !form.virtualUsers.trim()
-    ? 'Le nombre d\'utilisateurs virtuels est obligatoire.'
-    : !Number.isInteger(virtualUsersNum) || virtualUsersNum < 1 || virtualUsersNum > 500
-    ? 'Doit être un entier entre 1 et 500.'
-    : null
-  const rampUpNum = Number(form.rampUpSeconds)
-  const rampUpError = !form.rampUpSeconds.trim()
-    ? 'Le ramp-up est obligatoire (0 = démarrage immédiat de tous les utilisateurs).'
-    : !Number.isInteger(rampUpNum) || rampUpNum < 0
-    ? 'Doit être un entier positif ou nul.'
-    : null
-  const durationNum = form.durationSeconds.trim() ? Number(form.durationSeconds) : null
-  const durationError =
-    durationNum !== null && (!Number.isInteger(durationNum) || durationNum < 1)
-      ? 'Doit être un entier d\'au moins 1 seconde.'
-      : null
-  const iterationsNum = form.iterations.trim() ? Number(form.iterations) : null
-  const iterationsError =
-    iterationsNum !== null && (!Number.isInteger(iterationsNum) || iterationsNum < 1)
-      ? 'Doit être un entier d\'au moins 1.'
-      : null
-  const thinkTimeNum = Number(form.thinkTimeMs)
-  const thinkTimeError = !form.thinkTimeMs.trim()
-    ? 'Le think time est obligatoire (0 = aucune pause entre itérations).'
-    : !Number.isInteger(thinkTimeNum) || thinkTimeNum < 0
-    ? 'Doit être un entier positif ou nul.'
-    : null
-
-  // P1-Q Étape B — données CSV optionnelles, même borne que ScenarioRequest
-  // côté backend (@Size(max = 50000)) : jamais une valeur que le backend
-  // rejetterait de toute façon en 400.
-  const csvDataError = form.csvData.length > 50000 ? 'Les données CSV ne doivent pas dépasser 50000 caractères.' : null
-
-  // Master prompt final (Lot A) — débit cible optionnel, même borne que
-  // ScenarioRequest côté backend (@Min(1)) : 0 et les valeurs négatives
-  // sont explicitement rejetés (sens invalide pour un débit cible).
-  const targetRpsNum = form.targetRps.trim() ? Number(form.targetRps) : null
-  const targetRpsError =
-    targetRpsNum !== null && (!Number.isInteger(targetRpsNum) || targetRpsNum < 1)
-      ? 'Le débit cible (requêtes/s) doit être un entier d\'au moins 1 si renseigné.'
-      : null
-
-  const isFormValid =
-    !nameError && !descriptionError && !!form.applicationId &&
-    !virtualUsersError && !rampUpError && !durationError && !iterationsError && !thinkTimeError && !csvDataError &&
-    !targetRpsError
-
-  const stepNameError = validateRequired(stepForm.name, "Le nom de l'étape")
-  const stepUrlError = firstError(validateRequired(stepForm.url, 'La ressource'), validateStepUrl(stepForm.url))
-  const stepOrderNum = Number(stepForm.order)
-  const stepOrderError = !stepForm.order.trim()
-    ? "L'ordre est obligatoire."
-    : !Number.isInteger(stepOrderNum) || stepOrderNum <= 0
-    ? "L'ordre doit être un entier strictement positif."
-    : null
-  const stepExpectedStatusNum = stepForm.expectedStatus.trim() ? Number(stepForm.expectedStatus) : null
-  const stepExpectedStatusError =
-    stepExpectedStatusNum !== null && (!Number.isInteger(stepExpectedStatusNum) || stepExpectedStatusNum < 100 || stepExpectedStatusNum > 599)
-      ? 'Le code de statut attendu doit être compris entre 100 et 599.'
-      : null
-  // P1-Q Étape B — options par étape, mêmes bornes que StepRequest côté
-  // backend (@Min/@Size) : jamais une valeur que le backend rejetterait de
-  // toute façon en 400. Toutes optionnelles (chaîne vide = absente).
-  const stepThinkTimeNum = stepForm.thinkTimeMs.trim() ? Number(stepForm.thinkTimeMs) : null
-  const stepThinkTimeError =
-    stepThinkTimeNum !== null && (!Number.isInteger(stepThinkTimeNum) || stepThinkTimeNum < 0)
-      ? 'Doit être un entier positif ou nul.'
-      : null
-  const stepTimeoutNum = stepForm.timeoutSeconds.trim() ? Number(stepForm.timeoutSeconds) : null
-  const stepTimeoutError =
-    stepTimeoutNum !== null && (!Number.isInteger(stepTimeoutNum) || stepTimeoutNum < 1)
-      ? 'Doit être un entier d\'au moins 1 seconde.'
-      : null
-  const stepAssertionError =
-    stepForm.assertionBodyContains.length > 500 ? "L'assertion ne doit pas dépasser 500 caractères." : null
-  // Master prompt final (Lot B) — capture de variable dynamique : les deux
-  // champs sont liés (l'un sans l'autre n'a aucun effet côté moteur, voir
-  // Step.captureVariableName/captureJsonPath) — on le signale explicitement
-  // plutôt que de laisser un champ orphelin silencieusement ignoré.
-  const stepCaptureNameError =
-    stepForm.captureVariableName.length > 255 ? 'Le nom de variable ne doit pas dépasser 255 caractères.' : null
-  const stepCaptureJsonPathError =
-    stepForm.captureJsonPath.length > 500 ? 'Le chemin de capture ne doit pas dépasser 500 caractères.' : null
-  const stepCaptureIncompleteError = validatePairedFields(
-    stepForm.captureVariableName, stepForm.captureJsonPath, 'Le nom de variable et le chemin de capture'
-  )
-  const isStepFormValid = !stepNameError && !stepUrlError && !stepOrderError && !stepExpectedStatusError &&
-    !stepThinkTimeError && !stepTimeoutError && !stepAssertionError &&
-    !stepCaptureNameError && !stepCaptureJsonPathError && !stepCaptureIncompleteError
-
-  // Étapes de chaque scénario Spring Boot, triées dans l'ordre réel (champ
-  // backend `order`, jamais l'index du tableau côté frontend) — pour
-  // l'aperçu affiché sous le nom du scénario dans la liste.
   const stepsByScenario = useMemo(() => {
     const map = new Map<string, BackendStepResponse[]>()
     for (const step of allSteps) {
@@ -318,7 +100,6 @@ function Scenarios() {
     return map
   }, [allSteps])
 
-  // Dernière exécution réelle par scénario (Spring Boot, Phase 20).
   const latestExecByScenario = useMemo(() => {
     const map = new Map<string, BackendExecutionResponse>()
     for (const exec of executions) {
@@ -332,33 +113,137 @@ function Scenarios() {
 
   const [launchingScenarioId, setLaunchingScenarioId] = useState<string | null>(null)
 
-  // Vérifie réellement que le scénario a des Steps avant de créer une
-  // Execution (voir Phase 20, section 25) — le backend refuserait de toute
-  // façon (409), mais on évite l'appel réseau inutile et on donne le
-  // message exact demandé, sans jamais créer d'Execution inutilement.
-  const handleExecuteScenario = async (scenario: BackendScenarioResponse) => {
-    if (!canWrite || launchingScenarioId) return
+  // "Configurer le test" — Étape 1 = Application/Scénario (verrouillés au
+  // scénario cliqué) + VUs/Durée/Ramp-up/Think time/Débit cible/Mode
+  // d'arrêt ÉDITABLES, Étape 2 = récapitulatif + lancement réel. Ces 6
+  // champs correspondent chacun à un VRAI champ persistant sur Scenario
+  // (virtualUsers/durationSeconds/rampUpSeconds/thinkTimeMs/targetRps/
+  // stopMode) : l'édition ici appelle `scenariosBackendApi.update` (PUT réel)
+  // avant de lancer — `BackendExecutionRequest` reste `{scenarioId}`
+  // uniquement (voir ExecutionRequest.java), aucune surcharge "par
+  // exécution" n'est inventée : éditer ici modifie réellement le scénario.
+  //
+  // La progression "en direct" n'affiche qu'un pourcentage global
+  // (`GET /api/executions/{id}/status`, champ réel `progressPercent`) :
+  // aucun détail par utilisateur virtuel ni par étape n'est exposé par le
+  // backend, et il n'existe aucun endpoint "pause" — seul "Annuler"
+  // (`POST /api/executions/{id}/cancel`, déjà réel) est proposé.
+  const [launchConfirmScenario, setLaunchConfirmScenario] = useState<BackendScenarioResponse | null>(null)
+  const [launchStep, setLaunchStep] = useState<1 | 2>(1)
+  const [launchForm, setLaunchForm] = useState({
+    virtualUsers: '',
+    durationSeconds: '',
+    rampUpSeconds: '',
+    thinkTimeMs: '',
+    targetRps: '',
+    stopMode: 'AUTO' as BackendStopMode,
+  })
+  const [liveExecution, setLiveExecution] = useState<BackendExecutionStatusResponse | null>(null)
+  const [cancellingLive, setCancellingLive] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const openLaunchModal = (scenario: BackendScenarioResponse) => {
+    setLaunchConfirmScenario(scenario)
+    setLaunchStep(1)
+    setLaunchForm({
+      virtualUsers: String(scenario.virtualUsers),
+      durationSeconds: scenario.durationSeconds != null ? String(scenario.durationSeconds) : '',
+      rampUpSeconds: String(scenario.rampUpSeconds),
+      thinkTimeMs: String(scenario.thinkTimeMs),
+      targetRps: scenario.targetRps != null ? String(scenario.targetRps) : '',
+      stopMode: scenario.stopMode,
+    })
+  }
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  const handleConfirmLaunch = async () => {
+    if (!canWrite || !launchConfirmScenario) return
+    const scenario = launchConfirmScenario
     const stepCount = (stepsByScenario.get(scenario.id) ?? []).length
     if (stepCount === 0) {
       showToast('Ce scénario ne contient aucune étape.', 'danger')
+      setLaunchConfirmScenario(null)
       return
     }
     setLaunchingScenarioId(scenario.id)
     try {
-      // P0-A — asynchrone : le backend répond immédiatement (202, statut
-      // QUEUED/RUNNING), jamais le résultat final. On ne prétend donc plus
-      // que le test est "terminé" ici — voir la page Exécutions (Spring
-      // Boot) pour suivre la progression réelle jusqu'à un statut terminal.
-      await executionsBackendApi.execute({ scenarioId: scenario.id })
+      const editedVirtualUsers = Number(launchForm.virtualUsers) || scenario.virtualUsers
+      const editedRampUp = launchForm.rampUpSeconds === '' ? scenario.rampUpSeconds : Number(launchForm.rampUpSeconds)
+      const editedDuration = launchForm.durationSeconds === '' ? null : Number(launchForm.durationSeconds)
+      const editedThinkTime = launchForm.thinkTimeMs === '' ? scenario.thinkTimeMs : Number(launchForm.thinkTimeMs)
+      const editedTargetRps = launchForm.targetRps === '' ? null : Number(launchForm.targetRps)
+      const valuesChanged =
+        editedVirtualUsers !== scenario.virtualUsers ||
+        editedRampUp !== scenario.rampUpSeconds ||
+        editedDuration !== scenario.durationSeconds ||
+        editedThinkTime !== scenario.thinkTimeMs ||
+        editedTargetRps !== scenario.targetRps ||
+        launchForm.stopMode !== scenario.stopMode
+      if (valuesChanged) {
+        await scenariosBackendApi.update(scenario.id, {
+          applicationId: scenario.applicationId,
+          name: scenario.name,
+          description: scenario.description,
+          virtualUsers: editedVirtualUsers,
+          rampUpSeconds: editedRampUp,
+          durationSeconds: editedDuration,
+          iterations: scenario.iterations,
+          thinkTimeMs: editedThinkTime,
+          csvData: scenario.csvData,
+          targetRps: editedTargetRps,
+          stopMode: launchForm.stopMode,
+        })
+        await refetchScenarios()
+      }
+      const created = await executionsBackendApi.execute({ scenarioId: scenario.id })
       await refetchExecutions()
-      showToast(
-        `Exécution de « ${scenario.name} » lancée (${scenario.virtualUsers} utilisateur(s) virtuel(s)). Suivez sa progression depuis la page Exécutions.`,
-        'success'
-      )
+      setLaunchConfirmScenario(null)
+      const status = await executionsBackendApi.getStatus(created.id)
+      setLiveExecution(status)
+      pollRef.current = setInterval(async () => {
+        try {
+          const polled = await executionsBackendApi.getStatus(created.id)
+          setLiveExecution(polled)
+          if (polled.status === 'SUCCESS' || polled.status === 'FAILED' || polled.status === 'CANCELLED') {
+            stopPolling()
+            refetchExecutions()
+          }
+        } catch {
+          stopPolling()
+        }
+      }, 1500)
     } catch (err) {
       showToast(describeApiError(err, "Erreur lors du lancement de l'exécution."), 'danger')
     } finally {
       setLaunchingScenarioId(null)
+    }
+  }
+
+  const handleCancelLive = async () => {
+    if (!liveExecution) return
+    setCancellingLive(true)
+    try {
+      await executionsBackendApi.cancel(liveExecution.id)
+      const polled = await executionsBackendApi.getStatus(liveExecution.id)
+      setLiveExecution(polled)
+      stopPolling()
+      refetchExecutions()
+    } catch (err) {
+      showToast(describeApiError(err, "Erreur lors de l'annulation."), 'danger')
+    } finally {
+      setCancellingLive(false)
     }
   }
 
@@ -368,81 +253,6 @@ function Scenarios() {
     return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   }
 
-  const openAdd = () => {
-    setEditingScenario(null)
-    setForm(emptyForm)
-    setTouched({})
-    setActionError(null)
-    setShowModal(true)
-  }
-
-  const openEdit = (scenario: BackendScenarioResponse) => {
-    setEditingScenario(scenario)
-    setForm({
-      name: scenario.name,
-      applicationId: scenario.applicationId,
-      description: scenario.description ?? '',
-      virtualUsers: String(scenario.virtualUsers),
-      rampUpSeconds: String(scenario.rampUpSeconds),
-      durationSeconds: scenario.durationSeconds != null ? String(scenario.durationSeconds) : '',
-      iterations: scenario.iterations != null ? String(scenario.iterations) : '',
-      thinkTimeMs: String(scenario.thinkTimeMs),
-      csvData: scenario.csvData ?? '',
-      targetRps: scenario.targetRps != null ? String(scenario.targetRps) : '',
-    })
-    setTouched({})
-    setActionError(null)
-    setShowModal(true)
-  }
-
-  const closeModal = () => {
-    setShowModal(false)
-  }
-
-  const buildPayload = (): BackendScenarioRequest => ({
-    applicationId: form.applicationId,
-    name: form.name.trim(),
-    description: form.description.trim() || null,
-    virtualUsers: virtualUsersNum,
-    rampUpSeconds: rampUpNum,
-    durationSeconds: durationNum,
-    iterations: iterationsNum,
-    thinkTimeMs: thinkTimeNum,
-    csvData: form.csvData.trim() || null,
-    targetRps: targetRpsNum,
-  })
-
-  const handleSubmit = async () => {
-    // Filet de sécurité (en plus des boutons masqués/fieldset désactivé) :
-    // le backend revalide de toute façon (403).
-    if (!canWrite) return
-    setTouched({ name: true, applicationId: true, virtualUsers: true, rampUpSeconds: true, durationSeconds: true, iterations: true, thinkTimeMs: true })
-    if (!isFormValid || saving) return
-    setSaving(true)
-    setActionError(null)
-    try {
-      if (editingScenario) {
-        const updated = await scenariosBackendApi.update(editingScenario.id, buildPayload())
-        showToast(`Scénario « ${updated.name} » modifié avec succès.`, 'success')
-      } else {
-        const created = await scenariosBackendApi.create(buildPayload())
-        showToast(`Scénario « ${created.name} » créé avec succès.`, 'success')
-      }
-      await refetchScenarios()
-      setShowModal(false)
-    } catch (err) {
-      const message = describeApiError(err, "Erreur lors de l'enregistrement.")
-      setActionError(message)
-      showToast(message, 'danger')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Suppression réelle contre Spring Boot : le backend refuse lui-même
-  // (409) si des Steps y sont encore rattachés (voir ScenarioServiceImpl) —
-  // plus de cascade-delete des Steps depuis le frontend (c'était une
-  // logique spécifique à JSON Server, qui ne cascade jamais rien).
   const handleDeleteScenario = async () => {
     if (!canDelete || !deleteConfirm) return
     setDeleting(true)
@@ -462,7 +272,7 @@ function Scenarios() {
     }
   }
 
-  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSelectAll = (e: ChangeEvent<HTMLInputElement>) => {
     setSelectedIds(e.target.checked ? filteredScenarios.map((s) => s.id) : [])
   }
 
@@ -480,10 +290,6 @@ function Scenarios() {
 
   const { page, setPage, totalPages, pageItems, startIndex, endIndex, totalItems } = usePagination(filteredScenarios, 10)
 
-  // ------------------------------------------------------------
-  // Gestion des Étapes (Spring Boot, Phase 19) — depuis la modale Détail.
-  // ------------------------------------------------------------
-
   const loadDetailSteps = (scenarioId: string) => {
     setDetailStepsLoading(true)
     stepsBackendApi.getByScenario(scenarioId)
@@ -492,112 +298,9 @@ function Scenarios() {
       .finally(() => setDetailStepsLoading(false))
   }
 
-  const openAddStep = () => {
-    if (!selectedScenarioDetail) return
-    const maxOrder = detailSteps.reduce((max, s) => Math.max(max, s.order), 0)
-    setEditingStep(null)
-    setStepForm({ ...emptyStepForm, order: String(maxOrder + 1) })
-    setStepTouched({})
-    setStepActionError(null)
-    setShowStepModal(true)
-  }
-
-  const openEditStep = (step: BackendStepResponse) => {
-    setEditingStep(step)
-    setStepForm({
-      name: step.name,
-      method: step.method,
-      url: step.url,
-      headers: step.headers ?? '',
-      body: step.body ?? '',
-      order: String(step.order),
-      expectedStatus: step.expectedStatus != null ? String(step.expectedStatus) : '',
-      thinkTimeMs: step.thinkTimeMs != null ? String(step.thinkTimeMs) : '',
-      timeoutSeconds: step.timeoutSeconds != null ? String(step.timeoutSeconds) : '',
-      followRedirects: step.followRedirects === true ? 'true' : step.followRedirects === false ? 'false' : '',
-      assertionBodyContains: step.assertionBodyContains ?? '',
-      captureVariableName: step.captureVariableName ?? '',
-      captureJsonPath: step.captureJsonPath ?? '',
-    })
-    setStepTouched({})
-    setStepActionError(null)
-    setShowStepModal(true)
-  }
-
-  const closeStepModal = () => {
-    setShowStepModal(false)
-  }
-
-  const buildStepPayload = (): BackendStepRequest => ({
-    scenarioId: selectedScenarioDetail!.id,
-    name: stepForm.name.trim(),
-    method: stepForm.method,
-    url: stepForm.url.trim(),
-    headers: stepForm.headers.trim() || null,
-    body: stepForm.body.trim() || null,
-    order: stepOrderNum,
-    expectedStatus: stepExpectedStatusNum,
-    thinkTimeMs: stepThinkTimeNum,
-    timeoutSeconds: stepTimeoutNum,
-    followRedirects: stepForm.followRedirects === '' ? null : stepForm.followRedirects === 'true',
-    assertionBodyContains: stepForm.assertionBodyContains.trim() || null,
-    captureVariableName: stepForm.captureVariableName.trim() || null,
-    captureJsonPath: stepForm.captureJsonPath.trim() || null,
-  })
-
-  // Chaque étape est créée/modifiée par son PROPRE appel PUT/POST vers
-  // /api/steps — il n'existe côté backend aucun endpoint transactionnel
-  // "Scénario + Steps" (voir Phase 19, section 15) : cette opération est
-  // donc volontairement unitaire et explicite (un clic = une étape), jamais
-  // une soumission groupée qui pourrait échouer partiellement sans le dire.
-  const handleSubmitStep = async () => {
-    if (!canWrite || !selectedScenarioDetail) return
-    setStepTouched({ name: true, url: true, order: true, expectedStatus: true })
-    if (!isStepFormValid || savingStep) return
-    setSavingStep(true)
-    setStepActionError(null)
-    try {
-      if (editingStep) {
-        await stepsBackendApi.update(editingStep.id, buildStepPayload())
-        showToast('Étape modifiée avec succès.', 'success')
-      } else {
-        await stepsBackendApi.create(buildStepPayload())
-        showToast('Étape créée avec succès.', 'success')
-      }
-      loadDetailSteps(selectedScenarioDetail.id)
-      await refetchAllSteps()
-      setShowStepModal(false)
-    } catch (err) {
-      const message = describeApiError(err, "Erreur lors de l'enregistrement de l'étape.")
-      setStepActionError(message)
-      showToast(message, 'danger')
-    } finally {
-      setSavingStep(false)
-    }
-  }
-
-  const handleDeleteStep = async () => {
-    if (!canDelete || !deleteStepConfirm || !selectedScenarioDetail) return
-    setDeletingStep(true)
-    setStepActionError(null)
-    try {
-      await stepsBackendApi.remove(deleteStepConfirm.id)
-      loadDetailSteps(selectedScenarioDetail.id)
-      await refetchAllSteps()
-      showToast(`Étape « ${deleteStepConfirm.name} » supprimée avec succès.`, 'success')
-      setDeleteStepConfirm(null)
-    } catch (err) {
-      const message = describeApiError(err, "Erreur lors de la suppression de l'étape.")
-      setStepActionError(message)
-      showToast(message, 'danger')
-    } finally {
-      setDeletingStep(false)
-    }
-  }
-
   return (
     <div className="pt-content">
-      {/* MODAL: Detail Scénario */}
+      {/* MODAL: Detail Scénario — LECTURE SEULE */}
       {selectedScenarioDetail && (
         <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
           <div className="modal-dialog modal-dialog-centered modal-lg">
@@ -676,8 +379,12 @@ function Scenarios() {
                     </h6>
                     <div className="d-flex gap-2">
                       {canWrite && (
-                        <button className="pt-btn-outline" style={{ fontSize: '12px', padding: '0.2rem 0.6rem' }} onClick={openAddStep}>
-                          <i className="bi bi-plus-lg"></i> Ajouter une étape
+                        <button
+                          className="pt-btn-outline"
+                          style={{ fontSize: '12px', padding: '0.2rem 0.6rem' }}
+                          onClick={() => navigate(`/scenarios/create?edit=${selectedScenarioDetail.id}&wizardStep=2`)}
+                        >
+                          <i className="bi bi-pencil"></i> Gérer les étapes
                         </button>
                       )}
                       <button
@@ -713,18 +420,6 @@ function Scenarios() {
                               {st.expectedStatus != null && (
                                 <span className="pt-pill neutral" style={{ fontSize: '10.5px' }}>Attendu: {st.expectedStatus}</span>
                               )}
-                              <div className="d-flex gap-1" style={{ marginLeft: 'auto' }}>
-                                {canWrite && (
-                                  <button className="topbar-icon" title="Modifier l'étape" style={{ width: '28px', height: '28px' }} onClick={() => openEditStep(st)}>
-                                    <i className="bi bi-pencil" style={{ fontSize: '12px' }}></i>
-                                  </button>
-                                )}
-                                {canDelete && (
-                                  <button className="topbar-icon" title="Supprimer l'étape" style={{ width: '28px', height: '28px' }} onClick={() => setDeleteStepConfirm(st)}>
-                                    <i className="bi bi-trash" style={{ fontSize: '12px', color: 'var(--pt-danger)' }}></i>
-                                  </button>
-                                )}
-                              </div>
                             </div>
                             {(st.headers || st.body) && (
                               <div style={{ fontSize: '11px', color: 'var(--pt-text-muted)', marginTop: '6px' }}>
@@ -744,6 +439,9 @@ function Scenarios() {
                 </div>
               </div>
 
+              {/* Vue Consulter strictement en lecture seule (comme dans l'ancien
+                  design) : aucune action mutante ici — modifier/gérer les
+                  étapes se fait sur /scenarios/create. */}
               <div className="modal-footer d-flex justify-content-end">
                 <button className="pt-btn-outline" onClick={() => { setSelectedScenarioDetail(null); setShowStepsInDetail(false) }}>
                   Fermer
@@ -816,7 +514,7 @@ function Scenarios() {
           <input type="text" placeholder="Rechercher par nom ou application..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
         {canWrite && (
-          <button className="pt-btn-primary" onClick={openAdd}>
+          <button className="pt-btn-primary" onClick={() => navigate('/scenarios/new')}>
             <i className="bi bi-plus-lg"></i>
             + Nouveau scénario
           </button>
@@ -945,8 +643,6 @@ function Scenarios() {
                           <span style={{ fontSize: '12.5px', color: 'var(--pt-text)' }}>{scenario.createdBy}</span>
                         </div>
                       </td>
-                      {/* Détail exécution : Spring Boot (Phase 20) — la page Exécutions (déjà
-                          migrée) porte sa propre vraie modale de détail. */}
                       <td onClick={(e) => e.stopPropagation()}>
                         {latestExec ? (
                           <button
@@ -971,13 +667,13 @@ function Scenarios() {
                               disabled={launchingScenarioId === scenario.id}
                               title={`Exécuter le scénario (${scenario.virtualUsers} VU, ramp-up ${scenario.rampUpSeconds}s${scenario.durationSeconds ? `, durée ${scenario.durationSeconds}s` : scenario.iterations ? `, ${scenario.iterations} itération(s)` : ''}) — asynchrone, suivez la progression sur la page Exécutions`}
                               style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-success)', background: 'var(--pt-success-light)' }}
-                              onClick={() => handleExecuteScenario(scenario)}
+                              onClick={() => openLaunchModal(scenario)}
                             >
                               <i className={`bi ${launchingScenarioId === scenario.id ? 'bi-arrow-repeat pt-spin' : 'bi-play-fill'}`} style={{ fontSize: '14px', color: 'var(--pt-success)' }}></i>
                             </button>
                           )}
                           {canWrite && (
-                            <button className="topbar-icon" title="Modifier" style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-primary)', background: 'var(--pt-primary-light)' }} onClick={() => openEdit(scenario)}>
+                            <button className="topbar-icon" title="Modifier" style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-primary)', background: 'var(--pt-primary-light)' }} onClick={() => navigate(`/scenarios/create?edit=${scenario.id}`)}>
                               <i className="bi bi-pencil" style={{ fontSize: '13px', color: 'var(--pt-primary)' }}></i>
                             </button>
                           )}
@@ -1008,233 +704,6 @@ function Scenarios() {
         />
       </div>
 
-      {/* Add/Edit Modal — Spring Boot, métadonnées uniquement (sans étapes) */}
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '520px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-            <div className="d-flex justify-content-between align-items-center mb-4">
-              <h5 style={{ fontWeight: 700, margin: 0 }}>
-                {editingScenario ? 'Modifier le scénario' : 'Nouveau scénario'}
-              </h5>
-              <button onClick={closeModal} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}>
-                <i className="bi bi-x"></i>
-              </button>
-            </div>
-
-            {actionError && (
-              <div className="pt-alert-banner danger mb-3">
-                <i className="bi bi-exclamation-triangle-fill"></i>
-                {actionError}
-              </div>
-            )}
-
-            {!editingScenario && (
-              <div className="pt-alert-banner mb-3" style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', color: 'var(--pt-text-muted)' }}>
-                <i className="bi bi-info-circle-fill"></i>
-                Ce scénario sera créé sans étape (les étapes restent gérées séparément, voir Limitations Phase 18).
-              </div>
-            )}
-
-            <fieldset disabled={!canWrite} className="row g-3" style={{ border: 'none', padding: 0, margin: 0 }}>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Nom du scénario *</label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.name && nameError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: Parcours achat complet"
-                  value={form.name}
-                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, name: true }))}
-                />
-                {touched.name && nameError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{nameError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Application *</label>
-                <select
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.applicationId && !form.applicationId ? 'var(--pt-danger)' : undefined }}
-                  value={form.applicationId}
-                  disabled={!canWrite || !!editingScenario}
-                  title={editingScenario ? "L'application d'un scénario ne peut plus être changée une fois créé." : undefined}
-                  onChange={e => setForm(p => ({ ...p, applicationId: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, applicationId: true }))}
-                >
-                  <option value="" disabled>Sélectionner une application…</option>
-                  {applications.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-                {touched.applicationId && !form.applicationId && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>Veuillez sélectionner une application.</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Description <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <textarea
-                  className="pt-form-control"
-                  rows={2}
-                  style={{ width: '100%' }}
-                  value={form.description}
-                  onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
-                ></textarea>
-                {descriptionError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{descriptionError}</div>
-                )}
-              </div>
-
-              {/* P0-A — paramètres réels du moteur de charge (voir LoadTestSpec) :
-                  chaque champ ci-dessous est effectivement utilisé par
-                  HttpClientExecutionEngine, jamais décoratif. */}
-              <div className="col-12">
-                <hr style={{ margin: '4px 0 12px', borderColor: 'var(--pt-border)' }} />
-                <div style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)', marginBottom: '10px' }}>
-                  <i className="bi bi-speedometer2 me-1" style={{ color: 'var(--pt-primary)' }}></i>
-                  PARAMÈTRES DE CHARGE
-                </div>
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Utilisateurs virtuels *</label>
-                <input
-                  type="number" min={1} max={500}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.virtualUsers && virtualUsersError ? 'var(--pt-danger)' : undefined }}
-                  value={form.virtualUsers}
-                  onChange={e => setForm(p => ({ ...p, virtualUsers: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, virtualUsers: true }))}
-                />
-                {touched.virtualUsers && virtualUsersError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{virtualUsersError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Ramp-up (s) *
-                </label>
-                <input
-                  type="number" min={0}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.rampUpSeconds && rampUpError ? 'var(--pt-danger)' : undefined }}
-                  value={form.rampUpSeconds}
-                  onChange={e => setForm(p => ({ ...p, rampUpSeconds: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, rampUpSeconds: true }))}
-                />
-                {touched.rampUpSeconds && rampUpError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{rampUpError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Durée (s) <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="number" min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.durationSeconds && durationError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: 60"
-                  value={form.durationSeconds}
-                  onChange={e => setForm(p => ({ ...p, durationSeconds: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, durationSeconds: true }))}
-                />
-                {touched.durationSeconds && durationError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{durationError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Itérations <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="number" min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.iterations && iterationsError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: 10"
-                  value={form.iterations}
-                  onChange={e => setForm(p => ({ ...p, iterations: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, iterations: true }))}
-                />
-                {touched.iterations && iterationsError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{iterationsError}</div>
-                )}
-              </div>
-              {form.durationSeconds.trim() && form.iterations.trim() && (
-                <div className="col-12">
-                  <div className="pt-alert-banner" style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', color: 'var(--pt-text-muted)', fontSize: '11.5px' }}>
-                    <i className="bi bi-info-circle-fill"></i>
-                    Durée et itérations sont toutes deux configurées : chaque utilisateur virtuel s'arrête à la première condition atteinte (durée écoulée ou nombre d'itérations atteint).
-                  </div>
-                </div>
-              )}
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Think time (ms) *
-                </label>
-                <input
-                  type="number" min={0}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.thinkTimeMs && thinkTimeError ? 'var(--pt-danger)' : undefined }}
-                  value={form.thinkTimeMs}
-                  onChange={e => setForm(p => ({ ...p, thinkTimeMs: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, thinkTimeMs: true }))}
-                />
-                {touched.thinkTimeMs && thinkTimeError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{thinkTimeError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Données CSV (optionnel)
-                </label>
-                <textarea
-                  className="pt-form-control" rows={3}
-                  placeholder={'username,password\nuser1,pass1\nuser2,pass2'}
-                  style={{ width: '100%', fontFamily: 'monospace', fontSize: '12.5px', borderColor: csvDataError ? 'var(--pt-danger)' : undefined }}
-                  value={form.csvData}
-                  onChange={e => setForm(p => ({ ...p, csvData: e.target.value }))}
-                />
-                {csvDataError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{csvDataError}</div>
-                )}
-                <div style={{ color: 'var(--pt-text-muted)', fontSize: '11px', marginTop: '4px' }}>
-                  Première ligne = noms de variables. Une ligne distribuée par utilisateur virtuel (cyclique si moins de lignes que de VUs) — utilisables dans les étapes via <code>{'${nomColonne}'}</code>.
-                </div>
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Débit cible (req/s)
-                </label>
-                <input
-                  type="number" min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: targetRpsError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="aucun pacing si vide"
-                  value={form.targetRps}
-                  onChange={e => setForm(p => ({ ...p, targetRps: e.target.value }))}
-                />
-                {targetRpsError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{targetRpsError}</div>
-                )}
-                <div style={{ color: 'var(--pt-text-muted)', fontSize: '11px', marginTop: '4px' }}>
-                  Débit approximatif partagé entre tous les utilisateurs virtuels — ne remplace pas leur nombre, le ramp-up ni le think time.
-                </div>
-              </div>
-            </fieldset>
-
-            <div className="d-flex gap-2 justify-content-end mt-4">
-              <button onClick={closeModal} disabled={saving} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                Annuler
-              </button>
-              {canWrite && (
-                <button onClick={handleSubmit} disabled={!isFormValid || saving} style={{ background: !isFormValid ? '#93C5FD' : 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: !isFormValid ? 'not-allowed' : 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
-                  {saving ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Enregistrement...</> : <><i className="bi bi-check2 me-2"></i>Enregistrer</>}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1264,273 +733,150 @@ function Scenarios() {
         </div>
       )}
 
-      {/* Add/Edit Step Modal — Spring Boot (Phase 19), champs limités au contrat réel StepRequest */}
-      {showStepModal && selectedScenarioDetail && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1070, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '520px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-            <div className="d-flex justify-content-between align-items-center mb-4">
-              <h5 style={{ fontWeight: 700, margin: 0 }}>
-                {editingStep ? "Modifier l'étape" : 'Nouvelle étape'}
-              </h5>
-              <button onClick={closeStepModal} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}>
-                <i className="bi bi-x"></i>
-              </button>
+      {/* "Configurer le test" — restaurée en 2 étapes d'après capture Bandicam
+          #18 (voir commentaire d'état plus haut). */}
+      {launchConfirmScenario && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1080, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '560px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h5 style={{ fontWeight: 700, margin: 0 }}><i className="bi bi-gear me-2 text-primary"></i>Configurer le test</h5>
+              <button onClick={() => setLaunchConfirmScenario(null)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}><i className="bi bi-x"></i></button>
+            </div>
+            <div style={{ fontSize: '11.5px', color: 'var(--pt-text-muted)', marginBottom: '4px' }}>Étape {launchStep} sur 2</div>
+            <div style={{ height: '4px', borderRadius: '2px', background: 'var(--pt-bg)', overflow: 'hidden', marginBottom: '1.25rem' }}>
+              <div style={{ height: '100%', width: launchStep === 1 ? '50%' : '100%', background: 'var(--pt-primary)', transition: 'width 0.2s ease' }}></div>
             </div>
 
-            {stepActionError && (
-              <div className="pt-alert-banner danger mb-3">
-                <i className="bi bi-exclamation-triangle-fill"></i>
-                {stepActionError}
-              </div>
+            {launchStep === 1 ? (
+              <>
+                <div className="row g-3 mb-1">
+                  <div className="col-12">
+                    <label className="pt-form-label">Application *</label>
+                    <select className="pt-form-control" value={launchConfirmScenario.applicationId} disabled>
+                      <option value={launchConfirmScenario.applicationId}>{launchConfirmScenario.applicationName}</option>
+                    </select>
+                  </div>
+                  <div className="col-12">
+                    <label className="pt-form-label">Scénario *</label>
+                    <select className="pt-form-control" value={launchConfirmScenario.id} disabled>
+                      <option value={launchConfirmScenario.id}>{launchConfirmScenario.name}</option>
+                    </select>
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label d-flex align-items-center gap-2">
+                      Utilisateurs virtuels (VUs)
+                      <span className="pt-pill neutral" style={{ fontSize: '10px' }}>Valeur du scénario : {launchConfirmScenario.virtualUsers}</span>
+                    </label>
+                    <input type="number" min={1} className="pt-form-control" value={launchForm.virtualUsers}
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, virtualUsers: e.target.value }))} />
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label">Durée (secondes)</label>
+                    <input type="number" min={0} className="pt-form-control" value={launchForm.durationSeconds}
+                      placeholder="Optionnel"
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, durationSeconds: e.target.value }))} />
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label d-flex align-items-center gap-2">
+                      Ramp-up (secondes)
+                      <span className="pt-pill neutral" style={{ fontSize: '10px' }}>Valeur du scénario : {launchConfirmScenario.rampUpSeconds}</span>
+                    </label>
+                    <input type="number" min={0} className="pt-form-control" value={launchForm.rampUpSeconds}
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, rampUpSeconds: e.target.value }))} />
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label">Think time (ms)</label>
+                    <input type="number" min={0} className="pt-form-control" value={launchForm.thinkTimeMs}
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, thinkTimeMs: e.target.value }))} />
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label">Débit cible (req/s) optionnel</label>
+                    <input type="number" min={0} className="pt-form-control" value={launchForm.targetRps}
+                      placeholder="Ex: 500"
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, targetRps: e.target.value }))} />
+                  </div>
+                  <div className="col-12">
+                    <label className="pt-form-label">Mode d'arrêt</label>
+                    <select className="pt-form-control" value={launchForm.stopMode} onChange={(e) => setLaunchForm((f) => ({ ...f, stopMode: e.target.value as BackendStopMode }))}>
+                      <option value="AUTO">Automatique (durée/itérations définies)</option>
+                      <option value="MANUAL">Manuel (tourne jusqu'à annulation)</option>
+                    </select>
+                    <div style={{ fontSize: '11px', color: 'var(--pt-text-muted)', marginTop: '4px' }}>
+                      Réellement appliqué par le moteur d'exécution — en mode Manuel, seul "Annuler" arrête l'exécution.
+                    </div>
+                  </div>
+                </div>
+                <div className="d-flex gap-2 justify-content-end mt-4">
+                  <button onClick={() => setLaunchConfirmScenario(null)} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
+                    Annuler
+                  </button>
+                  <button onClick={() => setLaunchStep(2)} style={{ background: 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
+                    Suivant <i className="bi bi-arrow-right ms-1"></i>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="pt-alert-banner mb-3" style={{ fontSize: '12px' }}>
+                  <i className="bi bi-info-circle-fill"></i> Les valeurs modifiées seront enregistrées sur le scénario (PUT réel) avant le lancement de l'exécution.
+                </div>
+                <div className="d-flex flex-column gap-2" style={{ fontSize: '13px' }}>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Application</span><strong>{launchConfirmScenario.applicationName}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Scénario</span><strong>{launchConfirmScenario.name}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Utilisateurs virtuels (VUs)</span><strong>{launchForm.virtualUsers || launchConfirmScenario.virtualUsers}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Ramp-up</span><strong>{launchForm.rampUpSeconds || launchConfirmScenario.rampUpSeconds} s</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Durée</span><strong>{launchForm.durationSeconds !== '' ? `${launchForm.durationSeconds} s` : '—'}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Think time</span><strong>{launchForm.thinkTimeMs || launchConfirmScenario.thinkTimeMs} ms</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Débit cible</span><strong>{launchForm.targetRps !== '' ? `${launchForm.targetRps} req/s` : 'Aucun'}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Mode d'arrêt</span><strong>{launchForm.stopMode === 'AUTO' ? 'Automatique' : 'Manuel'}</strong></div>
+                </div>
+                <div className="d-flex gap-2 justify-content-end mt-4">
+                  <button onClick={() => setLaunchStep(1)} disabled={launchingScenarioId === launchConfirmScenario.id} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
+                    <i className="bi bi-arrow-left me-1"></i> Précédent
+                  </button>
+                  <button onClick={handleConfirmLaunch} disabled={launchingScenarioId === launchConfirmScenario.id} style={{ background: 'var(--pt-success)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
+                    {launchingScenarioId === launchConfirmScenario.id ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Lancement...</> : <><i className="bi bi-play-fill me-2"></i>Lancer</>}
+                  </button>
+                </div>
+              </>
             )}
-
-            <fieldset disabled={!canWrite} className="row g-3" style={{ border: 'none', padding: 0, margin: 0 }}>
-              <div className="col-12 col-md-4">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Méthode *</label>
-                <select
-                  className="pt-form-control"
-                  style={{ width: '100%' }}
-                  value={stepForm.method}
-                  onChange={e => setStepForm(p => ({ ...p, method: e.target.value as BackendHttpMethod }))}
-                >
-                  {STEP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-              <div className="col-12 col-md-8">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Nom de l'étape *</label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTouched.name && stepNameError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: Login utilisateur"
-                  value={stepForm.name}
-                  onChange={e => setStepForm(p => ({ ...p, name: e.target.value }))}
-                  onBlur={() => setStepTouched(t => ({ ...t, name: true }))}
-                />
-                {stepTouched.name && stepNameError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{stepNameError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>URL / Ressource *</label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTouched.url && stepUrlError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="/api/auth/login"
-                  value={stepForm.url}
-                  onChange={e => setStepForm(p => ({ ...p, url: e.target.value }))}
-                  onBlur={() => setStepTouched(t => ({ ...t, url: true }))}
-                />
-                {stepTouched.url && stepUrlError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{stepUrlError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-4">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Ordre *</label>
-                <input
-                  type="number"
-                  min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTouched.order && stepOrderError ? 'var(--pt-danger)' : undefined }}
-                  value={stepForm.order}
-                  onChange={e => setStepForm(p => ({ ...p, order: e.target.value }))}
-                  onBlur={() => setStepTouched(t => ({ ...t, order: true }))}
-                />
-                {stepTouched.order && stepOrderError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{stepOrderError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-8">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Code de statut attendu <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="number"
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTouched.expectedStatus && stepExpectedStatusError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: 200"
-                  value={stepForm.expectedStatus}
-                  onChange={e => setStepForm(p => ({ ...p, expectedStatus: e.target.value }))}
-                  onBlur={() => setStepTouched(t => ({ ...t, expectedStatus: true }))}
-                />
-                {stepTouched.expectedStatus && stepExpectedStatusError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{stepExpectedStatusError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Headers <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel — texte libre (le backend ne structure pas les headers)</span>
-                </label>
-                <textarea
-                  className="pt-form-control"
-                  rows={2}
-                  style={{ width: '100%' }}
-                  placeholder={'Content-Type: application/json'}
-                  value={stepForm.headers}
-                  onChange={e => setStepForm(p => ({ ...p, headers: e.target.value }))}
-                ></textarea>
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Body <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel — texte libre</span>
-                </label>
-                <textarea
-                  className="pt-form-control"
-                  rows={2}
-                  style={{ width: '100%' }}
-                  value={stepForm.body}
-                  onChange={e => setStepForm(p => ({ ...p, body: e.target.value }))}
-                ></textarea>
-              </div>
-              <div className="col-12">
-                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--pt-text-muted)', margin: '8px 0 4px' }}>
-                  Options d'exécution (optionnelles — comportement global inchangé si non renseignées)
-                </div>
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Think time étape (ms)
-                </label>
-                <input
-                  type="number" min={0}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepThinkTimeError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="global si vide"
-                  value={stepForm.thinkTimeMs}
-                  onChange={e => setStepForm(p => ({ ...p, thinkTimeMs: e.target.value }))}
-                />
-                {stepThinkTimeError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepThinkTimeError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Timeout étape (s)
-                </label>
-                <input
-                  type="number" min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTimeoutError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="global si vide"
-                  value={stepForm.timeoutSeconds}
-                  onChange={e => setStepForm(p => ({ ...p, timeoutSeconds: e.target.value }))}
-                />
-                {stepTimeoutError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepTimeoutError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Suivre les redirections
-                </label>
-                <select
-                  className="pt-form-control"
-                  style={{ width: '100%' }}
-                  value={stepForm.followRedirects}
-                  onChange={e => setStepForm(p => ({ ...p, followRedirects: e.target.value as '' | 'true' | 'false' }))}
-                >
-                  <option value="">Global (par défaut)</option>
-                  <option value="true">Oui</option>
-                  <option value="false">Non</option>
-                </select>
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Assertion — la réponse doit contenir <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="text"
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepAssertionError ? 'var(--pt-danger)' : undefined }}
-                  placeholder={'ex: "status":"ok"'}
-                  value={stepForm.assertionBodyContains}
-                  onChange={e => setStepForm(p => ({ ...p, assertionBodyContains: e.target.value }))}
-                />
-                {stepAssertionError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepAssertionError}</div>
-                )}
-              </div>
-              <div className="col-6">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Capturer une variable — nom <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="text"
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: (stepCaptureNameError || stepCaptureIncompleteError) ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: token"
-                  value={stepForm.captureVariableName}
-                  onChange={e => setStepForm(p => ({ ...p, captureVariableName: e.target.value }))}
-                />
-                {stepCaptureNameError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepCaptureNameError}</div>
-                )}
-              </div>
-              <div className="col-6">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Capturer une variable — chemin JSON
-                </label>
-                <input
-                  type="text"
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: (stepCaptureJsonPathError || stepCaptureIncompleteError) ? 'var(--pt-danger)' : undefined }}
-                  placeholder={'ex: $.token ou data.token'}
-                  value={stepForm.captureJsonPath}
-                  onChange={e => setStepForm(p => ({ ...p, captureJsonPath: e.target.value }))}
-                />
-                {stepCaptureJsonPathError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepCaptureJsonPathError}</div>
-                )}
-              </div>
-              {stepCaptureIncompleteError && (
-                <div className="col-12">
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px' }}>{stepCaptureIncompleteError}</div>
-                </div>
-              )}
-              <div className="col-12">
-                <div style={{ color: 'var(--pt-text-muted)', fontSize: '11px' }}>
-                  La valeur capturée est disponible dans les étapes suivantes de ce scénario via <code>{'${nomDeVariable}'}</code> — isolée par utilisateur virtuel (jamais partagée entre eux).
-                </div>
-              </div>
-            </fieldset>
-
-            <div className="d-flex gap-2 justify-content-end mt-4">
-              <button onClick={closeStepModal} disabled={savingStep} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                Annuler
-              </button>
-              {canWrite && (
-                <button onClick={handleSubmitStep} disabled={!isStepFormValid || savingStep} style={{ background: !isStepFormValid ? '#93C5FD' : 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: !isStepFormValid ? 'not-allowed' : 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
-                  {savingStep ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Enregistrement...</> : <><i className="bi bi-check2 me-2"></i>Enregistrer</>}
-                </button>
-              )}
-            </div>
           </div>
         </div>
       )}
 
-      {/* Delete Step Confirmation Modal */}
-      {deleteStepConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1075, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '400px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', textAlign: 'center' }}>
-            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--pt-danger-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
-              <i className="bi bi-trash" style={{ fontSize: '24px', color: 'var(--pt-danger)' }}></i>
+      {/* "Exécution en direct" — progression AGRÉGÉE réelle (aucun détail
+          par VU/étape exposé par le backend actuel, aucun "Pause" : voir
+          commentaire plus haut). */}
+      {liveExecution && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1085, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '460px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
+            <h5 style={{ fontWeight: 700, marginBottom: '4px' }}><i className="bi bi-rocket-takeoff me-2 text-primary"></i>Exécution en direct</h5>
+            <p style={{ color: 'var(--pt-text-muted)', fontSize: '12.5px', marginBottom: '1rem' }}>Progression en temps réel</p>
+            <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+              <span>Progression</span>
+              <strong>{liveExecution.progressPercent}%</strong>
             </div>
-            <h5 style={{ fontWeight: 700, marginBottom: '8px' }}>Supprimer l'étape ?</h5>
-            <p style={{ color: 'var(--pt-text-muted)', fontSize: '14px', marginBottom: '1.5rem' }}>
-              « {deleteStepConfirm.name} » sera définitivement supprimée.
-            </p>
-            {stepActionError && (
-              <div className="pt-alert-banner danger mb-3" style={{ textAlign: 'left' }}>
-                <i className="bi bi-exclamation-triangle-fill"></i>
-                {stepActionError}
-              </div>
-            )}
-            <div className="d-flex gap-2 justify-content-center">
-              <button onClick={() => { setDeleteStepConfirm(null); setStepActionError(null) }} disabled={deletingStep} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                Annuler
-              </button>
-              <button onClick={handleDeleteStep} disabled={deletingStep} style={{ background: 'var(--pt-danger)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
-                {deletingStep ? 'Suppression...' : 'Supprimer'}
-              </button>
+            <div style={{ height: '8px', borderRadius: '4px', background: 'var(--pt-bg)', overflow: 'hidden', marginBottom: '1rem' }}>
+              <div style={{ height: '100%', width: `${liveExecution.progressPercent}%`, background: liveExecution.status === 'FAILED' ? 'var(--pt-danger)' : 'var(--pt-primary)', transition: 'width 0.3s ease' }}></div>
+            </div>
+            <div className="d-flex flex-column gap-1 mb-3" style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>
+              <div className="d-flex justify-content-between"><span>Statut</span><strong style={{ color: 'var(--pt-text)' }}>{liveExecution.status}</strong></div>
+            </div>
+            <div className="d-flex gap-2 justify-content-end">
+              {(liveExecution.status === 'QUEUED' || liveExecution.status === 'RUNNING') ? (
+                <button onClick={handleCancelLive} disabled={cancellingLive} style={{ background: 'var(--pt-danger)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
+                  {cancellingLive ? 'Annulation...' : 'Annuler'}
+                </button>
+              ) : (
+                <button onClick={() => setLiveExecution(null)} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
+                  Fermer
+                </button>
+              )}
+              {liveExecution.status !== 'QUEUED' && liveExecution.status !== 'RUNNING' && (
+                <button onClick={() => navigate(`/executions/report/${liveExecution.id}`)} style={{ background: 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
+                  Voir le rapport
+                </button>
+              )}
             </div>
           </div>
         </div>

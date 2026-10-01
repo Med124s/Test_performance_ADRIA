@@ -1,23 +1,25 @@
-import { ReactNode } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { ReactNode, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { redirectToLogin } from '../services/auth/keycloakClient'
 
+/**
+ * Plus d'écran intermédiaire React (ancien /login) : un utilisateur non
+ * authentifié est redirigé DIRECTEMENT vers la vraie page Keycloak (thème
+ * "cadence", voir keycloak-local-dev/keycloak-26.7.3/themes/cadence) — même
+ * flux réel Authorization Code + PKCE qu'avant, juste sans bouton
+ * intermédiaire à cliquer.
+ */
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
-  const location = useLocation()
 
-  // Phase 16 : en mode mock, isLoading vaut toujours false (comportement
-  // inchangé). En mode keycloak, laisse le temps à AuthProvider de traiter
-  // un éventuel retour de Keycloak (?code=&state=) avant de décider — sans
-  // cette attente, un utilisateur réellement authentifié serait renvoyé à
-  // /login puis à Keycloak dans une boucle, le temps que l'échange du code
-  // se termine.
-  if (isLoading) {
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      void redirectToLogin()
+    }
+  }, [isLoading, isAuthenticated])
+
+  if (isLoading || !isAuthenticated) {
     return null
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
 
   return <>{children}</>

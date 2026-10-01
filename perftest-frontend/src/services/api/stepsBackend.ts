@@ -7,16 +7,20 @@
 // useScenarioLauncher) — plus par aucune création, les deux jeux de Steps
 // ne partageant toujours pas le même espace d'id.
 //
-// Le backend Step (StepController) n'expose que list/getById/create/update/
-// remove — aucun endpoint de test dédié (contrairement à Applications) :
-// aucune méthode `test` n'est donc ajoutée ici (voir Phase 19, section 10 :
-// "n'ajoute une méthode que si le backend réel la possède").
+// Passage produit reel (2026-09-30) — StepController expose desormais
+// POST /api/steps/test-batch (voir testBatch ci-dessous) : envoie une VRAIE
+// requete serveur-a-serveur par etape selectionnee, jamais une Execution.
 //
 // Utilise le même client HTTP central (springHttp, voir httpClient.ts).
 // ============================================================
 
 import { springHttp } from './httpClient'
-import { BackendStepRequest, BackendStepResponse } from '../../types/backendContracts'
+import {
+  BackendStepRequest,
+  BackendStepResponse,
+  BackendStepTestBatchRequest,
+  BackendStepTestResultResponse,
+} from '../../types/backendContracts'
 
 const RESOURCE = '/api/steps'
 
@@ -30,4 +34,9 @@ export const stepsBackendApi = {
   update: (id: string, data: BackendStepRequest) =>
     springHttp.put<BackendStepResponse>(`${RESOURCE}/${id}`, data),
   remove: (id: string) => springHttp.delete<void>(`${RESOURCE}/${id}`),
+  /** Reserve a SUPER_ADMIN/PERFORMANCE_ENGINEER cote backend. Toutes les
+   * etapes doivent appartenir au meme scenario (409 sinon, verifie cote
+   * serveur). */
+  testBatch: (data: BackendStepTestBatchRequest) =>
+    springHttp.post<BackendStepTestResultResponse[]>(`${RESOURCE}/test-batch`, data),
 }

@@ -1,6 +1,7 @@
 package com.loadpilot.backend.dto.request;
 
 import com.loadpilot.backend.enums.HttpMethod;
+import com.loadpilot.backend.enums.StepStatus;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -13,10 +14,12 @@ import java.util.UUID;
 /**
  * Utilise a la fois pour la creation (POST) et la mise a jour (PUT).
  *
- * "status" est volontairement ABSENT de ce DTO - meme choix que
- * ScenarioRequest (Phase 7) pour rester coherent : le statut est gere par le
- * service (ACTIVE par defaut a la creation), pas modifiable via ce endpoint
- * pour l'instant.
+ * "status" (passage produit reel, 2026-09-30) : desormais modifiable ici
+ * (null = ACTIVE par defaut a la creation, ou valeur deja enregistree
+ * conservee a la modification - voir StepServiceImpl) et REELLEMENT honore
+ * par le moteur d'execution (une etape INACTIVE est ignoree, voir
+ * ExecutionTransactionHelper/HttpClientExecutionEngine) - ce n'est plus une
+ * simple etiquette sans effet.
  *
  * "url" n'utilise PAS @URL (qui exige une URL absolue) : comme cote
  * frontend existant, l'URL d'un Step est le plus souvent un CHEMIN RELATIF
@@ -79,6 +82,29 @@ public record StepRequest(
         String captureVariableName,
 
         @Size(max = 500, message = "Le chemin de capture ne doit pas depasser 500 caracteres.")
-        String captureJsonPath
+        String captureJsonPath,
+
+        @Size(max = 1000, message = "La description ne doit pas depasser 1000 caracteres.")
+        String description,
+
+        /** Pause reelle APRES l'envoi de la requete (en plus de
+         * thinkTimeMs, qui reste une pause AVANT la requete suivante) - voir
+         * HttpClientExecutionEngine. null = aucune pause supplementaire. */
+        @Min(value = 0, message = "Le pacing ne peut pas etre negatif.")
+        Integer pacingAfterMs,
+
+        /** null = ACTIVE a la creation, valeur deja enregistree conservee a
+         * la modification (voir StepServiceImpl). */
+        StepStatus status
 ) {
+    /** Compatibilite : ancienne forme sans description/pacingAfterMs/status
+     * (avant le passage produit reel du 2026-09-30) - comportement
+     * historique inchange (ACTIVE par defaut, aucune pause supplementaire). */
+    public StepRequest(UUID scenarioId, String name, HttpMethod method, String url, String headers, String body,
+            Integer order, Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds,
+            Boolean followRedirects, String assertionBodyContains, String captureVariableName,
+            String captureJsonPath) {
+        this(scenarioId, name, method, url, headers, body, order, expectedStatus, thinkTimeMs, timeoutSeconds,
+                followRedirects, assertionBodyContains, captureVariableName, captureJsonPath, null, null, null);
+    }
 }

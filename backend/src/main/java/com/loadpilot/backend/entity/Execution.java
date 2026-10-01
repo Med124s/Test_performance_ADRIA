@@ -1,6 +1,7 @@
 package com.loadpilot.backend.entity;
 
 import com.loadpilot.backend.enums.ExecutionStatus;
+import com.loadpilot.backend.enums.StopMode;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -78,6 +79,12 @@ public class Execution {
 
     @Column(name = "iterations")
     private Integer iterations;
+
+    /** Copie figee de Scenario.stopMode au lancement - voir StopMode. */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stop_mode", nullable = false)
+    private StopMode stopMode = StopMode.AUTO;
 
     @Column(name = "total_steps", nullable = false)
     private Integer totalSteps;

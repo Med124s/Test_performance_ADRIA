@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import {
-  BackendExecutionRequest,
   BackendExecutionResponse,
   BackendExecutionDetailResponse,
+  BackendExecutionStatusResponse,
   BackendScenarioResponse,
   BackendStepResponse,
+  BackendApplicationResponse,
+  BackendStopMode,
 } from '../types/backendContracts'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
+import { applicationsBackendApi } from '../services/api/applicationsBackend'
 import { stepsBackendApi } from '../services/api/stepsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { useApiList } from '../hooks/useApiResource'
@@ -133,6 +136,7 @@ function SpringExecutions() {
   const { data: executions, loading: execLoading, error: execError, refetch: refetchExecutions } =
     useApiList<BackendExecutionResponse>(() => executionsBackendApi.getAll())
   const { data: scenarios } = useApiList<BackendScenarioResponse>(() => scenariosBackendApi.getAll())
+  const { data: applications } = useApiList<BackendApplicationResponse>(() => applicationsBackendApi.getAll())
   const { data: allSteps } = useApiList<BackendStepResponse>(() => stepsBackendApi.getAll())
 
   const scenarioById = useMemo(() => new Map(scenarios.map((s) => [s.id, s])), [scenarios])
@@ -147,13 +151,49 @@ function SpringExecutions() {
   const [activeTab, setActiveTab] = useState<StatusTab>('Tous')
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Modale "Nouvelle exécution" — sélection d'un Scénario Spring possédant
-  // réellement des Steps (voir section 25 de l'énoncé) ; aucun champ VU/
-  // ramp-up/pause : le contrat backend n'accepte que { scenarioId }.
+  // Modale "Nouvelle exécution" — restaurée en 2 étapes d'après l'ancien
+  // frontend (composant LaunchScenarioModal + useScenarioLauncher, commit
+  // f04f935) : Application → Scénario (filtré par application, et ne
+  // proposant que des scénarios possédant réellement des Steps) →
+  // VUs/Durée/Ramp-up/Think time/Débit cible ÉDITABLES avec badge "Valeur du
+  // scénario", puis confirmation. Comme sur la page Scénarios (voir
+  // Scenarios.tsx), l'édition de ces champs persiste réellement les valeurs
+  // sur le Scénario (PUT /api/scenarios/{id}) avant le lancement — le
+  // contrat `ExecutionRequest` reste `{ scenarioId }` uniquement, aucune
+  // surcharge "par exécution" n'existe côté backend. La progression après
+  // lancement réutilise le même modèle "Exécution en direct" (agrégé,
+  // `progressPercent` réel) que Scenarios.tsx : le backend n'expose aucun
+  // détail par VU/étape ni de "Pause" (voir ce même commentaire là-bas).
   const [showLaunchModal, setShowLaunchModal] = useState(false)
+  const [launchStep, setLaunchStep] = useState<1 | 2>(1)
+  const [selectedApplicationId, setSelectedApplicationId] = useState('')
   const [selectedScenarioId, setSelectedScenarioId] = useState('')
+  const [launchForm, setLaunchForm] = useState({
+    virtualUsers: '',
+    durationSeconds: '',
+    rampUpSeconds: '',
+    thinkTimeMs: '',
+    targetRps: '',
+    stopMode: 'AUTO' as BackendStopMode,
+  })
   const [launching, setLaunching] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
+  const [liveExecution, setLiveExecution] = useState<BackendExecutionStatusResponse | null>(null)
+  const [cancellingLive, setCancellingLive] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
 
   // Modale Détail (résultats réels de l'Execution Spring sélectionnée)
   const [selectedExecutionDetail, setSelectedExecutionDetail] = useState<BackendExecutionDetailResponse | null>(null)
@@ -199,7 +239,10 @@ function SpringExecutions() {
 
   const openLaunchModal = () => {
     if (!canWrite) return
+    setLaunchStep(1)
+    setSelectedApplicationId('')
     setSelectedScenarioId('')
+    setLaunchForm({ virtualUsers: '', durationSeconds: '', rampUpSeconds: '', thinkTimeMs: '', targetRps: '', stopMode: 'AUTO' })
     setLaunchError(null)
     setShowLaunchModal(true)
   }
@@ -208,32 +251,102 @@ function SpringExecutions() {
     setShowLaunchModal(false)
   }
 
+  const selectScenario = (scenario: BackendScenarioResponse | undefined) => {
+    setSelectedScenarioId(scenario?.id ?? '')
+    if (scenario) {
+      setLaunchForm({
+        virtualUsers: String(scenario.virtualUsers),
+        durationSeconds: scenario.durationSeconds != null ? String(scenario.durationSeconds) : '',
+        rampUpSeconds: String(scenario.rampUpSeconds),
+        thinkTimeMs: String(scenario.thinkTimeMs),
+        targetRps: scenario.targetRps != null ? String(scenario.targetRps) : '',
+        stopMode: scenario.stopMode,
+      })
+    }
+  }
+
   const handleLaunch = async () => {
-    if (!canWrite || !selectedScenarioId || launching) return
+    const scenario = scenarioById.get(selectedScenarioId)
+    if (!canWrite || !scenario || launching) return
     // Vérifie réellement que le scénario a des Steps AVANT de créer une
     // Execution — le backend refuserait de toute façon (409), mais on évite
     // ici l'appel réseau inutile et on donne le message exact demandé.
-    if ((stepCountByScenario.get(selectedScenarioId) ?? 0) === 0) {
+    if ((stepCountByScenario.get(scenario.id) ?? 0) === 0) {
       setLaunchError('Ce scénario ne contient aucune étape.')
       return
     }
     setLaunching(true)
     setLaunchError(null)
     try {
-      const payload: BackendExecutionRequest = { scenarioId: selectedScenarioId }
+      const editedVirtualUsers = Number(launchForm.virtualUsers) || scenario.virtualUsers
+      const editedRampUp = launchForm.rampUpSeconds === '' ? scenario.rampUpSeconds : Number(launchForm.rampUpSeconds)
+      const editedDuration = launchForm.durationSeconds === '' ? null : Number(launchForm.durationSeconds)
+      const editedThinkTime = launchForm.thinkTimeMs === '' ? scenario.thinkTimeMs : Number(launchForm.thinkTimeMs)
+      const editedTargetRps = launchForm.targetRps === '' ? null : Number(launchForm.targetRps)
+      const valuesChanged =
+        editedVirtualUsers !== scenario.virtualUsers ||
+        editedRampUp !== scenario.rampUpSeconds ||
+        editedDuration !== scenario.durationSeconds ||
+        editedThinkTime !== scenario.thinkTimeMs ||
+        editedTargetRps !== scenario.targetRps ||
+        launchForm.stopMode !== scenario.stopMode
+      if (valuesChanged) {
+        await scenariosBackendApi.update(scenario.id, {
+          applicationId: scenario.applicationId,
+          name: scenario.name,
+          description: scenario.description,
+          virtualUsers: editedVirtualUsers,
+          rampUpSeconds: editedRampUp,
+          durationSeconds: editedDuration,
+          iterations: scenario.iterations,
+          thinkTimeMs: editedThinkTime,
+          csvData: scenario.csvData,
+          targetRps: editedTargetRps,
+          stopMode: launchForm.stopMode,
+        })
+      }
       // P0-A — asynchrone : répond 202 avec QUEUED/RUNNING, jamais le
-      // résultat final (voir note en tête de fichier). Le polling ci-dessus
-      // prendra le relais pour afficher la progression réelle.
-      const result = await executionsBackendApi.execute(payload)
+      // résultat final. On bascule sur la modale "Exécution en direct"
+      // (polling réel de son statut) plutôt que de simplement fermer.
+      const created = await executionsBackendApi.execute({ scenarioId: scenario.id })
       await refetchExecutions()
       setShowLaunchModal(false)
-      showToast(`Exécution de « ${result.scenarioName} » lancée (${result.virtualUsers} utilisateur(s) virtuel(s)).`, 'success')
+      const status = await executionsBackendApi.getStatus(created.id)
+      setLiveExecution(status)
+      pollRef.current = setInterval(async () => {
+        try {
+          const polled = await executionsBackendApi.getStatus(created.id)
+          setLiveExecution(polled)
+          if (polled.status === 'SUCCESS' || polled.status === 'FAILED' || polled.status === 'CANCELLED') {
+            stopPolling()
+            refetchExecutions()
+          }
+        } catch {
+          stopPolling()
+        }
+      }, 1500)
     } catch (err) {
       const message = describeApiError(err, "Erreur lors du lancement de l'exécution.")
       setLaunchError(message)
       showToast(message, 'danger')
     } finally {
       setLaunching(false)
+    }
+  }
+
+  const handleCancelLive = async () => {
+    if (!liveExecution) return
+    setCancellingLive(true)
+    try {
+      await executionsBackendApi.cancel(liveExecution.id)
+      const polled = await executionsBackendApi.getStatus(liveExecution.id)
+      setLiveExecution(polled)
+      stopPolling()
+      refetchExecutions()
+    } catch (err) {
+      showToast(describeApiError(err, "Erreur lors de l'annulation."), 'danger')
+    } finally {
+      setCancellingLive(false)
     }
   }
 
@@ -277,6 +390,8 @@ function SpringExecutions() {
   // Scénarios proposés dans la modale de lancement : uniquement ceux qui ont
   // réellement au moins une Step Spring — pas de "0 étape" présélectionnable.
   const launchableScenarios = scenarios.filter((s) => (stepCountByScenario.get(s.id) ?? 0) > 0)
+  const launchableScenariosForApp = launchableScenarios.filter((s) => s.applicationId === selectedApplicationId)
+  const selectedScenario = scenarioById.get(selectedScenarioId)
 
   return (
     <>
@@ -451,20 +566,20 @@ function SpringExecutions() {
         />
       </div>
 
-      {/* Modale Nouvelle exécution */}
+      {/* Modale "Nouvelle exécution" — 2 étapes, restaurée depuis l'ancien
+          frontend (voir commentaire d'état plus haut). */}
       {showLaunchModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '480px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-            <div className="d-flex justify-content-between align-items-center mb-4">
-              <h5 style={{ fontWeight: 700, margin: 0 }}>Nouvelle exécution</h5>
+          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '560px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h5 style={{ fontWeight: 700, margin: 0 }}><i className="bi bi-gear me-2 text-primary"></i>Nouvelle exécution</h5>
               <button onClick={closeLaunchModal} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}>
                 <i className="bi bi-x"></i>
               </button>
             </div>
-
-            <div className="pt-alert-banner mb-3" style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', color: 'var(--pt-text-muted)', fontSize: '12.5px' }}>
-              <i className="bi bi-info-circle-fill"></i>
-              Le test démarre en arrière-plan (statut En attente puis En cours) avec les paramètres de charge réels du scénario (utilisateurs virtuels, ramp-up, durée/itérations — configurables depuis la page Scénarios). Suivez sa progression ici jusqu'au résultat final.
+            <div style={{ fontSize: '11.5px', color: 'var(--pt-text-muted)', marginBottom: '4px' }}>Étape {launchStep} sur 2</div>
+            <div style={{ height: '4px', borderRadius: '2px', background: 'var(--pt-bg)', overflow: 'hidden', marginBottom: '1.25rem' }}>
+              <div style={{ height: '100%', width: launchStep === 1 ? '50%' : '100%', background: 'var(--pt-primary)', transition: 'width 0.2s ease' }}></div>
             </div>
 
             {launchError && (
@@ -474,48 +589,158 @@ function SpringExecutions() {
               </div>
             )}
 
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Scénario *</label>
-            <select
-              className="pt-form-control"
-              style={{ width: '100%' }}
-              value={selectedScenarioId}
-              disabled={launching}
-              onChange={e => setSelectedScenarioId(e.target.value)}
-            >
-              <option value="" disabled>Sélectionner un scénario…</option>
-              {launchableScenarios.map(s => (
-                <option key={s.id} value={s.id}>{s.name} ({s.applicationName})</option>
-              ))}
-            </select>
-            {launchableScenarios.length === 0 && (
-              <div style={{ fontSize: '11.5px', color: 'var(--pt-text-muted)', marginTop: '4px' }}>
-                Aucun scénario ne possède encore d'étape — ajoutez-en depuis la page Scénarios.
-              </div>
-            )}
-            {selectedScenarioId && (() => {
-              const s = scenarioById.get(selectedScenarioId)
-              if (!s) return null
-              return (
-                <div className="d-flex flex-wrap gap-2 mt-2">
-                  <span className="pt-pill neutral" style={{ fontSize: '11px' }}><i className="bi bi-people me-1"></i>{s.virtualUsers} VU</span>
-                  <span className="pt-pill neutral" style={{ fontSize: '11px' }}><i className="bi bi-graph-up-arrow me-1"></i>Ramp-up {s.rampUpSeconds}s</span>
-                  {s.durationSeconds != null && <span className="pt-pill neutral" style={{ fontSize: '11px' }}><i className="bi bi-stopwatch me-1"></i>Durée {s.durationSeconds}s</span>}
-                  {s.iterations != null && <span className="pt-pill neutral" style={{ fontSize: '11px' }}><i className="bi bi-arrow-repeat me-1"></i>{s.iterations} itération(s)</span>}
+            {launchStep === 1 ? (
+              <>
+                <div className="row g-3">
+                  <div className="col-12">
+                    <label className="pt-form-label">Application *</label>
+                    <select
+                      className="pt-form-control"
+                      value={selectedApplicationId}
+                      onChange={(e) => { setSelectedApplicationId(e.target.value); selectScenario(undefined) }}
+                    >
+                      <option value="" disabled>Sélectionner une application…</option>
+                      {applications.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="col-12">
+                    <label className="pt-form-label">Scénario *</label>
+                    <select
+                      className="pt-form-control"
+                      value={selectedScenarioId}
+                      disabled={!selectedApplicationId}
+                      onChange={(e) => selectScenario(launchableScenariosForApp.find((s) => s.id === e.target.value))}
+                    >
+                      <option value="" disabled>
+                        {selectedApplicationId ? 'Sélectionner un scénario…' : "Choisissez d'abord une application"}
+                      </option>
+                      {launchableScenariosForApp.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    {selectedApplicationId && launchableScenariosForApp.length === 0 && (
+                      <div style={{ fontSize: '11.5px', color: 'var(--pt-text-muted)', marginTop: '4px' }}>
+                        Aucun scénario avec étape pour cette application.
+                      </div>
+                    )}
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label d-flex align-items-center gap-2">
+                      Utilisateurs virtuels (VUs)
+                      {selectedScenario && (
+                        <span className="pt-pill neutral" style={{ fontSize: '10px' }}>Valeur du scénario : {selectedScenario.virtualUsers}</span>
+                      )}
+                    </label>
+                    <input type="number" min={1} className="pt-form-control" disabled={!selectedScenario} value={launchForm.virtualUsers}
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, virtualUsers: e.target.value }))} />
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label">Durée (secondes)</label>
+                    <input type="number" min={0} className="pt-form-control" disabled={!selectedScenario} value={launchForm.durationSeconds}
+                      placeholder="Optionnel"
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, durationSeconds: e.target.value }))} />
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label d-flex align-items-center gap-2">
+                      Ramp-up (secondes)
+                      {selectedScenario && (
+                        <span className="pt-pill neutral" style={{ fontSize: '10px' }}>Valeur du scénario : {selectedScenario.rampUpSeconds}</span>
+                      )}
+                    </label>
+                    <input type="number" min={0} className="pt-form-control" disabled={!selectedScenario} value={launchForm.rampUpSeconds}
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, rampUpSeconds: e.target.value }))} />
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label">Think time (ms)</label>
+                    <input type="number" min={0} className="pt-form-control" disabled={!selectedScenario} value={launchForm.thinkTimeMs}
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, thinkTimeMs: e.target.value }))} />
+                  </div>
+                  <div className="col-6">
+                    <label className="pt-form-label">Débit cible (req/s) optionnel</label>
+                    <input type="number" min={0} className="pt-form-control" disabled={!selectedScenario} value={launchForm.targetRps}
+                      placeholder="Ex: 500"
+                      onChange={(e) => setLaunchForm((f) => ({ ...f, targetRps: e.target.value }))} />
+                  </div>
+                  <div className="col-12">
+                    <label className="pt-form-label">Mode d'arrêt</label>
+                    <select className="pt-form-control" disabled={!selectedScenario} value={launchForm.stopMode} onChange={(e) => setLaunchForm((f) => ({ ...f, stopMode: e.target.value as BackendStopMode }))}>
+                      <option value="AUTO">Automatique (durée/itérations définies)</option>
+                      <option value="MANUAL">Manuel (tourne jusqu'à annulation)</option>
+                    </select>
+                    <div style={{ fontSize: '11px', color: 'var(--pt-text-muted)', marginTop: '4px' }}>
+                      Réellement appliqué par le moteur d'exécution — en mode Manuel, seul "Annuler" arrête l'exécution.
+                    </div>
+                  </div>
                 </div>
-              )
-            })()}
+                <div className="d-flex gap-2 justify-content-end mt-4">
+                  <button onClick={closeLaunchModal} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
+                    Annuler
+                  </button>
+                  <button onClick={() => setLaunchStep(2)} disabled={!selectedScenario} style={{ background: !selectedScenario ? '#93C5FD' : 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: !selectedScenario ? 'not-allowed' : 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
+                    Suivant <i className="bi bi-arrow-right ms-1"></i>
+                  </button>
+                </div>
+              </>
+            ) : selectedScenario ? (
+              <>
+                <div className="pt-alert-banner mb-3" style={{ fontSize: '12px' }}>
+                  <i className="bi bi-info-circle-fill"></i> Les valeurs modifiées seront enregistrées sur le scénario (PUT réel) avant le lancement de l'exécution.
+                </div>
+                <div className="d-flex flex-column gap-2" style={{ fontSize: '13px' }}>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Application</span><strong>{selectedScenario.applicationName}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Scénario</span><strong>{selectedScenario.name}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Utilisateurs virtuels (VUs)</span><strong>{launchForm.virtualUsers || selectedScenario.virtualUsers}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Ramp-up</span><strong>{launchForm.rampUpSeconds || selectedScenario.rampUpSeconds} s</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Durée</span><strong>{launchForm.durationSeconds !== '' ? `${launchForm.durationSeconds} s` : '—'}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Think time</span><strong>{launchForm.thinkTimeMs || selectedScenario.thinkTimeMs} ms</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Débit cible</span><strong>{launchForm.targetRps !== '' ? `${launchForm.targetRps} req/s` : 'Aucun'}</strong></div>
+                  <div className="d-flex justify-content-between"><span className="text-muted">Mode d'arrêt</span><strong>{launchForm.stopMode === 'AUTO' ? 'Automatique' : 'Manuel'}</strong></div>
+                </div>
+                <div className="d-flex gap-2 justify-content-end mt-4">
+                  <button onClick={() => setLaunchStep(1)} disabled={launching} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
+                    <i className="bi bi-arrow-left me-1"></i> Précédent
+                  </button>
+                  <button onClick={handleLaunch} disabled={launching} style={{ background: 'var(--pt-success)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600, minWidth: '140px' }}>
+                    {launching ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Lancement...</> : <><i className="bi bi-play-fill me-2"></i>Lancer</>}
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
 
-            <div className="d-flex gap-2 justify-content-end mt-4">
-              <button onClick={closeLaunchModal} disabled={launching} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                Annuler
-              </button>
-              <button
-                onClick={handleLaunch}
-                disabled={!selectedScenarioId || launching}
-                style={{ background: !selectedScenarioId ? '#93C5FD' : 'var(--pt-success)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: !selectedScenarioId ? 'not-allowed' : 'pointer', fontSize: '13.5px', fontWeight: 600, minWidth: '140px' }}
-              >
-                {launching ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Exécution...</> : <><i className="bi bi-play-fill me-2"></i>Lancer</>}
-              </button>
+      {/* "Exécution en direct" — progression AGRÉGÉE réelle après lancement
+          depuis cette modale (même modèle que Scenarios.tsx : aucun détail
+          par VU/étape ni "Pause" côté backend). */}
+      {liveExecution && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '460px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
+            <h5 style={{ fontWeight: 700, marginBottom: '4px' }}><i className="bi bi-rocket-takeoff me-2 text-primary"></i>Exécution en direct</h5>
+            <p style={{ color: 'var(--pt-text-muted)', fontSize: '12.5px', marginBottom: '1rem' }}>Progression en temps réel</p>
+            <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+              <span>Progression</span>
+              <strong>{liveExecution.progressPercent}%</strong>
+            </div>
+            <div style={{ height: '8px', borderRadius: '4px', background: 'var(--pt-bg)', overflow: 'hidden', marginBottom: '1rem' }}>
+              <div style={{ height: '100%', width: `${liveExecution.progressPercent}%`, background: liveExecution.status === 'FAILED' ? 'var(--pt-danger)' : 'var(--pt-primary)', transition: 'width 0.3s ease' }}></div>
+            </div>
+            <div className="d-flex flex-column gap-1 mb-3" style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>
+              <div className="d-flex justify-content-between"><span>Statut</span><strong style={{ color: 'var(--pt-text)' }}>{liveExecution.status}</strong></div>
+            </div>
+            <div className="d-flex gap-2 justify-content-end">
+              {(liveExecution.status === 'QUEUED' || liveExecution.status === 'RUNNING') ? (
+                <button onClick={handleCancelLive} disabled={cancellingLive} style={{ background: 'var(--pt-danger)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
+                  {cancellingLive ? 'Annulation...' : 'Annuler'}
+                </button>
+              ) : (
+                <button onClick={() => setLiveExecution(null)} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
+                  Fermer
+                </button>
+              )}
+              {liveExecution.status !== 'QUEUED' && liveExecution.status !== 'RUNNING' && (
+                <button onClick={() => navigate(`/executions/report/${liveExecution.id}`)} style={{ background: 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
+                  Voir le rapport
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -36,4 +36,12 @@ public interface ExecutionEngine {
      */
     ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl,
             LoadTestSpec loadSpec, RunningExecutionHandle handle, List<Map<String, String>> vuVariableRows);
+
+    /**
+     * Passage produit reel (2026-09-30) — envoie UNE VRAIE requete par
+     * etape fournie (en parallele), jamais une Execution/charge repetee.
+     * Voir HttpClientExecutionEngine.testSteps pour l'implementation reelle
+     * et StepController POST /api/steps/test-batch pour l'usage.
+     */
+    List<StepOutcome> testSteps(List<StepExecutionSpec> steps, String applicationBaseUrl);
 }

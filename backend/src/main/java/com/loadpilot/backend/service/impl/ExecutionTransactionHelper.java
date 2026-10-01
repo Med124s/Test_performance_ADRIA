@@ -55,6 +55,13 @@ public class ExecutionTransactionHelper {
     private final ExecutionStepResultRepository executionStepResultRepository;
     private final com.loadpilot.backend.repository.AppUserRepository appUserRepository;
 
+    /** Meme garde-fou que ScenarioServiceImpl (P0-B) - une surcharge de
+     * virtualUsers propre a une Execution ne doit pas pouvoir contourner
+     * cette limite de deploiement (sinon elle ne s'appliquerait qu'a la
+     * configuration enregistree du Scenario, jamais au lancement reel). */
+    @org.springframework.beans.factory.annotation.Value("${app.execution.max-virtual-users-per-execution}")
+    private int maxVirtualUsersPerExecution;
+
     /**
      * Cree reellement l'Execution en base avec le statut QUEUED (P0-A) -
      * plus RUNNING directement : le vrai travail (potentiellement long, VUs
@@ -70,13 +77,47 @@ public class ExecutionTransactionHelper {
      * chargee dans une AUTRE transaction (voir PreparedExecution).
      */
     @Transactional
-    public PreparedExecution prepareAndStart(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId) {
+    public PreparedExecution prepareAndStart(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId,
+            com.loadpilot.backend.dto.request.ExecutionRequest overrides) {
         Scenario scenario = scenarioRepository.findById(scenarioId)
                 .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + scenarioId));
 
-        List<Step> steps = stepRepository.findByScenarioId(scenarioId, STEP_ORDER);
+        // Passage produit reel (2026-10-01) — surcharges REELLEMENT propres a
+        // CETTE Execution (voir ExecutionRequest) : null = valeur du
+        // Scenario (comportement historique inchange), non-null = valeur
+        // utilisee UNIQUEMENT ici, jamais ecrite sur le Scenario (aucun
+        // scenarioRepository.save(...) dans cette methode).
+        int effectiveVirtualUsers = overrides != null && overrides.virtualUsers() != null
+                ? overrides.virtualUsers() : scenario.getVirtualUsers();
+        if (effectiveVirtualUsers > maxVirtualUsersPerExecution) {
+            throw new com.loadpilot.backend.exception.LoadConfigurationException(
+                    "Le nombre d'utilisateurs virtuels (" + effectiveVirtualUsers
+                            + ") depasse la limite configuree pour ce deploiement (" + maxVirtualUsersPerExecution + ").");
+        }
+        int effectiveRampUpSeconds = overrides != null && overrides.rampUpSeconds() != null
+                ? overrides.rampUpSeconds() : scenario.getRampUpSeconds();
+        Integer effectiveDurationSeconds = overrides != null && overrides.durationSeconds() != null
+                ? overrides.durationSeconds() : scenario.getDurationSeconds();
+        Integer effectiveIterations = overrides != null && overrides.iterations() != null
+                ? overrides.iterations() : scenario.getIterations();
+        int effectiveThinkTimeMs = overrides != null && overrides.thinkTimeMs() != null
+                ? overrides.thinkTimeMs() : scenario.getThinkTimeMs();
+        Integer effectiveTargetRps = overrides != null && overrides.targetRps() != null
+                ? overrides.targetRps() : scenario.getTargetRps();
+        com.loadpilot.backend.enums.StopMode effectiveStopMode = overrides != null && overrides.stopMode() != null
+                ? overrides.stopMode() : scenario.getStopMode();
+
+        // Passage produit reel (2026-09-30) : une etape INACTIVE (voir
+        // StepStatus) est desormais REELLEMENT ignoree - jamais executee,
+        // jamais comptee dans totalSteps. Avant ce changement, StepStatus
+        // etait une colonne reelle mais jamais lue par le moteur (toute
+        // etape s'executait toujours, quel que soit son statut).
+        List<Step> allSteps = stepRepository.findByScenarioId(scenarioId, STEP_ORDER);
+        List<Step> steps = allSteps.stream()
+                .filter(s -> s.getStatus() == com.loadpilot.backend.enums.StepStatus.ACTIVE)
+                .toList();
         if (steps.isEmpty()) {
-            throw new ConflictException("Le scenario ne possede aucune etape a executer.");
+            throw new ConflictException("Le scenario ne possede aucune etape active a executer.");
         }
 
         // Acces a l'Application au sein de cette meme transaction courte -
@@ -90,10 +131,11 @@ public class ExecutionTransactionHelper {
                 .scenario(scenario)
                 .startedAt(Instant.now())
                 .status(ExecutionStatus.QUEUED)
-                .virtualUsers(scenario.getVirtualUsers())
-                .rampUpSeconds(scenario.getRampUpSeconds())
-                .durationSeconds(scenario.getDurationSeconds())
-                .iterations(scenario.getIterations())
+                .virtualUsers(effectiveVirtualUsers)
+                .rampUpSeconds(effectiveRampUpSeconds)
+                .durationSeconds(effectiveDurationSeconds)
+                .iterations(effectiveIterations)
+                .stopMode(effectiveStopMode)
                 .totalSteps(steps.size())
                 .successfulSteps(0)
                 .failedSteps(0)
@@ -104,13 +146,13 @@ public class ExecutionTransactionHelper {
         List<StepExecutionSpec> specs = steps.stream()
                 .map(s -> new StepExecutionSpec(s.getId(), s.getName(), s.getMethod(), s.getUrl(),
                         s.getHeaders(), s.getBody(), s.getExpectedStatus(), s.getThinkTimeMs(),
-                        s.getTimeoutSeconds(), s.getFollowRedirects(), s.getAssertionBodyContains(),
-                        s.getCaptureVariableName(), s.getCaptureJsonPath()))
+                        s.getPacingAfterMs(), s.getTimeoutSeconds(), s.getFollowRedirects(),
+                        s.getAssertionBodyContains(), s.getCaptureVariableName(), s.getCaptureJsonPath()))
                 .toList();
 
-        LoadTestSpec loadSpec = new LoadTestSpec(scenario.getVirtualUsers(), scenario.getRampUpSeconds(),
-                scenario.getDurationSeconds(), scenario.getIterations(), scenario.getThinkTimeMs(),
-                scenario.getTargetRps());
+        LoadTestSpec loadSpec = new LoadTestSpec(effectiveVirtualUsers, effectiveRampUpSeconds,
+                effectiveDurationSeconds, effectiveIterations, effectiveThinkTimeMs,
+                effectiveTargetRps, effectiveStopMode);
 
         // P1-Q Etape B - parse ICI (transaction courte, Scenario encore
         // gere) le CSV data source eventuel du Scenario - jamais reparse a

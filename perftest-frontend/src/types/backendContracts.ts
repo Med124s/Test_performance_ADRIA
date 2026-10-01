@@ -39,6 +39,11 @@ export type BackendNotificationType =
   | 'EXECUTION_SUCCESS' | 'EXECUTION_FAILED' | 'EXECUTION_CANCELLED' | 'SCHEDULE_TRIGGERED' | 'SCHEDULE_FAILED'
 export type BackendScheduleType = 'ONE_TIME' | 'RECURRING_CRON'
 
+/** Passage produit reel (2026-09-30) — AUTO (historique) ou MANUAL (ignore
+ * durationSeconds/iterations, l'exécution tourne jusqu'à annulation
+ * explicite) — voir enums.StopMode côté backend. */
+export type BackendStopMode = 'AUTO' | 'MANUAL'
+
 // ---- Profile (GET /api/profile) ----
 
 export interface BackendProfileResponse {
@@ -64,6 +69,15 @@ export interface BackendApplicationRequest {
   name: string
   description: string | null
   url: string
+  /** Passage produit reel (2026-09-30) — réellement persisté (voir
+   * Application.type côté backend), purement déclaratif (jamais interprété
+   * par le moteur d'exécution). */
+  type?: string | null
+  authMethod?: string | null
+  /** Écriture seule : `null`/absent = ne pas modifier le token déjà
+   * enregistré ; une chaîne (y compris vide) le remplace explicitement.
+   * Jamais relu (voir BackendApplicationResponse.hasAuthToken). */
+  authToken?: string | null
 }
 
 export interface BackendApplicationResponse {
@@ -76,6 +90,11 @@ export interface BackendApplicationResponse {
    * frontend actuel (`Actif`/`Inactif`), qui est un simple bascule
    * activé/désactivé et n'a pas d'équivalent direct côté backend. */
   status: BackendApplicationStatus | null
+  type: string | null
+  authMethod: string | null
+  /** true si un token est enregistré — jamais sa valeur (voir
+   * ApplicationRequest.authToken : écriture seule, comme un secret). */
+  hasAuthToken: boolean
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -114,6 +133,9 @@ export interface BackendScenarioRequest {
    * historique inchange. Ne remplace jamais virtualUsers/rampUpSeconds/
    * thinkTimeMs. */
   targetRps?: number | null
+  /** Passage produit reel (2026-09-30) — null/absent = AUTO par defaut
+   * (comportement historique). Voir BackendStopMode. */
+  stopMode?: BackendStopMode | null
 }
 
 export interface BackendScenarioResponse {
@@ -133,6 +155,7 @@ export interface BackendScenarioResponse {
   thinkTimeMs: number
   csvData: string | null
   targetRps: number | null
+  stopMode: BackendStopMode
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -162,6 +185,17 @@ export interface BackendStepRequest {
    * virtuel uniquement (jamais partage entre VUs). */
   captureVariableName?: string | null
   captureJsonPath?: string | null
+  /** Passage produit reel (2026-09-30) — reellement persiste, jamais
+   * utilise par le moteur d'execution (documentation pure). */
+  description?: string | null
+  /** Pause reelle APRES l'envoi de la requete (en plus de thinkTimeMs, qui
+   * reste une pause AVANT la requete suivante) — voir
+   * HttpClientExecutionEngine. */
+  pacingAfterMs?: number | null
+  /** null = ACTIVE a la creation, valeur deja enregistree conservee a la
+   * modification. REELLEMENT honore par le moteur d'execution : une etape
+   * INACTIVE est ignoree (voir ExecutionTransactionHelper). */
+  status?: BackendStepStatus | null
 }
 
 export interface BackendStepResponse {
@@ -187,9 +221,29 @@ export interface BackendStepResponse {
   assertionBodyContains: string | null
   captureVariableName: string | null
   captureJsonPath: string | null
+  description: string | null
+  pacingAfterMs: number | null
   status: BackendStepStatus
   createdAt: string
   updatedAt: string
+}
+
+/** "Tester les etapes selectionnees" (passage produit reel, 2026-09-30) —
+ * POST /api/steps/test-batch. Envoie une VRAIE requete par etape, jamais
+ * une Execution (aucune persistance). */
+export interface BackendStepTestBatchRequest {
+  stepIds: string[]
+}
+
+export interface BackendStepTestResultResponse {
+  stepId: string
+  stepName: string
+  success: boolean
+  httpStatus: number | null
+  responseTimeMs: number
+  error: string | null
+  /** null = aucune assertion configuree sur cette etape (rien a evaluer). */
+  assertionPassed: boolean | null
 }
 
 // ---- Executions ----

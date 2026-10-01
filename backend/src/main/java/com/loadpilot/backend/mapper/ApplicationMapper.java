@@ -13,6 +13,7 @@ public interface ApplicationMapper {
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "status", ignore = true)
+    @Mapping(target = "authToken", ignore = true)
     @Mapping(target = "createdBy", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
@@ -20,6 +21,7 @@ public interface ApplicationMapper {
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "status", ignore = true)
+    @Mapping(target = "authToken", ignore = true)
     @Mapping(target = "createdBy", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
@@ -27,6 +29,7 @@ public interface ApplicationMapper {
 
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")
     @Mapping(target = "createdBy", source = "createdBy", qualifiedByName = "appUserDisplayName")
+    @Mapping(target = "hasAuthToken", expression = "java(application.getAuthToken() != null && !application.getAuthToken().isBlank())")
     ApplicationResponse toResponse(Application application);
 
     List<ApplicationResponse> toResponseList(List<Application> applications);

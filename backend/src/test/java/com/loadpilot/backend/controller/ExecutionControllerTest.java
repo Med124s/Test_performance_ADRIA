@@ -411,7 +411,7 @@ class ExecutionControllerTest {
             @Autowired ExecutionTransactionHelper transactionHelper) throws Exception {
         String scenarioId = scenarioWithSuccessfulStep("running-start");
 
-        var prepared = transactionHelper.prepareAndStart(UUID.fromString(scenarioId), null, null);
+        var prepared = transactionHelper.prepareAndStart(UUID.fromString(scenarioId), null, null, null);
         Execution queued = executionRepository.findById(prepared.executionId()).orElseThrow();
 
         assertThat(queued.getStatus()).isEqualTo(ExecutionStatus.QUEUED);

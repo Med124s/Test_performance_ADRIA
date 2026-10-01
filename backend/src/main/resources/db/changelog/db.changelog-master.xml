@@ -78,4 +78,11 @@
     -->
     <include file="db/changelog/changes/014-add-pacing-and-variable-capture.xml"/>
 
+    <!--
+        Passage produit reel (2026-09-30) : application.type/auth_method/
+        auth_token, step.description/pacing_after_ms, scenario+execution.
+        stop_mode - voir changes/015-add-real-product-fields.xml.
+    -->
+    <include file="db/changelog/changes/015-add-real-product-fields.xml"/>
+
 </databaseChangeLog>

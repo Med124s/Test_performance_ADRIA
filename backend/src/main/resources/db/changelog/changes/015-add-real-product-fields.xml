@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Passage produit reel (audit du 2026-09-30) - quatre champs
+        precedemment affiches en cosmetique cote frontend (jamais envoyes/
+        persistes) deviennent des colonnes reelles, sur decision explicite
+        du produit :
+
+        application.type/auth_method/auth_token : identite/authentification
+                                    declarative de l'application cible.
+                                    auth_token n'est JAMAIS relu par l'API
+                                    (voir ApplicationResponse/ApplicationMapper) -
+                                    uniquement ecrit, comme un secret.
+        step.description           : texte libre, jamais utilise par le
+                                    moteur d'execution (documentation pure).
+        step.pacing_after_ms       : pause reelle APRES l'envoi de la
+                                    requete de cette etape (en plus de
+                                    think_time_ms, qui reste une pause
+                                    AVANT) - voir HttpClientExecutionEngine.
+        scenario.stop_mode / execution.stop_mode : AUTO (comportement
+                                    historique : arret a duration_seconds/
+                                    iterations) ou MANUAL (l'execution ignore
+                                    duration_seconds/iterations et tourne
+                                    jusqu'a annulation explicite) - copie sur
+                                    l'Execution au lancement, meme idiome que
+                                    virtual_users/ramp_up_seconds (voir
+                                    ExecutionTransactionHelper).
+
+        Toutes NULLABLES sauf stop_mode (NOT NULL DEFAULT 'AUTO', pour ne
+        jamais casser une ligne existante) - aucune regression sur les
+        donnees deja en base.
+    -->
+    <changeSet id="015-add-real-product-fields" author="loadpilot">
+        <addColumn tableName="application">
+            <column name="type" type="VARCHAR(50)"/>
+            <column name="auth_method" type="VARCHAR(50)"/>
+            <column name="auth_token" type="VARCHAR(500)"/>
+        </addColumn>
+
+        <addColumn tableName="step">
+            <column name="description" type="VARCHAR(1000)"/>
+            <column name="pacing_after_ms" type="INT"/>
+        </addColumn>
+
+        <addColumn tableName="scenario">
+            <column name="stop_mode" type="VARCHAR(20)" defaultValue="AUTO">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <addColumn tableName="execution">
+            <column name="stop_mode" type="VARCHAR(20)" defaultValue="AUTO">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

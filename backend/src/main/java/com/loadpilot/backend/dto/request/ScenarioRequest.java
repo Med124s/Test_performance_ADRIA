@@ -1,5 +1,6 @@
 package com.loadpilot.backend.dto.request;
 
+import com.loadpilot.backend.enums.StopMode;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -64,11 +65,27 @@ public record ScenarioRequest(
         // Scenario.targetRps). Rejette explicitement 0 et les valeurs
         // negatives (sens invalide pour un debit cible).
         @Min(value = 1, message = "Le debit cible (RPS) doit etre d'au moins 1 si fourni.")
-        Integer targetRps
+        Integer targetRps,
+
+        /** null = AUTO par defaut (voir ScenarioServiceImpl.applyLoadTestDefaults) -
+         * comportement historique inchange. MANUAL = ignore
+         * durationSeconds/iterations, l'execution tourne jusqu'a annulation
+         * explicite (voir StopMode). */
+        StopMode stopMode
 ) {
     /** Compatibilite : construit une requete sans parametre de charge
      * explicite (comportement historique a une seule passe). */
     public ScenarioRequest(UUID applicationId, String name, String description) {
-        this(applicationId, name, description, null, null, null, null, null, null, null);
+        this(applicationId, name, description, null, null, null, null, null, null, null, null);
+    }
+
+    /** Compatibilite : ancienne forme sans stopMode (avant le passage
+     * produit reel du 2026-09-30) - null = AUTO par defaut (voir
+     * ScenarioServiceImpl.applyLoadTestDefaults). */
+    public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
+            Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
+            String csvData, Integer targetRps) {
+        this(applicationId, name, description, virtualUsers, rampUpSeconds, durationSeconds, iterations,
+                thinkTimeMs, csvData, targetRps, null);
     }
 }
