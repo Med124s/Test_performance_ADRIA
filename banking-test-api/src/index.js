@@ -13,7 +13,7 @@ import { latencyConfig, rollSimulatedOutcome } from './config.js'
 const app = express()
 
 // CORS — PERFTEST tourne dans le navigateur (http://localhost:3000), donc
-// toute requête vers ce serveur (http://localhost:8000) est cross-origin.
+// toute requête vers ce serveur (http://localhost:8888) est cross-origin.
 // cors() gère automatiquement le preflight OPTIONS pour les POST avec
 // Content-Type: application/json et Authorization.
 app.use(cors())
@@ -39,30 +39,55 @@ function simulateLatency(req) {
 }
 
 // ------------------------------------------------------------
-// Auth — jetons en mémoire (redémarre à vide avec le serveur, pas de
-// persistance voulue pour une session de démo). TEST-TOKEN-123 est
-// toujours valide : PERFTEST n'a pas de mécanisme pour capturer le token
-// d'une étape et l'injecter dans les étapes suivantes du même scénario,
-// donc un jeton fixe permet de tester les endpoints protégés sans chaîner
-// un vrai login à chaque exécution.
+// Auth — 4 modes acceptés sur toutes les routes protégées, pour tester
+// chaque type d'authentification d'Application de LoadPilot :
+//   1. Bearer (session)  : jeton obtenu via POST /api/auth/login
+//                          (type LoadPilot "Connexion automatique").
+//   2. Bearer (fixe)     : TEST-TOKEN-123, toujours valide ("Jeton Bearer").
+//   3. Clé API           : DEMO-API-KEY-2026 dans l'en-tête X-API-Key ou le
+//                          paramètre ?api_key= ("Clé API").
+//   4. Basic             : identifiants d'un utilisateur, ex. agent001 /
+//                          test123 ("Basic").
+// Les jetons de session sont en mémoire (redémarrent à vide avec le
+// serveur, pas de persistance voulue pour une démo).
 // ------------------------------------------------------------
 const tokens = new Map() // token -> user id
 const STATIC_TOKEN = 'TEST-TOKEN-123'
 tokens.set(STATIC_TOKEN, 'AG001')
+const API_KEYS = new Map([['DEMO-API-KEY-2026', 'AG001']]) // clé -> user id
 
 function getBearerToken(req) {
   const header = req.headers['authorization'] || ''
   const match = header.match(/^Bearer\s+(.+)$/i)
   return match ? match[1] : null
 }
-function requireAuth(req, res) {
+function getBasicUserId(req) {
+  const match = (req.headers['authorization'] || '').match(/^Basic\s+(.+)$/i)
+  if (!match) return undefined
+  const decoded = Buffer.from(match[1], 'base64').toString('utf8')
+  const separator = decoded.indexOf(':')
+  if (separator < 0) return undefined
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(decoded.slice(0, separator))
+  return user && user.password === decoded.slice(separator + 1) ? user.id : undefined
+}
+/** Identifie l'appelant par l'un des modes acceptés ; null si aucun n'est valide. */
+function authenticate(req) {
   const token = getBearerToken(req)
-  const userId = token ? tokens.get(token) : undefined
-  if (!userId) {
-    res.status(401).json({ success: false, error: 'Token invalide ou absent.' })
+  if (token && tokens.get(token)) return { userId: tokens.get(token), method: 'bearer' }
+  const apiKey = req.headers['x-api-key'] || req.query.api_key
+  if (apiKey && API_KEYS.get(String(apiKey))) return { userId: API_KEYS.get(String(apiKey)), method: 'api_key' }
+  const basicUserId = getBasicUserId(req)
+  if (basicUserId) return { userId: basicUserId, method: 'basic' }
+  return null
+}
+const AUTH_REQUIRED_ERROR = 'Authentification requise : Bearer, X-API-Key (ou ?api_key=) ou Basic.'
+function requireAuth(req, res) {
+  const auth = authenticate(req)
+  if (!auth) {
+    res.status(401).json({ success: false, error: AUTH_REQUIRED_ERROR })
     return null
   }
-  return userId
+  return auth.userId
 }
 
 function agentAccountFor(userId) {
@@ -75,6 +100,29 @@ function agentAccountFor(userId) {
 // ============================================================
 app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok' })
+})
+
+// ============================================================
+// GET / — le test de connectivité LoadPilot envoie un GET sur l'URL de
+// base de l'Application (http://localhost:8888) : sans cette route, Express
+// répond 404 et l'Application passe en FAILED ("Échec").
+// ============================================================
+app.get('/', (_req, res) => {
+  res.status(200).json({ status: 'ok', service: 'banking-test-api' })
+})
+
+// ============================================================
+// GET /api/auth/verify — endpoint protégé de vérification des identifiants
+// (test de connectivité LoadPilot pour Bearer, Clé API et Basic).
+// Déterministe : ni latence simulée ni erreur aléatoire. 401 sans
+// identifiants ou avec des identifiants faux.
+// ============================================================
+app.get('/api/auth/verify', (req, res) => {
+  const auth = authenticate(req)
+  if (!auth) {
+    return res.status(401).json({ authenticated: false, error: AUTH_REQUIRED_ERROR })
+  }
+  res.status(200).json({ authenticated: true, method: auth.method })
 })
 
 // ============================================================
@@ -374,7 +422,7 @@ app.post('/api/reset', (_req, res) => {
 // l'atteindre. Comme PERFTEST exécute ses fetch() depuis le navigateur,
 // ce port aurait rendu tout le Banking Test API inutilisable depuis
 // PERFTEST, quel que soit le code écrit ici.
-const PORT = process.env.PORT || 8000
+const PORT = process.env.PORT || 8888
 app.listen(PORT, () => {
   console.log(`Banking Test API prêt sur http://localhost:${PORT}`)
 })

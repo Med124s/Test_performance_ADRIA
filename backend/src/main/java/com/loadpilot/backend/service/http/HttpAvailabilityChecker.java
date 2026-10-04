@@ -13,4 +13,10 @@ public interface HttpAvailabilityChecker {
      * tout echec (reseau, timeout, URL invalide) est reporte dans le
      * resultat, jamais via une exception remontee a l'appelant. */
     HttpAvailabilityResult check(String url, Duration timeout);
+
+    /** Variante avec en-tetes (authentification de l'Application). Par
+     * defaut, ignore les en-tetes (implementations de test). */
+    default HttpAvailabilityResult check(String url, java.util.Map<String, String> headers, Duration timeout) {
+        return check(url, timeout);
+    }
 }

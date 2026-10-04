@@ -1,5 +1,6 @@
 package com.loadpilot.backend.service;
 
+import com.loadpilot.backend.dto.response.PagedResponse;
 import com.loadpilot.backend.dto.request.ApplicationRequest;
 import com.loadpilot.backend.dto.response.ApplicationResponse;
 import com.loadpilot.backend.dto.response.ApplicationTestResponse;
@@ -13,7 +14,12 @@ public interface ApplicationService {
 
     ApplicationResponse getById(UUID id);
 
-    List<ApplicationResponse> list();
+    /** Liste complete (format historique, sans pagination) : applications
+     * non archivees, ou uniquement les archivees si {@code archived}. */
+    List<ApplicationResponse> list(boolean archived);
+
+    /** Liste paginee, filtree et triee cote serveur. */
+    PagedResponse<ApplicationResponse> page(int page, int size, String sort, String search, String status, boolean archived);
 
     ApplicationResponse update(UUID id, ApplicationRequest request);
 

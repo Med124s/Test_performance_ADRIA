@@ -143,11 +143,12 @@ class MetricRepositoryTest {
     }
 
     @Test
-    void save_withoutStep_violatesNotNullConstraint() {
+    void save_withoutStep_isAllowed_forDeletedSteps() {
+        // Migration 017 : step_id nullable (ON DELETE SET NULL) - une metrique
+        // survit a la suppression de son etape.
         Metric metric = baseMetric(Instant.now()).step(null).build();
 
-        assertThatThrownBy(() -> metricRepository.saveAndFlush(metric))
-                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(metricRepository.saveAndFlush(metric).getId()).isNotNull();
     }
 
     @Test

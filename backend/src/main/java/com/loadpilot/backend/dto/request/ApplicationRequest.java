@@ -1,5 +1,6 @@
 package com.loadpilot.backend.dto.request;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.hibernate.validator.constraints.URL;
@@ -19,6 +20,16 @@ public record ApplicationRequest(
 
         @NotBlank(message = "L'URL de l'application est obligatoire.")
         @URL(message = "L'URL de l'application n'est pas une URL valide.")
-        String url
+        String url,
+
+        /** Optionnel : absent = aucune authentification a la creation,
+         * authentification inchangee a la mise a jour. */
+        @Valid
+        ApplicationAuthRequest auth
 ) {
+
+    /** Compatibilite : Application sans authentification explicite. */
+    public ApplicationRequest(String name, String description, String url) {
+        this(name, description, url, null);
+    }
 }

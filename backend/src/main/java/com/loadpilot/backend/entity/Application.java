@@ -1,5 +1,6 @@
 package com.loadpilot.backend.entity;
 
+import com.loadpilot.backend.enums.ApplicationAuthType;
 import com.loadpilot.backend.enums.ApplicationStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -54,6 +55,36 @@ public class Application {
     @Enumerated(EnumType.STRING)
     @Column(name = "status")
     private ApplicationStatus status;
+
+    /** Archivage logique : masque des listes par defaut, historique conserve,
+     * restaurable (voir migration 017). */
+    @Column(name = "archived", nullable = false)
+    @Builder.Default
+    private boolean archived = false;
+
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
+    /** Message lisible du dernier test de connectivite (jamais de secret). */
+    @Column(name = "status_message")
+    private String statusMessage;
+
+    /** Date du dernier test ; null si aucun test valide (jamais teste ou
+     * modifie depuis). */
+    @Column(name = "status_checked_at")
+    private Instant statusCheckedAt;
+
+    /** Authentification appliquee automatiquement aux requetes vers cette
+     * Application (voir ApplicationAuthType) - NONE par defaut. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auth_type", nullable = false)
+    @Builder.Default
+    private ApplicationAuthType authType = ApplicationAuthType.NONE;
+
+    /** Parametres du type choisi, en JSON (voir service.auth.ApplicationAuthConfig).
+     * Peut contenir des secrets : jamais expose tel quel par l'API. */
+    @Column(name = "auth_config")
+    private String authConfig;
 
     /** Utilisateur (projection locale, voir AppUser) ayant cree cette application. */
     @ManyToOne(fetch = FetchType.LAZY)

@@ -205,14 +205,14 @@ class DashboardServiceImplIntegrationTest {
         Application appA = createApplication("scenario-filter-a", null);
         Application appB = createApplication("scenario-filter-b", null);
         createScenario(appA, "a-1", ScenarioStatus.ACTIVE);
-        createScenario(appA, "a-2", ScenarioStatus.INACTIVE);
+        createScenario(appA, "a-2", ScenarioStatus.DRAFT);
         createScenario(appB, "b-1", ScenarioStatus.ACTIVE);
 
         ApplicationDashboardResponse dashboardA = dashboardService.getApplicationDashboard(appA.getId());
 
         assertThat(dashboardA.scenarios().totalScenarios()).isEqualTo(2L);
         assertThat(dashboardA.scenarios().activeScenarios()).isEqualTo(1L);
-        assertThat(dashboardA.scenarios().inactiveScenarios()).isEqualTo(1L);
+        assertThat(dashboardA.scenarios().draftScenarios()).isEqualTo(1L);
     }
 
     @Test
@@ -315,7 +315,7 @@ class DashboardServiceImplIntegrationTest {
 
         assertThat(response.scenarios().totalScenarios()).isZero();
         assertThat(response.scenarios().activeScenarios()).isZero();
-        assertThat(response.scenarios().inactiveScenarios()).isZero();
+        assertThat(response.scenarios().draftScenarios()).isZero();
     }
 
     // ------------------------------------------------------------

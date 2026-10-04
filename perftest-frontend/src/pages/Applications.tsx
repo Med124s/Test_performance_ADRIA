@@ -1,16 +1,26 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { BackendApplicationRequest, BackendApplicationResponse, BackendApplicationStatus, BackendScenarioResponse, BackendExecutionResponse } from '../types/backendContracts'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { BackendApplicationRequest, BackendApplicationResponse, BackendApplicationStatus, BackendApplicationTestResponse, BackendScenarioResponse, BackendExecutionResponse } from '../types/backendContracts'
 import { applicationsBackendApi } from '../services/api/applicationsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { useApiList } from '../hooks/useApiResource'
-import { usePagination } from '../hooks/usePagination'
 import Pagination from '../components/Pagination'
 import { firstError, validateRequired, validateMaxLength, validateAbsoluteUrl, NAME_MAX_LENGTH, DESCRIPTION_MAX_LENGTH } from '../utils/validation'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
+import './applications.css'
+import ApplicationAuthFields, {
+  AuthForm,
+  EMPTY_AUTH_FORM,
+  authFormFromResponse,
+  authFormToRequest,
+  authTypeLabel,
+  validateAuthForm,
+} from '../components/application-auth/ApplicationAuthFields'
+import AuthTestProgress, { PHASE_LABELS, TestPhase, phasesFor, testPhasesFor } from '../components/application-auth/AuthTestProgress'
+import DeletionDialog, { DeletionMode } from '../components/deletion/DeletionDialog'
 
 // ============================================================
 // Phase 17 — ce module (et lui seul) parle désormais au vrai backend Spring
@@ -51,6 +61,20 @@ const emptyForm = {
 }
 
 type StatusKey = BackendApplicationStatus | 'UNTESTED'
+
+const PAGE_SIZES = [5, 10, 25, 50]
+const DEFAULT_SORT = 'createdAt,desc'
+const SORT_OPTIONS = [
+  { value: 'createdAt,desc', label: 'Plus récentes' },
+  { value: 'createdAt,asc', label: 'Plus anciennes' },
+]
+const STATUS_FILTERS = [
+  { value: '', label: 'Tous les statuts' },
+  { value: 'CONNECTED', label: 'Connectées' },
+  { value: 'FAILED', label: 'Échec' },
+  { value: 'ERROR', label: 'Erreur' },
+  { value: 'UNTESTED', label: 'Non testées' },
+]
 
 const statusPillStyle: Record<StatusKey, { bg: string; color: string; icon: string; label: string }> = {
   CONNECTED: { bg: 'var(--pt-success-light)', color: 'var(--pt-success)', icon: 'bi-wifi', label: 'Connectée' },
@@ -102,24 +126,192 @@ function Applications() {
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
   const canDelete = isKeycloak && rawRoles.includes('ROLE_SUPER_ADMIN')
 
-  const { data: apps, loading: appsLoading, error: appsError, refetch: refetchApps } =
-    useApiList<BackendApplicationResponse>(() => applicationsBackendApi.getAll())
+  // ---------------------------------------------------------------- pagination serveur
+  // Page, taille, tri, recherche, filtre de status et vue "archivées" vivent
+  // dans l'URL : l'état survit au rechargement et se partage par lien.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlPage = Math.max(1, Number(searchParams.get('page')) || 1)
+  const urlSize = PAGE_SIZES.includes(Number(searchParams.get('size'))) ? Number(searchParams.get('size')) : 10
+  const urlSort = SORT_OPTIONS.some((o) => o.value === searchParams.get('sort')) ? (searchParams.get('sort') as string) : DEFAULT_SORT
+  const urlQuery = searchParams.get('q') ?? ''
+  const urlStatus = STATUS_FILTERS.some((o) => o.value === searchParams.get('status')) ? (searchParams.get('status') as string) : ''
+  const showArchived = searchParams.get('archived') === 'true'
+
+  /** Met à jour l'URL ; tout changement de critère revient à la page 1. */
+  const updateParams = useCallback((patch: Record<string, string | null>, resetPage = true) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      Object.entries(patch).forEach(([k, v]) => (v === null || v === '' ? next.delete(k) : next.set(k, v)))
+      if (resetPage) next.delete('page')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  // Recherche avec debounce : l'URL (et donc la requête) suit la saisie après 350 ms.
+  const [searchInput, setSearchInput] = useState(urlQuery)
+  useEffect(() => {
+    if (searchInput === urlQuery) return
+    const timer = window.setTimeout(() => updateParams({ q: searchInput.trim() || null }), 350)
+    return () => window.clearTimeout(timer)
+  }, [searchInput, urlQuery, updateParams])
+
+  const [pageData, setPageData] = useState<{ content: BackendApplicationResponse[]; totalElements: number; totalPages: number }>(
+    { content: [], totalElements: 0, totalPages: 0 })
+  const [appsLoading, setAppsLoading] = useState(true)
+  const [appsError, setAppsError] = useState<string | null>(null)
+  const apps = pageData.content
+  const setApps = (update: (prev: BackendApplicationResponse[]) => BackendApplicationResponse[]) =>
+    setPageData((prev) => ({ ...prev, content: update(prev.content) }))
+
+  const loadPage = useCallback(async () => {
+    setAppsLoading(true)
+    setAppsError(null)
+    try {
+      const result = await applicationsBackendApi.getPage({
+        page: urlPage - 1, size: urlSize, sort: urlSort, search: urlQuery, status: urlStatus, archived: showArchived,
+      })
+      // Page devenue vide (ex. après une suppression) : revenir à la dernière page existante.
+      if (result.content.length === 0 && urlPage > 1 && result.totalElements > 0) {
+        updateParams({ page: String(Math.max(1, result.totalPages)) }, false)
+        return
+      }
+      setPageData({ content: result.content, totalElements: result.totalElements, totalPages: result.totalPages })
+    } catch (err) {
+      setAppsError(err instanceof Error ? err.message : 'Erreur de chargement')
+    } finally {
+      setAppsLoading(false)
+    }
+  }, [urlPage, urlSize, urlSort, urlQuery, urlStatus, showArchived, updateParams])
+  useEffect(() => { loadPage() }, [loadPage])
+  const refetchApps = loadPage
+
+  // Compteurs globaux (toutes pages), recalculés après chaque action.
+  const [statsVersion, setStatsVersion] = useState(0)
+  const refreshStats = () => setStatsVersion((v) => v + 1)
+  const [stats, setStats] = useState<{ total: number; connected: number; notConnected: number } | null>(null)
+  useEffect(() => {
+    let alive = true
+    const count = (status?: string) => applicationsBackendApi.getPage({ page: 0, size: 5, status }).then((r) => r.totalElements)
+    Promise.all([count(), count('CONNECTED'), count('FAILED'), count('ERROR')])
+      .then(([total, connected, failed, error]) => { if (alive) setStats({ total, connected, notConnected: failed + error }) })
+      .catch(() => { if (alive) setStats(null) })
+    return () => { alive = false }
+  }, [statsVersion])
+
+  // ---------------------------------------------------------------- sélection multiple
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Vidée au changement de page, de taille, de tri, de filtre ou de recherche.
+  useEffect(() => { setSelected(new Set()) }, [urlPage, urlSize, urlSort, urlQuery, urlStatus, showArchived])
+  const pageIds = apps.map((a) => a.id)
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
+  const someSelected = !allSelected && pageIds.some((id) => selected.has(id))
+  const selectAllRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected }, [someSelected])
+  const toggleOne = (id: string) => setSelected((prev) => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pageIds))
+
+  // ---------------------------------------------------------------- suppression / archivage
+  const [deletion, setDeletion] = useState<
+    | { kind: 'single'; app: BackendApplicationResponse }
+    | { kind: 'bulk'; ids: string[] }
+    | null
+  >(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
+
+  const afterMutation = async () => {
+    setSelected(new Set())
+    refreshStats()
+    await loadPage()
+  }
+
+  const confirmDeletion = async (mode: DeletionMode) => {
+    if (!deletion) return
+    if (deletion.kind === 'single') {
+      const app = deletion.app
+      if (mode === 'ARCHIVE') await applicationsBackendApi.archive(app.id)
+      else await applicationsBackendApi.remove(app.id)
+      showToast(mode === 'ARCHIVE'
+        ? `Application « ${app.name} » archivée. Vous pouvez la restaurer depuis « Afficher les archivées ».`
+        : `Application « ${app.name} » supprimée définitivement.`, 'success')
+    } else {
+      const result = mode === 'ARCHIVE'
+        ? await applicationsBackendApi.bulkArchive(deletion.ids, 'ARCHIVE')
+        : await applicationsBackendApi.bulkDelete(deletion.ids, 'PERMANENT')
+      reportBulk(result, mode === 'ARCHIVE' ? 'archivée(s)' : 'supprimée(s) définitivement')
+    }
+    setDeletion(null)
+    await afterMutation()
+  }
+
+  const reportBulk = (result: { succeeded: number; failed: number; results: { name: string | null; success: boolean; message: string }[] }, verb: string) => {
+    if (result.failed === 0) {
+      showToast(`${result.succeeded} application(s) ${verb}.`, 'success')
+      return
+    }
+    const failures = result.results.filter((r) => !r.success).map((r) => `« ${r.name ?? '?'} » : ${r.message}`).join(' ; ')
+    showToast(`${result.succeeded} application(s) ${verb}, ${result.failed} en échec — ${failures}`, result.succeeded > 0 ? 'warning' : 'danger')
+  }
+
+  const restoreApps = async (ids: string[]) => {
+    setBulkBusy(true)
+    try {
+      if (ids.length === 1) {
+        const restored = await applicationsBackendApi.restore(ids[0])
+        showToast(`Application « ${restored.name} » restaurée.`, 'success')
+      } else {
+        reportBulk(await applicationsBackendApi.bulkArchive(ids, 'RESTORE'), 'restaurée(s)')
+      }
+      await afterMutation()
+    } catch (err) {
+      showToast(describeApiError(err, 'Erreur lors de la restauration.'), 'danger')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const retestSelected = async () => {
+    setBulkBusy(true)
+    try {
+      for (const app of apps.filter((a) => selected.has(a.id))) {
+        await handleRetest(app)
+      }
+      refreshStats()
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   const { data: scenarios, loading: scenariosLoading, error: scenariosError } =
-    useApiList<BackendScenarioResponse>(() => scenariosBackendApi.getAll())
+    useApiList<BackendScenarioResponse>(() => scenariosBackendApi.getAll(showArchived), [showArchived])
   const { data: executions, loading: executionsLoading, error: executionsError } =
     useApiList<BackendExecutionResponse>(() => executionsBackendApi.getAll())
 
-  const [searchQuery, setSearchQuery] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editingApp, setEditingApp] = useState<BackendApplicationResponse | null>(null)
   const [form, setForm] = useState(emptyForm)
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [testResultMessage, setTestResultMessage] = useState<string | null>(null)
+  // Flux "enregistrer puis tester" de la modale (Tester et ajouter /
+  // Enregistrer et tester) : phase courante, étapes affichées, résultat.
+  const [flow, setFlow] = useState<{
+    running: boolean
+    phase: TestPhase | null
+    phases: TestPhase[]
+    result: BackendApplicationTestResponse | null
+  }>({ running: false, phase: null, phases: [], result: null })
+  // Retester depuis la liste : phase en cours par application.
+  const [rowTests, setRowTests] = useState<Record<string, TestPhase>>({})
+  const [flashId, setFlashId] = useState<string | null>(null)
+  const closeTimer = useRef<number | null>(null)
   const [isViewOnly, setIsViewOnly] = useState(false)
   const [saving, setSaving] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [touched, setTouched] = useState<{ name?: boolean; url?: boolean }>({})
+  const [authForm, setAuthForm] = useState<AuthForm>(EMPTY_AUTH_FORM)
+  const [showAuthErrors, setShowAuthErrors] = useState(false)
 
   const nameError = firstError(
     validateRequired(form.name, "Le nom de l'application"),
@@ -127,15 +319,14 @@ function Applications() {
   )
   const urlError = firstError(validateRequired(form.url, "L'URL"), validateAbsoluteUrl(form.url))
   const descriptionError = validateMaxLength(form.description, DESCRIPTION_MAX_LENGTH, 'La description')
-  const isFormValid = !nameError && !urlError && !descriptionError
+  const authErrors = validateAuthForm(authForm, editingApp?.auth)
+  const isFormValid = !nameError && !urlError && !descriptionError && Object.keys(authErrors).length === 0
 
-  const filtered = apps.filter(a =>
-    a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    a.url.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (a.description ?? '').toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  const { page, setPage, totalPages, pageItems, startIndex, endIndex, totalItems } = usePagination(filtered, 10)
+  const totalItems = pageData.totalElements
+  const totalPages = Math.max(1, pageData.totalPages)
+  const startIndex = totalItems === 0 ? 0 : (urlPage - 1) * urlSize + 1
+  const endIndex = Math.min(urlPage * urlSize, totalItems)
+  const hasFilters = !!(urlQuery || urlStatus)
 
   // P1-I — Dernière exécution + nombre de scénarios RÉELS (Spring Boot) par
   // application. Execution n'a pas de colonne applicationId directe (voir
@@ -169,11 +360,58 @@ function Applications() {
     return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   }
 
+  /** Durée minimale d'affichage du chargement (visible même si la réponse
+   * est instantanée) — n'allonge jamais une réponse plus lente. */
+  const MIN_LOADING_MS = 1300
+  const waitMinimum = async (startedAt: number) => {
+    const remaining = MIN_LOADING_MS - (Date.now() - startedAt)
+    if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining))
+  }
+
+  const clearCloseTimer = () => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }
+  useEffect(() => clearCloseTimer, [])
+
+  /** Met à jour une application dans la liste sans recharger la page. */
+  const upsertApp = (app: BackendApplicationResponse) => {
+    setApps((prev) => (prev.some((a) => a.id === app.id) ? prev.map((a) => (a.id === app.id ? app : a)) : [app, ...prev]))
+  }
+  const applyTestResult = (id: string, result: BackendApplicationTestResponse) => {
+    setApps((prev) => prev.map((a) => (a.id === id
+      ? { ...a, status: result.status, statusMessage: result.message, statusCheckedAt: new Date().toISOString() }
+      : a)))
+    setFlashId(id)
+    window.setTimeout(() => setFlashId((current) => (current === id ? null : current)), 1300)
+  }
+
+  /** Test réel (POST /{id}/test). Étapes affichées selon le type (voir
+   * testPhasesFor) : pour la connexion auto, le backend effectue d'abord le
+   * login ; pour Bearer / clé API / Basic, il vérifie les identifiants sur
+   * l'endpoint protégé. */
+  const runConnectivityTest = async (app: BackendApplicationResponse, onPhase: (phase: TestPhase) => void) => {
+    const phases = testPhasesFor(app.auth?.type)
+    onPhase(phases[0])
+    const timer = phases.length > 1 ? window.setTimeout(() => onPhase(phases[1]), 450) : null
+    try {
+      return await applicationsBackendApi.test(app.id)
+    } finally {
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }
+
+  const resetFlow = () => setFlow({ running: false, phase: null, phases: [], result: null })
+
   const openAdd = () => {
+    clearCloseTimer()
     setEditingApp(null)
     setForm(emptyForm)
-    setTestStatus('idle')
-    setTestResultMessage(null)
+    setAuthForm(EMPTY_AUTH_FORM)
+    setShowAuthErrors(false)
+    resetFlow()
     setActionError(null)
     setTouched({})
     setIsViewOnly(false)
@@ -181,14 +419,16 @@ function Applications() {
   }
 
   const openEdit = (app: BackendApplicationResponse) => {
+    clearCloseTimer()
     setEditingApp(app)
     setForm({
       name: app.name,
       description: app.description || '',
       url: app.url,
     })
-    setTestStatus('idle')
-    setTestResultMessage(null)
+    setAuthForm(authFormFromResponse(app.auth))
+    setShowAuthErrors(false)
+    resetFlow()
     setActionError(null)
     setTouched({})
     setIsViewOnly(false)
@@ -197,108 +437,114 @@ function Applications() {
 
   /** Mode "Consulter" : lecture seule pure, jamais un formulaire. */
   const openView = (app: BackendApplicationResponse) => {
+    clearCloseTimer()
     setEditingApp(app)
     setActionError(null)
+    resetFlow()
     setIsViewOnly(true)
     setShowModal(true)
   }
 
   const closeModal = () => {
+    // Jamais pendant un enregistrement/test en cours.
+    if (flow.running) return
+    clearCloseTimer()
     setShowModal(false)
-    setTestStatus('idle')
-    setTestResultMessage(null)
+    resetFlow()
     setIsViewOnly(false)
   }
+
+  // Échap ferme la modale, sauf pendant le chargement.
+  useEffect(() => {
+    if (!showModal) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !flow.running) closeModal()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showModal, flow.running])
 
   const buildPayload = (): BackendApplicationRequest => ({
     name: form.name.trim(),
     description: form.description.trim() || null,
     url: form.url.trim(),
+    auth: authFormToRequest(authForm),
   })
 
-  const handleSubmit = async () => {
-    // Filet de sécurité (en plus des boutons masqués/fieldset désactivé) :
-    // même déclenché par un moyen détourné, le frontend ne fait jamais
-    // confiance qu'à lui-même — le backend revalide de toute façon (403).
-    if (!canWrite) return
+  // "Tester et ajouter" (création) ou "Enregistrer et tester" (modification) :
+  // POST/PUT puis test réel. Après un premier enregistrement, la modale
+  // passe en modification : un nouvel essai fait un PUT (jamais de doublon).
+  // Succès -> fermeture après une courte confirmation ; échec -> la modale
+  // reste ouverte pour corriger directement.
+  const handleSaveAndTest = async () => {
+    if (!canWrite || flow.running) return
     setTouched({ name: true, url: true })
-    if (!isFormValid || saving) return
-    setSaving(true)
+    setShowAuthErrors(true)
+    if (!isFormValid) return
+
+    const startedAt = Date.now()
+    const phases = phasesFor(authForm.type)
+    clearCloseTimer()
     setActionError(null)
+    setFlow({ running: true, phase: 'save', phases, result: null })
+
+    let saved: BackendApplicationResponse
     try {
-      if (editingApp) {
-        const updated = await applicationsBackendApi.update(editingApp.id, buildPayload())
-        showToast(`Application « ${updated.name} » modifiée avec succès.`, 'success')
-      } else {
-        const created = await applicationsBackendApi.create(buildPayload())
-        showToast(`Application « ${created.name} » ajoutée avec succès.`, 'success')
+      saved = editingApp
+        ? await applicationsBackendApi.update(editingApp.id, buildPayload())
+        : await applicationsBackendApi.create(buildPayload())
+    } catch (err) {
+      await waitMinimum(startedAt)
+      setFlow({ running: false, phase: null, phases, result: null })
+      setActionError(describeApiError(err, "Erreur lors de l'enregistrement."))
+      return
+    }
+    const created = !editingApp
+    setEditingApp(saved)
+    upsertApp(saved)
+    refreshStats()
+
+    try {
+      const result = await runConnectivityTest(saved, (phase) => setFlow((f) => ({ ...f, phase })))
+      await waitMinimum(startedAt)
+      applyTestResult(saved.id, result)
+      setEditingApp({ ...saved, status: result.status, statusMessage: result.message, statusCheckedAt: new Date().toISOString() })
+      setFlow({ running: false, phase: null, phases, result })
+      if (result.status === 'CONNECTED') {
+        showToast(`Application « ${saved.name} » ${created ? 'ajoutée' : 'enregistrée'} et connectée.`, 'success')
+        closeTimer.current = window.setTimeout(() => {
+          closeTimer.current = null
+          setShowModal(false)
+          resetFlow()
+        }, 1400)
       }
-      // Affichage mis à jour depuis la VRAIE réponse backend (via refetch),
-      // jamais une mise à jour optimiste locale.
-      await refetchApps()
-      setShowModal(false)
-      setTestStatus('idle')
     } catch (err) {
-      const message = describeApiError(err, "Erreur lors de l'enregistrement.")
-      setActionError(message)
-      showToast(message, 'danger')
-    } finally {
-      setSaving(false)
+      await waitMinimum(startedAt)
+      setFlow({ running: false, phase: null, phases, result: null })
+      setActionError(`Application enregistrée, mais le test n'a pas pu être lancé : ${describeApiError(err, 'erreur inconnue.')}`)
     }
   }
 
-  // Test de disponibilité RÉEL, exécuté par le backend (jamais un fetch()
-  // direct depuis ce composant, voir Phase 17 section 10). Le backend exige
-  // une Application déjà créée pour la tester (POST /{id}/test) : la
-  // création est donc faite d'abord, et réussit indépendamment du résultat
-  // du test qui suit (comportement réel du backend, voir Phase 6) — une
-  // différence assumée avec l'ancien flux "test avant création".
-  const handleTestAndAdd = async () => {
-    if (!canWrite) return
-    setTouched({ name: true, url: true })
-    if (!isFormValid || testStatus === 'testing') return
-    setTestStatus('testing')
-    setActionError(null)
-    setTestResultMessage(null)
+  // "Retester" depuis la liste, sans ouvrir la modale.
+  const handleRetest = async (app: BackendApplicationResponse) => {
+    if (!canWrite || rowTests[app.id]) return
+    const startedAt = Date.now()
+    const setPhase = (phase: TestPhase) => setRowTests((prev) => ({ ...prev, [app.id]: phase }))
     try {
-      const created = await applicationsBackendApi.create(buildPayload())
-      const result = await applicationsBackendApi.test(created.id)
-      setTestResultMessage(result.message)
-      setTestStatus(result.status === 'CONNECTED' ? 'success' : 'error')
-      await refetchApps()
-      showToast(
-        `Application « ${created.name} » ajoutée (statut réel : ${statusPillStyle[result.status].label}).`,
-        result.status === 'CONNECTED' ? 'success' : 'warning'
-      )
-      setTimeout(() => {
-        setShowModal(false)
-        setTestStatus('idle')
-        setTestResultMessage(null)
-      }, 1100)
+      const result = await runConnectivityTest(app, setPhase)
+      await waitMinimum(startedAt)
+      applyTestResult(app.id, result)
+      showToast(`« ${app.name} » : ${statusPillStyle[result.status].label} — ${result.message}`, result.status === 'CONNECTED' ? 'success' : 'warning')
     } catch (err) {
-      const message = describeApiError(err, "Erreur lors de la création/du test.")
-      setActionError(message)
-      setTestStatus('error')
-      showToast(message, 'danger')
-    }
-  }
-
-  const handleDelete = async (id: string) => {
-    if (!canDelete) return
-    const appName = apps.find((a) => a.id === id)?.name ?? ''
-    setSaving(true)
-    setActionError(null)
-    try {
-      await applicationsBackendApi.remove(id)
-      await refetchApps()
-      setDeleteConfirm(null)
-      showToast(`Application « ${appName} » supprimée avec succès.`, 'success')
-    } catch (err) {
-      const message = describeApiError(err, 'Erreur lors de la suppression.')
-      setActionError(message)
-      showToast(message, 'danger')
+      await waitMinimum(startedAt)
+      showToast(describeApiError(err, 'Erreur lors du test.'), 'danger')
     } finally {
-      setSaving(false)
+      setRowTests((prev) => {
+        const next = { ...prev }
+        delete next[app.id]
+        return next
+      })
     }
   }
 
@@ -330,16 +576,16 @@ function Applications() {
 
       <div className="row g-3 mb-4">
         {[
-          { label: 'Total applications', value: apps.length, icon: 'bi-globe2', color: 'blue' },
-          { label: 'Connectées', value: apps.filter(a => a.status === 'CONNECTED').length, icon: 'bi-wifi', color: 'green' },
-          { label: 'Non connectées', value: apps.filter(a => a.status === 'FAILED' || a.status === 'ERROR').length, icon: 'bi-wifi-off', color: 'purple' },
+          { label: 'Total applications', value: stats?.total, icon: 'bi-globe2', color: 'blue' },
+          { label: 'Connectées', value: stats?.connected, icon: 'bi-wifi', color: 'green' },
+          { label: 'Non connectées', value: stats?.notConnected, icon: 'bi-wifi-off', color: 'purple' },
         ].map((card, i) => (
           <div key={i} className="col-6 col-md-4">
             <div className="pt-stat-card">
               <div className="stat-header">
                 <div>
                   <div className="stat-label">{card.label}</div>
-                  <div className="stat-value">{appsLoading ? '—' : card.value}</div>
+                  <div className="stat-value">{card.value ?? '—'}</div>
                 </div>
                 <div className={`stat-icon ${card.color}`}><i className={`bi ${card.icon}`}></i></div>
               </div>
@@ -351,8 +597,18 @@ function Applications() {
       <div className="d-flex align-items-center gap-3 flex-wrap mb-3">
         <div className="pt-search">
           <i className="bi bi-search"></i>
-          <input type="text" placeholder="Rechercher une application..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <input type="text" placeholder="Rechercher (nom, URL, description)…" value={searchInput} onChange={e => setSearchInput(e.target.value)} aria-label="Rechercher une application" />
         </div>
+        <select className="pt-form-control" style={{ width: 'auto' }} value={urlStatus} onChange={(e) => updateParams({ status: e.target.value || null })} aria-label="Filtrer par statut">
+          {STATUS_FILTERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <select className="pt-form-control" style={{ width: 'auto' }} value={urlSort} onChange={(e) => updateParams({ sort: e.target.value === DEFAULT_SORT ? null : e.target.value })} aria-label="Trier">
+          {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <label className="d-flex align-items-center gap-2 mb-0" style={{ fontSize: '13px', color: 'var(--pt-text-muted)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={showArchived} onChange={(e) => updateParams({ archived: e.target.checked ? 'true' : null })} />
+          Afficher les archivées
+        </label>
         {canWrite && (
           <button className="pt-btn-primary" onClick={openAdd}>
             <i className="bi bi-plus-lg"></i>
@@ -363,25 +619,69 @@ function Applications() {
 
       <div className="pt-card" style={{ padding: 0 }}>
         <div className="d-flex justify-content-between align-items-center p-3 flex-wrap gap-3" style={{ borderBottom: '1px solid var(--pt-border)' }}>
-          <h6 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>Liste des applications ({filtered.length})</h6>
+          <h6 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>
+            {showArchived ? 'Applications archivées' : 'Liste des applications'} ({totalItems})
+          </h6>
         </div>
 
-        {appsLoading ? (
-          <div className="pt-empty-state">
-            <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }}></i>
-            <p>Chargement des applications...</p>
+        {canWrite && selected.size > 0 && (
+          <div className="ap-bulk-bar" role="region" aria-label="Actions sur la sélection">
+            <strong>{selected.size} sélectionnée{selected.size > 1 ? 's' : ''}</strong>
+            <div className="d-flex gap-2 flex-wrap">
+              {!showArchived && (
+                <button type="button" className="pt-btn-outline" onClick={retestSelected} disabled={bulkBusy}>
+                  <i className="bi bi-arrow-repeat"></i> Retester
+                </button>
+              )}
+              {showArchived ? (
+                <button type="button" className="pt-btn-outline" onClick={() => restoreApps([...selected])} disabled={bulkBusy}>
+                  <i className="bi bi-arrow-counterclockwise"></i> Restaurer
+                </button>
+              ) : (
+                <button type="button" className="pt-btn-outline" onClick={() => setDeletion({ kind: 'bulk', ids: [...selected] })} disabled={bulkBusy}>
+                  <i className="bi bi-archive"></i> Archiver
+                </button>
+              )}
+              {canDelete && (
+                <button type="button" className="pt-btn-danger" onClick={() => setDeletion({ kind: 'bulk', ids: [...selected] })} disabled={bulkBusy}>
+                  <i className="bi bi-trash3"></i> Supprimer définitivement
+                </button>
+              )}
+              <button type="button" className="pt-btn-ghost" onClick={() => setSelected(new Set())} disabled={bulkBusy}>
+                Annuler la sélection
+              </button>
+            </div>
           </div>
-        ) : filtered.length === 0 ? (
+        )}
+
+        {appsLoading && apps.length === 0 ? (
+          <div className="ap-skeleton" role="status" aria-label="Chargement des applications">
+            {Array.from({ length: Math.min(urlSize, 5) }).map((_, i) => <div key={i} className="ap-skeleton-row"></div>)}
+          </div>
+        ) : apps.length === 0 ? (
           <div className="pt-empty-state">
-            <i className="bi bi-globe2" style={{ fontSize: '28px', color: 'var(--pt-text-light)' }}></i>
-            <p>Aucune application {searchQuery ? 'ne correspond à votre recherche' : "n'a encore été créée"}.</p>
+            <i className={`bi ${showArchived ? 'bi-archive' : 'bi-globe2'}`} style={{ fontSize: '28px', color: 'var(--pt-text-light)' }}></i>
+            <p>
+              {hasFilters
+                ? 'Aucune application ne correspond à ces critères.'
+                : showArchived ? 'Aucune application archivée.' : "Aucune application n'a encore été créée."}
+            </p>
+            {hasFilters && (
+              <button type="button" className="pt-btn-outline" onClick={() => { setSearchInput(''); updateParams({ q: null, status: null }) }}>
+                Effacer les filtres
+              </button>
+            )}
           </div>
         ) : (
-        <div className="pt-table-wrapper">
+        <div className="pt-table-wrapper" aria-busy={appsLoading} style={{ opacity: appsLoading ? 0.6 : 1, transition: 'opacity 0.15s' }}>
           <table className="pt-table">
             <thead>
               <tr>
-                <th style={{ width: '40px' }}><input type="checkbox" /></th>
+                {canWrite && (
+                  <th style={{ width: '40px' }}>
+                    <input ref={selectAllRef} type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Sélectionner toutes les applications de la page" />
+                  </th>
+                )}
                 <th>Nom</th>
                 <th>URL</th>
                 <th>Description</th>
@@ -392,18 +692,25 @@ function Applications() {
               </tr>
             </thead>
             <tbody>
-              {pageItems.map((app) => {
+              {apps.map((app) => {
                 const latestExec = latestExecutionByApp.get(app.id) ?? null
                 const pill = statusPillStyle[statusKey(app.status)]
                 return (
-                <tr key={app.id}>
-                  <td><input type="checkbox" /></td>
+                <tr key={app.id} className={flashId === app.id ? 'aa-row-flash' : undefined}>
+                  {canWrite && (
+                    <td>
+                      <input type="checkbox" checked={selected.has(app.id)} onChange={() => toggleOne(app.id)} aria-label={`Sélectionner ${app.name}`} />
+                    </td>
+                  )}
                   <td>
                     <div className="d-flex align-items-center gap-3">
                       <div style={{ width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, background: 'var(--pt-primary-light)', color: 'var(--pt-primary)' }}>
                         <i className="bi bi-globe2"></i>
                       </div>
                       <span style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--pt-text)' }}>{app.name}</span>
+                      {app.auth && app.auth.type !== 'NONE' && (
+                        <i className="bi bi-shield-lock ms-2" style={{ fontSize: '12px', color: 'var(--pt-success)' }} title={`Authentification : ${authTypeLabel(app.auth.type)}`}></i>
+                      )}
                     </div>
                   </td>
                   <td>
@@ -412,15 +719,27 @@ function Applications() {
                     </a>
                   </td>
                   <td><span style={{ fontSize: '13px', color: 'var(--pt-text-muted)' }}>{app.description || '—'}</span></td>
-                  <td>
-                    <span
-                      className="pt-pill"
-                      style={{ background: pill.bg, color: pill.color, fontSize: '11.5px' }}
-                      title={app.status ? `Résultat du dernier test réel : ${app.status}` : "Aucun test de disponibilité lancé"}
-                    >
-                      <i className={`bi ${pill.icon}`} style={{ fontSize: '10px' }}></i>
-                      {pill.label}
-                    </span>
+                  <td aria-busy={!!rowTests[app.id]}>
+                    {rowTests[app.id] ? (
+                      <span className="pt-pill" role="status" style={{ background: 'var(--pt-primary-light)', color: 'var(--pt-primary)', fontSize: '11.5px' }}>
+                        <span className="aa-inline-spinner" aria-hidden="true"></span>
+                        {PHASE_LABELS[rowTests[app.id]]}
+                      </span>
+                    ) : (
+                      <>
+                        <span
+                          className="pt-pill"
+                          style={{ background: pill.bg, color: pill.color, fontSize: '11.5px' }}
+                          title={app.status ? `Résultat du dernier test réel : ${app.status}` : "Aucun test valide (jamais testée ou modifiée depuis)"}
+                        >
+                          <i className={`bi ${pill.icon}`} style={{ fontSize: '10px' }}></i>
+                          {pill.label}
+                        </span>
+                        {app.statusMessage && (
+                          <span className="aa-status-message" title={app.statusMessage}>{app.statusMessage}</span>
+                        )}
+                      </>
+                    )}
                   </td>
                   <td>
                     {scenariosLoading ? (
@@ -458,13 +777,32 @@ function Applications() {
                       <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Voir" onClick={() => openView(app)}>
                         <i className="bi bi-eye" style={{ fontSize: '14px' }}></i>
                       </button>
-                      {canWrite && (
+                      {canWrite && app.archived && (
+                        <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Restaurer" aria-label={`Restaurer ${app.name}`} onClick={() => restoreApps([app.id])} disabled={bulkBusy}>
+                          <i className="bi bi-arrow-counterclockwise" style={{ fontSize: '14px' }}></i>
+                        </button>
+                      )}
+                      {canWrite && !app.archived && (
+                        <button
+                          className="topbar-icon"
+                          style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }}
+                          title="Retester la connectivité"
+                          aria-label={`Retester ${app.name}`}
+                          onClick={() => handleRetest(app)}
+                          disabled={!!rowTests[app.id]}
+                        >
+                          {rowTests[app.id]
+                            ? <span className="aa-inline-spinner" aria-hidden="true"></span>
+                            : <i className="bi bi-arrow-repeat" style={{ fontSize: '14px' }}></i>}
+                        </button>
+                      )}
+                      {canWrite && !app.archived && (
                         <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Modifier" onClick={() => openEdit(app)}>
                           <i className="bi bi-pencil" style={{ fontSize: '14px' }}></i>
                         </button>
                       )}
-                      {canDelete && (
-                        <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)', color: 'var(--pt-danger)' }} title="Supprimer" onClick={() => setDeleteConfirm(app.id)}>
+                      {(canDelete || (canWrite && !app.archived)) && (
+                        <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)', color: 'var(--pt-danger)' }} title={app.archived ? 'Supprimer définitivement' : 'Supprimer / archiver'} aria-label={`Supprimer ${app.name}`} onClick={() => setDeletion({ kind: 'single', app })}>
                           <i className="bi bi-trash" style={{ fontSize: '14px' }}></i>
                         </button>
                       )}
@@ -478,25 +816,34 @@ function Applications() {
         )}
 
         <Pagination
-          page={page}
+          page={urlPage}
           totalPages={totalPages}
-          onPageChange={setPage}
+          onPageChange={(p) => updateParams({ page: p > 1 ? String(p) : null }, false)}
           startIndex={startIndex}
           endIndex={endIndex}
           totalItems={totalItems}
           itemLabel="applications"
+          pageSize={urlSize}
+          pageSizeOptions={PAGE_SIZES}
+          onPageSizeChange={(size) => updateParams({ size: size === 10 ? null : String(size) })}
         />
       </div>
 
       {/* Add/Edit Modal */}
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '520px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-busy={flow.running}
+            aria-labelledby="app-modal-title"
+            style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '620px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}
+          >
             <div className="d-flex justify-content-between align-items-center mb-4">
-              <h5 style={{ fontWeight: 700, margin: 0 }}>
+              <h5 id="app-modal-title" style={{ fontWeight: 700, margin: 0 }}>
                 {isViewOnly ? `Détails — ${editingApp?.name ?? ''}` : editingApp ? 'Modifier l\'application' : 'Ajouter une application'}
               </h5>
-              <button onClick={closeModal} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}>
+              <button onClick={closeModal} disabled={flow.running} aria-label="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', cursor: flow.running ? 'not-allowed' : 'pointer', color: 'var(--pt-text-muted)' }}>
                 <i className="bi bi-x"></i>
               </button>
             </div>
@@ -508,10 +855,14 @@ function Applications() {
               </div>
             )}
 
-            {testResultMessage && (
-              <div className={`pt-alert-banner ${testStatus === 'success' ? 'success' : 'danger'} mb-3`}>
-                <i className={`bi ${testStatus === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill'}`}></i>
-                {testResultMessage}
+            {!isViewOnly && (flow.running || flow.result) && (
+              <div className="mb-3">
+                <AuthTestProgress phases={flow.phases} current={flow.phase} result={flow.result} />
+                {flow.result && flow.result.status !== 'CONNECTED' && (
+                  <div style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)', marginTop: '8px' }}>
+                    <i className="bi bi-pencil me-1"></i>L'application est enregistrée : corrigez les champs ci-dessous puis cliquez sur « Enregistrer et tester ».
+                  </div>
+                )}
               </div>
             )}
 
@@ -535,7 +886,7 @@ function Applications() {
                   </div>
                 )}
                 <div className="col-6">
-                  <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Statut réseau réel</div>
+                  <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Statut du dernier test</div>
                   {(() => {
                     const pill = statusPillStyle[statusKey(editingApp.status)]
                     return (
@@ -545,13 +896,37 @@ function Applications() {
                     )
                   })()}
                 </div>
+                <div className="col-6">
+                  <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Authentification</div>
+                  <div style={{ fontSize: '13.5px', fontWeight: 500 }}>
+                    <i className={`bi ${editingApp.auth?.type && editingApp.auth.type !== 'NONE' ? 'bi-shield-lock text-success' : 'bi-unlock'} me-1`}></i>
+                    {authTypeLabel(editingApp.auth?.type)}
+                    {editingApp.auth?.type === 'LOGIN_TOKEN' && editingApp.auth.loginPath && (
+                      <span style={{ color: 'var(--pt-text-muted)' }}> — POST {editingApp.auth.loginPath}</span>
+                    )}
+                    {editingApp.auth?.type === 'API_KEY' && editingApp.auth.apiKeyName && (
+                      <span style={{ color: 'var(--pt-text-muted)' }}> — {editingApp.auth.apiKeyLocation === 'QUERY' ? `?${editingApp.auth.apiKeyName}=` : editingApp.auth.apiKeyName}</span>
+                    )}
+                    {editingApp.auth?.type === 'BASIC' && editingApp.auth.username && (
+                      <span style={{ color: 'var(--pt-text-muted)' }}> — {editingApp.auth.username}</span>
+                    )}
+                  </div>
+                </div>
+                {editingApp.statusMessage && (
+                  <div className="col-12">
+                    <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>
+                      Résultat{editingApp.statusCheckedAt ? ` (${formatDate(editingApp.statusCheckedAt)})` : ''}
+                    </div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 500 }}>{editingApp.statusMessage}</div>
+                  </div>
+                )}
                 <div className="col-12">
                   <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Date de création</div>
                   <div style={{ fontSize: '13.5px', fontWeight: 500 }}>{formatDate(editingApp.createdAt)}</div>
                 </div>
               </div>
             ) : (
-            <fieldset disabled={!canWrite} className="row g-3" style={{ border: 'none', padding: 0, margin: 0 }}>
+            <fieldset disabled={!canWrite || flow.running} className="row g-3" style={{ border: 'none', padding: 0, margin: 0 }}>
               <div className="col-12">
                 <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Nom de l'application *</label>
                 <input
@@ -595,6 +970,21 @@ function Applications() {
                   <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{descriptionError}</div>
                 )}
               </div>
+              <div className="col-12">
+                <div style={{ borderTop: '1px solid var(--pt-border)', paddingTop: '1rem', marginTop: '0.25rem' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '8px', display: 'block' }}>
+                    <i className="bi bi-shield-lock me-2"></i>Authentification
+                  </label>
+                  <ApplicationAuthFields
+                    value={authForm}
+                    onChange={setAuthForm}
+                    errors={authErrors}
+                    showErrors={showAuthErrors}
+                    existing={editingApp?.auth}
+                    baseUrl={form.url}
+                  />
+                </div>
+              </div>
             </fieldset>
             )}
 
@@ -605,38 +995,32 @@ function Applications() {
                 </button>
               ) : (
                 <>
-                  <button onClick={closeModal} disabled={testStatus === 'testing' || saving} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: testStatus === 'testing' ? 'not-allowed' : 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                    Annuler
+                  <button onClick={closeModal} disabled={flow.running} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: flow.running ? 'not-allowed' : 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
+                    {flow.result?.status === 'CONNECTED' ? 'Fermer' : 'Annuler'}
                   </button>
-                  {editingApp ? (
-                    canWrite && (
-                      <button onClick={handleSubmit} disabled={!isFormValid || saving} style={{ background: !isFormValid ? '#93C5FD' : 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: !isFormValid ? 'not-allowed' : 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
-                        {saving ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Enregistrement...</> : <><i className="bi bi-check2 me-2"></i>Enregistrer</>}
-                      </button>
-                    )
-                  ) : (
-                    canWrite && (
-                      <button
-                        onClick={handleTestAndAdd}
-                        disabled={!isFormValid || testStatus === 'testing' || testStatus === 'success'}
-                        style={{
-                          background: !isFormValid ? '#93C5FD' : testStatus === 'success' ? 'var(--pt-success)' : testStatus === 'error' ? 'var(--pt-danger)' : 'var(--pt-primary)',
-                          color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px',
-                          cursor: !isFormValid || testStatus === 'testing' ? 'not-allowed' : 'pointer',
-                          fontSize: '13.5px', fontWeight: 600, minWidth: '190px',
-                        }}
-                      >
-                        {testStatus === 'testing' ? (
-                          <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Création + test en cours...</>
-                        ) : testStatus === 'success' ? (
-                          <><i className="bi bi-check-circle-fill me-2"></i>Connectée</>
-                        ) : testStatus === 'error' ? (
-                          <><i className="bi bi-exclamation-triangle-fill me-2"></i>Ajoutée — Échec du test</>
-                        ) : (
-                          <><i className="bi bi-wifi me-2"></i>Tester et ajouter</>
-                        )}
-                      </button>
-                    )
+                  {canWrite && (
+                    <button
+                      onClick={handleSaveAndTest}
+                      disabled={flow.running || flow.result?.status === 'CONNECTED'}
+                      aria-busy={flow.running}
+                      style={{
+                        background: flow.result?.status === 'CONNECTED' ? 'var(--pt-success)' : 'var(--pt-primary)',
+                        opacity: flow.running ? 0.75 : 1,
+                        color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px',
+                        cursor: flow.running ? 'wait' : 'pointer',
+                        fontSize: '13.5px', fontWeight: 600, minWidth: '200px',
+                      }}
+                    >
+                      {flow.running ? (
+                        <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{flow.phase ? PHASE_LABELS[flow.phase] : 'En cours…'}</>
+                      ) : flow.result?.status === 'CONNECTED' ? (
+                        <><i className="bi bi-check-circle-fill me-2"></i>Connectée</>
+                      ) : editingApp ? (
+                        <><i className="bi bi-arrow-repeat me-2"></i>Enregistrer et tester</>
+                      ) : (
+                        <><i className="bi bi-wifi me-2"></i>Tester et ajouter</>
+                      )}
+                    </button>
                   )}
                 </>
               )}
@@ -645,33 +1029,19 @@ function Applications() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {deleteConfirm !== null && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '400px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', textAlign: 'center' }}>
-            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--pt-danger-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
-              <i className="bi bi-trash" style={{ fontSize: '24px', color: 'var(--pt-danger)' }}></i>
-            </div>
-            <h5 style={{ fontWeight: 700, marginBottom: '8px' }}>Supprimer l'application ?</h5>
-            <p style={{ color: 'var(--pt-text-muted)', fontSize: '14px', marginBottom: '1.5rem' }}>
-              {apps.find(a => a.id === deleteConfirm)?.name} sera définitivement supprimée.
-            </p>
-            {actionError && (
-              <div className="pt-alert-banner danger mb-3" style={{ textAlign: 'left' }}>
-                <i className="bi bi-exclamation-triangle-fill"></i>
-                {actionError}
-              </div>
-            )}
-            <div className="d-flex gap-2 justify-content-center">
-              <button onClick={() => setDeleteConfirm(null)} disabled={saving} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                Annuler
-              </button>
-              <button onClick={() => handleDelete(deleteConfirm)} disabled={saving} style={{ background: 'var(--pt-danger)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
-                {saving ? 'Suppression...' : 'Supprimer'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Suppression / archivage : modale d'impact */}
+      {deletion && (
+        <DeletionDialog
+          subject={deletion.kind === 'single' ? `l'application « ${deletion.app.name} »` : `${deletion.ids.length} application${deletion.ids.length > 1 ? 's' : ''}`}
+          confirmText={deletion.kind === 'single' ? deletion.app.name : 'SUPPRIMER'}
+          loadImpact={() => deletion.kind === 'single'
+            ? applicationsBackendApi.deletionImpact(deletion.app.id)
+            : applicationsBackendApi.bulkDeletionImpact(deletion.ids)}
+          canPermanent={canDelete}
+          archiveAvailable={deletion.kind === 'single' ? !deletion.app.archived : !showArchived}
+          onConfirm={confirmDeletion}
+          onClose={() => setDeletion(null)}
+        />
       )}
     </div>
   )

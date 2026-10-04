@@ -1,6 +1,10 @@
 package com.loadpilot.backend.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.startsWith;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -19,6 +23,8 @@ import com.loadpilot.backend.service.http.HttpAvailabilityResult;
 import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -298,4 +304,283 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.httpStatus").value(nullValue()));
     }
 
+
+    // ------------------------------------------------------------
+    // Resultat detaille du test, correction d'une application en echec,
+    // authentification appliquee au test de connectivite.
+    // ------------------------------------------------------------
+
+    private String createWithAuth(String name, String url, Map<String, Object> auth) throws Exception {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("name", name);
+        body.put("url", url);
+        body.put("auth", auth);
+        String response = mockMvc.perform(post("/api/applications").with(AS_SUPER_ADMIN)
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(response).doesNotContain("s3cret");
+        return objectMapper.readTree(response).get("id").asText();
+    }
+
+    @Test
+    void testAvailability_persistsMessageAndDate_visibleInGet() throws Exception {
+        String id = createApplicationAndGetId("message-app");
+
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.message").value("Application joignable (HTTP 200)."));
+
+        mockMvc.perform(get("/api/applications/" + id).with(AS_VIEWER))
+                .andExpect(jsonPath("$.status").value("CONNECTED"))
+                .andExpect(jsonPath("$.statusMessage").value("Application joignable (HTTP 200)."))
+                .andExpect(jsonPath("$.statusCheckedAt").value(notNullValue()));
+    }
+
+    @Test
+    void testAvailability_401_setsFailedWithAuthenticationRefusedMessage() throws Exception {
+        String id = createApplicationAndGetId("unauthorized-app");
+        when(availabilityChecker.check(anyString(), any(Duration.class)))
+                .thenReturn(new HttpAvailabilityResult(true, 401, 10L, null));
+
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.message").value(startsWith("Authentification refusée (401)")));
+    }
+
+    @Test
+    void testAvailability_networkError_setsErrorWithReadableMessage() throws Exception {
+        String id = createApplicationAndGetId("dns-app");
+        when(availabilityChecker.check(anyString(), any(Duration.class)))
+                .thenReturn(new HttpAvailabilityResult(false, null, 3L, "hôte introuvable (DNS)"));
+
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("ERROR"))
+                .andExpect(jsonPath("$.message").value("Application injoignable : hôte introuvable (DNS)."));
+    }
+
+    @Test
+    void update_resetsPreviousTestResult_untilRetested() throws Exception {
+        String id = createApplicationAndGetId("fix-me");
+        when(availabilityChecker.check(anyString(), any(Duration.class)))
+                .thenReturn(new HttpAvailabilityResult(true, 404, 5L, null));
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        mockMvc.perform(put("/api/applications/" + id).with(AS_SUPER_ADMIN)
+                        .contentType(MediaType.APPLICATION_JSON).content(validRequestJson("fix-me", "http://example.com/fixed")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(nullValue()))
+                .andExpect(jsonPath("$.statusMessage").value(nullValue()));
+
+        when(availabilityChecker.check(anyString(), any(Duration.class)))
+                .thenReturn(new HttpAvailabilityResult(true, 200, 5L, null));
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("CONNECTED"));
+    }
+
+    @Test
+    void testAvailability_bearerToken_sendsAuthorizationHeader() throws Exception {
+        String id = createWithAuth("bearer-app", "http://example.com/b", Map.of("type", "BEARER_TOKEN", "token", "s3cret", "verificationPath", "/me"));
+        stubVerification(new HttpAvailabilityResult(true, 401, 5L, null), new HttpAvailabilityResult(true, 200, 5L, null));
+
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("CONNECTED"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> headers = ArgumentCaptor.forClass(Map.class);
+        Mockito.verify(availabilityChecker).check(anyString(), headers.capture(), any(Duration.class));
+        assertThat(headers.getValue()).containsEntry("Authorization", "Bearer s3cret");
+    }
+
+    @Test
+    void testAvailability_apiKeyInQuery_isAppendedToUrl() throws Exception {
+        String id = createWithAuth("query-app", "http://example.com/q",
+                Map.of("type", "API_KEY", "apiKeyName", "api_key", "apiKeyValue", "k-1", "apiKeyLocation", "QUERY",
+                        "verificationPath", "/me?lang=fr"));
+        stubVerification(new HttpAvailabilityResult(true, 401, 5L, null), new HttpAvailabilityResult(true, 200, 5L, null));
+
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN));
+
+        ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(availabilityChecker).check(url.capture(), anyMap(), any(Duration.class));
+        assertThat(url.getValue()).isEqualTo("http://example.com/q/me?lang=fr&api_key=k-1");
+    }
+
+    @Test
+    void testAvailability_loginEndpointUnreachable_setsErrorWithoutLeakingSecret() throws Exception {
+        String id = createWithAuth("login-down", "http://localhost:1", Map.of("type", "LOGIN_TOKEN",
+                "loginPath", "/api/auth/login", "loginBody", "{\"password\":\"s3cret\"}", "tokenJsonPath", "$.token"));
+
+        String response = mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("ERROR"))
+                .andExpect(jsonPath("$.message").value(startsWith("Endpoint de connexion injoignable : login impossible")))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(response).doesNotContain("s3cret");
+
+        mockMvc.perform(get("/api/applications/" + id).with(AS_VIEWER))
+                .andExpect(jsonPath("$.auth.type").value("LOGIN_TOKEN"))
+                .andExpect(jsonPath("$.auth.loginBodyConfigured").value(true))
+                .andExpect(jsonPath("$.auth.loginBody").doesNotExist());
+    }
+
+    @Test
+    void create_invalidAuth_returns400WithSameMessageAsFrontend() throws Exception {
+        Map<String, Object> body = Map.of("name", "bad", "url", "http://example.com", "auth",
+                Map.of("type", "LOGIN_TOKEN", "loginPath", "/login", "loginBody", "not json", "tokenJsonPath", "$.token"));
+        mockMvc.perform(post("/api/applications").with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Le corps doit être un JSON valide."));
+    }
+
+    // ------------------------------------------------------------
+    // Bearer / cle API / Basic : verification reelle des identifiants sur
+    // l'endpoint de verification (GET sans auth -> 401/403, puis avec auth).
+    // ------------------------------------------------------------
+
+    private static final Map<String, Object> BEARER_WITH_CHECK =
+            Map.of("type", "BEARER_TOKEN", "token", "s3cret", "verificationPath", "/api/account/balance");
+
+    private void stubVerification(HttpAvailabilityResult anonymous, HttpAvailabilityResult authenticated) {
+        when(availabilityChecker.check(anyString(), any(Duration.class))).thenReturn(anonymous);
+        when(availabilityChecker.check(anyString(), anyMap(), any(Duration.class))).thenReturn(authenticated);
+    }
+
+    @Test
+    void credentialCheck_validCredentials_connected_andBothRequestsTargetVerificationEndpoint() throws Exception {
+        String id = createWithAuth("check-ok", "http://example.com", BEARER_WITH_CHECK);
+        stubVerification(new HttpAvailabilityResult(true, 401, 3L, null), new HttpAvailabilityResult(true, 200, 4L, null));
+
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("CONNECTED"))
+                .andExpect(jsonPath("$.message").value("Identifiants valides (HTTP 200)."));
+
+        ArgumentCaptor<String> anonymousUrl = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(availabilityChecker).check(anonymousUrl.capture(), any(Duration.class));
+        assertThat(anonymousUrl.getValue()).isEqualTo("http://example.com/api/account/balance");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> headers = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<String> authUrl = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(availabilityChecker).check(authUrl.capture(), headers.capture(), any(Duration.class));
+        assertThat(authUrl.getValue()).isEqualTo("http://example.com/api/account/balance");
+        assertThat(headers.getValue()).containsEntry("Authorization", "Bearer s3cret");
+    }
+
+    @Test
+    void credentialCheck_wrongCredentials_failedNeverConnected() throws Exception {
+        String id = createWithAuth("check-bad", "http://example.com", BEARER_WITH_CHECK);
+        stubVerification(new HttpAvailabilityResult(true, 401, 3L, null), new HttpAvailabilityResult(true, 401, 4L, null));
+
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.message").value("Jeton refusé (401)."));
+    }
+
+    @Test
+    void credentialCheck_unprotectedEndpoint_failedWithExplicitMessage() throws Exception {
+        String id = createWithAuth("check-public", "http://example.com", BEARER_WITH_CHECK);
+        stubVerification(new HttpAvailabilityResult(true, 200, 3L, null), new HttpAvailabilityResult(true, 200, 4L, null));
+
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.message").value("Endpoint non protégé : choisissez un endpoint qui exige l'authentification."));
+        Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), anyMap(), any(Duration.class));
+    }
+
+    @Test
+    void credentialCheck_otherCode_and_networkError() throws Exception {
+        String id = createWithAuth("check-500", "http://example.com", BEARER_WITH_CHECK);
+        stubVerification(new HttpAvailabilityResult(true, 403, 3L, null), new HttpAvailabilityResult(true, 500, 4L, null));
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.message").value("L'endpoint de vérification a répondu avec une erreur (HTTP 500)."));
+
+        stubVerification(new HttpAvailabilityResult(false, null, 3L, "délai de réponse dépassé (5 s)"), null);
+        mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("ERROR"))
+                .andExpect(jsonPath("$.message").value("Endpoint de vérification injoignable : délai de réponse dépassé (5 s)."));
+    }
+
+    @Test
+    void credentialCheck_missingVerificationPath_returns400() throws Exception {
+        Map<String, Object> body = Map.of("name", "no-path", "url", "http://example.com",
+                "auth", Map.of("type", "API_KEY", "apiKeyName", "X-API-Key", "apiKeyValue", "k"));
+        mockMvc.perform(post("/api/applications").with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Indiquez l'endpoint de vérification (ex : /api/account/balance)."));
+    }
+
+    // ------------------------------------------------------------
+    // Message de refus propre a chaque type, et Connexion auto verifiee par
+    // un POST reel sur l'endpoint de connexion (serveur HTTP local).
+    // ------------------------------------------------------------
+
+    @Test
+    void credentialCheck_refusalMessage_dependsOnType() throws Exception {
+        String apiKey = createWithAuth("refused-key", "http://example.com", Map.of("type", "API_KEY",
+                "apiKeyName", "X-API-Key", "apiKeyValue", "s3cret", "verificationPath", "/api/auth/verify"));
+        String basic = createWithAuth("refused-basic", "http://example.com", Map.of("type", "BASIC",
+                "username", "agent001", "password", "s3cret", "verificationPath", "/api/auth/verify"));
+        stubVerification(new HttpAvailabilityResult(true, 401, 3L, null), new HttpAvailabilityResult(true, 401, 3L, null));
+        mockMvc.perform(post("/api/applications/" + apiKey + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.message").value("Clé API refusée (401)."));
+
+        stubVerification(new HttpAvailabilityResult(true, 403, 3L, null), new HttpAvailabilityResult(true, 403, 3L, null));
+        mockMvc.perform(post("/api/applications/" + basic + "/test").with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.message").value("Identifiants Basic refusés (403)."));
+    }
+
+    /** Serveur de connexion local : 200 + token pour le bon mot de passe,
+     * 401 sinon ; "/no-token" repond 200 sans token. */
+    private com.sun.net.httpserver.HttpServer startLoginServer() throws java.io.IOException {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("localhost", 0), 0);
+        server.createContext("/", exchange -> {
+            String body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            boolean noToken = exchange.getRequestURI().getPath().equals("/no-token");
+            boolean ok = "POST".equals(exchange.getRequestMethod()) && body.contains("\"good\"");
+            byte[] out = (ok ? (noToken ? "{\"ok\":true}" : "{\"data\":{\"token\":\"tok\"}}") : "{\"error\":\"bad\"}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(ok ? 200 : 401, out.length);
+            exchange.getResponseBody().write(out);
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+
+    @Test
+    void loginToken_connectivity_isTheRealLogin_neverAGetOnTheApplicationUrl() throws Exception {
+        com.sun.net.httpserver.HttpServer server = startLoginServer();
+        try {
+            String base = "http://localhost:" + server.getAddress().getPort();
+            Map<String, Object> login = Map.of("type", "LOGIN_TOKEN", "loginPath", "/auth/login",
+                    "loginBody", "{\"password\":\"good\"}", "tokenJsonPath", "$.data.token");
+
+            String ok = createWithAuth("login-ok", base, login);
+            mockMvc.perform(post("/api/applications/" + ok + "/test").with(AS_SUPER_ADMIN))
+                    .andExpect(jsonPath("$.status").value("CONNECTED"))
+                    .andExpect(jsonPath("$.message").value("Authentification réussie (token obtenu)."));
+
+            String bad = createWithAuth("login-bad", base, Map.of("type", "LOGIN_TOKEN", "loginPath", "/auth/login",
+                    "loginBody", "{\"password\":\"s3cret\"}", "tokenJsonPath", "$.data.token"));
+            mockMvc.perform(post("/api/applications/" + bad + "/test").with(AS_SUPER_ADMIN))
+                    .andExpect(jsonPath("$.status").value("FAILED"))
+                    .andExpect(jsonPath("$.message").value("Identifiants refusés (401)."));
+
+            String noToken = createWithAuth("login-no-token", base, Map.of("type", "LOGIN_TOKEN", "loginPath", "/no-token",
+                    "loginBody", "{\"password\":\"good\"}", "tokenJsonPath", "$.token"));
+            mockMvc.perform(post("/api/applications/" + noToken + "/test").with(AS_SUPER_ADMIN))
+                    .andExpect(jsonPath("$.status").value("FAILED"))
+                    .andExpect(jsonPath("$.message").value("Token introuvable à $.token."));
+
+            Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), any(Duration.class));
+            Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), anyMap(), any(Duration.class));
+        } finally {
+            server.stop(0);
+        }
+    }
 }

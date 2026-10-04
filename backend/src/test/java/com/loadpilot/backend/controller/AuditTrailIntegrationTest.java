@@ -233,13 +233,16 @@ class AuditTrailIntegrationTest {
     }
 
     @Test
-    void applicationDelete_withAttachedScenario_producesFailureAuditLog() throws Exception {
-        String appId = createApplicationAndGetId("audit-trail-app-conflict-" + UUID.randomUUID());
-        createScenarioAndGetId(appId, "blocking-scenario");
+    void applicationDelete_withAttachedScenario_cascades_andProducesSuccessAuditLog() throws Exception {
+        // Suppression definitive explicite : cascade (scenarios inclus) et
+        // trace d'audit DELETE/SUCCESS (voir DeletionServiceImpl).
+        String name = "audit-trail-app-cascade-" + UUID.randomUUID();
+        String appId = createApplicationAndGetId(name);
+        createScenarioAndGetId(appId, "cascaded-scenario");
 
-        mockMvc.perform(delete("/api/applications/" + appId).with(AS_SUPER_ADMIN)).andExpect(status().isConflict());
+        mockMvc.perform(delete("/api/applications/" + appId).with(AS_SUPER_ADMIN)).andExpect(status().isNoContent());
 
-        assertThat(hasAuditEntry(AuditAction.DELETE, AuditModule.APPLICATION, AuditResult.FAILURE, appId)).isTrue();
+        assertThat(hasAuditEntry(AuditAction.DELETE, AuditModule.APPLICATION, AuditResult.SUCCESS, name)).isTrue();
     }
 
     @Test

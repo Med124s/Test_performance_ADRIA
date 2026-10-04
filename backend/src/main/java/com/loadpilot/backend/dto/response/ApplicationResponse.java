@@ -14,8 +14,13 @@ public record ApplicationResponse(
         String description,
         String url,
         ApplicationStatus status,
+        String statusMessage,
+        Instant statusCheckedAt,
         String createdBy,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        ApplicationAuthResponse auth,
+        boolean archived,
+        Instant archivedAt
 ) {
 }

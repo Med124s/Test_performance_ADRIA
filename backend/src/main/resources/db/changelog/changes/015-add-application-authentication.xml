@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Authentification de l'Application cible - colonnes ADDITIONNELLES
+        uniquement (aucun changeset 001-014 modifie).
+
+        application.auth_type   : NONE | BEARER_TOKEN | API_KEY | BASIC |
+                                  LOGIN_TOKEN (voir enums.ApplicationAuthType).
+                                  NOT NULL avec defaut NONE : toute
+                                  Application existante garde EXACTEMENT
+                                  son comportement actuel (aucune
+                                  authentification ajoutee).
+        application.auth_config : parametres du type choisi, en JSON (voir
+                                  service.auth.ApplicationAuthConfig). Peut
+                                  contenir des secrets (token, cle, mot de
+                                  passe) : jamais renvoyes par l'API, seul
+                                  un indicateur "configure" l'est.
+    -->
+    <changeSet id="015-add-application-authentication" author="loadpilot">
+        <addColumn tableName="application">
+            <column name="auth_type" type="VARCHAR(30)" defaultValue="NONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="auth_config" type="VARCHAR(10000)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

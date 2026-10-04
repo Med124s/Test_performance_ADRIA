@@ -5,8 +5,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -24,34 +24,37 @@ public class JavaHttpClientAvailabilityChecker implements HttpAvailabilityChecke
 
     @Override
     public HttpAvailabilityResult check(String url, Duration timeout) {
+        return check(url, Map.of(), timeout);
+    }
+
+    @Override
+    public HttpAvailabilityResult check(String url, Map<String, String> headers, Duration timeout) {
         long startedAt = System.nanoTime();
         try {
             HttpClient client = HttpClient.newBuilder()
                     .connectTimeout(timeout)
                     .followRedirects(HttpClient.Redirect.NORMAL)
                     .build();
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                     .timeout(timeout)
-                    .GET()
-                    .build();
+                    .GET();
+            headers.forEach(builder::header);
+            HttpRequest request = builder.build();
 
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
             return new HttpAvailabilityResult(true, response.statusCode(), elapsedMs(startedAt), null);
-        } catch (HttpTimeoutException e) {
-            return new HttpAvailabilityResult(false, null, elapsedMs(startedAt),
-                    "Delai d'attente depasse (" + timeout.toSeconds() + "s)");
         } catch (IOException e) {
-            // Certaines IOException (ex: ConnectException sur Windows) n'ont
-            // aucun message - ne jamais renvoyer un errorMessage vide/nul.
-            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.debug("Test de disponibilite echoue pour {} : {}", url, message);
+            // Message lisible, jamais le message brut (peut contenir l'URL,
+            // donc une cle API en parametre) ; log sans la query string.
+            String message = NetworkErrors.describe(e, timeout.toSeconds());
+            log.debug("Test de disponibilite echoue pour {} : {}", NetworkErrors.redact(url), e.getClass().getSimpleName());
             return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), message);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), "Requete interrompue.");
+            return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), "requête interrompue");
         } catch (IllegalArgumentException e) {
             // URI.create()/HttpRequest.newBuilder() rejette une URL malformee.
-            return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), "URL invalide : " + e.getMessage());
+            return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), "URL invalide");
         }
     }
 

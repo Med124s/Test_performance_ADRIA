@@ -53,8 +53,9 @@ public class Metric {
     @JoinColumn(name = "scenario_id", updatable = false)
     private Scenario scenario;
 
+    /** Null si l'etape a ete supprimee depuis (FK ON DELETE SET NULL, migration 017). */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "step_id", nullable = false, updatable = false)
+    @JoinColumn(name = "step_id", updatable = false)
     private Step step;
 
     @ManyToOne(fetch = FetchType.LAZY)

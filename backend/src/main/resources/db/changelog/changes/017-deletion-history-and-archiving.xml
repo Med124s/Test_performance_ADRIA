@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Suppression coherente sans perte d'historique (aucun changeset
+        001-016 modifie).
+
+        1. execution_step_result garde une COPIE de l'etape (nom, methode,
+           URL) au moment de l'execution, puis step_id devient nullable avec
+           ON DELETE SET NULL : supprimer une etape ne casse plus les
+           rapports passes, qui restent lisibles via cette copie.
+        2. metric.step_id : meme regle (nullable, ON DELETE SET NULL).
+        3. application / scenario : archivage logique (archived, archived_at)
+           - l'element disparait des listes mais son historique reste
+           consultable, et il peut etre restaure.
+    -->
+    <changeSet id="017-step-result-snapshot" author="loadpilot">
+        <addColumn tableName="execution_step_result">
+            <column name="step_name" type="VARCHAR(255)"/>
+            <column name="step_method" type="VARCHAR(10)"/>
+            <column name="step_url" type="VARCHAR(2048)"/>
+        </addColumn>
+        <!-- Copie des valeurs actuelles pour tout l'historique existant. -->
+        <sql>
+            UPDATE execution_step_result
+            SET step_name = (SELECT s.name FROM step s WHERE s.id = execution_step_result.step_id),
+                step_method = (SELECT s.method FROM step s WHERE s.id = execution_step_result.step_id),
+                step_url = (SELECT s.url FROM step s WHERE s.id = execution_step_result.step_id)
+        </sql>
+    </changeSet>
+
+    <changeSet id="017-step-fk-set-null" author="loadpilot">
+        <dropForeignKeyConstraint baseTableName="execution_step_result" constraintName="fk_result_step"/>
+        <dropNotNullConstraint tableName="execution_step_result" columnName="step_id" columnDataType="UUID"/>
+        <addForeignKeyConstraint baseTableName="execution_step_result" baseColumnNames="step_id"
+                                 constraintName="fk_result_step"
+                                 referencedTableName="step" referencedColumnNames="id"
+                                 onDelete="SET NULL"/>
+
+        <dropForeignKeyConstraint baseTableName="metric" constraintName="fk_metric_step"/>
+        <dropNotNullConstraint tableName="metric" columnName="step_id" columnDataType="UUID"/>
+        <addForeignKeyConstraint baseTableName="metric" baseColumnNames="step_id"
+                                 constraintName="fk_metric_step"
+                                 referencedTableName="step" referencedColumnNames="id"
+                                 onDelete="SET NULL"/>
+    </changeSet>
+
+    <changeSet id="017-archiving" author="loadpilot">
+        <addColumn tableName="application">
+            <column name="archived" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="archived_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </addColumn>
+        <addColumn tableName="scenario">
+            <column name="archived" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="archived_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

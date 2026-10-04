@@ -1,5 +1,13 @@
 package com.loadpilot.backend.controller;
 
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.security.access.AccessDeniedException;
+import com.loadpilot.backend.service.impl.DeletionServiceImpl;
+import com.loadpilot.backend.service.impl.ApplicationBulkService;
+import com.loadpilot.backend.exception.LoadConfigurationException;
+import com.loadpilot.backend.dto.response.DeletionImpactResponse;
+import com.loadpilot.backend.dto.response.BulkActionResponse;
+import com.loadpilot.backend.dto.request.BulkActionRequest;
 import com.loadpilot.backend.dto.request.ApplicationRequest;
 import com.loadpilot.backend.dto.response.ApplicationResponse;
 import com.loadpilot.backend.dto.response.ApplicationTestResponse;
@@ -42,11 +50,29 @@ import org.springframework.web.bind.annotation.RestController;
 public class ApplicationController {
 
     private final ApplicationService applicationService;
+    private final DeletionServiceImpl deletionService;
+    private final ApplicationBulkService bulkService;
 
+    /**
+     * Sans "page" : liste complete (format historique, utilise par les autres
+     * ecrans). Avec "page" : reponse paginee {content, page, size,
+     * totalElements, totalPages}, filtree et triee cote serveur.
+     */
     @GetMapping
-    @Operation(summary = "Lister les applications", description = "Retourne toutes les applications, les plus recentes en premier.")
-    public List<ApplicationResponse> list() {
-        return applicationService.list();
+    @Operation(summary = "Lister les applications",
+            description = "Sans le parametre page : liste complete des applications non archivees (ou archivees si archived=true). "
+                    + "Avec page : reponse paginee. size borne a 5..100 ; sort=champ,asc|desc parmi name, url, status, createdAt, updatedAt ; "
+                    + "search sur nom/URL/description ; status = CONNECTED, FAILED, ERROR ou UNTESTED.")
+    public Object list(@RequestParam(required = false) Integer page,
+                       @RequestParam(defaultValue = "10") int size,
+                       @RequestParam(required = false) String sort,
+                       @RequestParam(required = false) String search,
+                       @RequestParam(required = false) String status,
+                       @RequestParam(defaultValue = "false") boolean archived) {
+        if (page == null) {
+            return applicationService.list(archived);
+        }
+        return applicationService.page(page, size, sort, search, status, archived);
     }
 
     @GetMapping("/{id}")
@@ -80,11 +106,78 @@ public class ApplicationController {
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    @Operation(summary = "Supprimer une application", description = "Reserve a SUPER_ADMIN. Refuse (409) si des Scenarios y sont encore rattaches.")
-    @ApiResponse(responseCode = "204", description = "Application supprimee")
-    @ApiResponse(responseCode = "409", description = "Des scenarios sont encore rattaches a cette application")
+    @Operation(summary = "Supprimer definitivement une application",
+            description = "Reserve a SUPER_ADMIN. Cascade complete (scenarios, etapes, executions, resultats, planifications, metriques) "
+                    + "dans une seule transaction. Refuse (409) si une execution est en cours. Alternative non destructive : POST /{id}/archive.")
+    @ApiResponse(responseCode = "204", description = "Application supprimee definitivement")
+    @ApiResponse(responseCode = "409", description = "Une execution est en cours")
     public void delete(@PathVariable UUID id) {
         applicationService.delete(id);
+    }
+
+    @GetMapping("/{id}/deletion-impact")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Impact d'une suppression ou d'un archivage",
+            description = "Nombre de scenarios, etapes, executions et planifications concernes, et presence d'une execution en cours.")
+    public DeletionImpactResponse deletionImpact(@PathVariable UUID id) {
+        return deletionService.applicationsImpact(List.of(id));
+    }
+
+    @PostMapping("/{id}/archive")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Archiver une application",
+            description = "Suppression logique : masquee des listes, historique conserve, restaurable. Refuse (409) si une execution est en cours.")
+    public ApplicationResponse archive(@PathVariable UUID id) {
+        deletionService.archiveApplication(id);
+        return applicationService.getById(id);
+    }
+
+    @PostMapping("/{id}/restore")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Restaurer une application archivee")
+    public ApplicationResponse restore(@PathVariable UUID id) {
+        deletionService.restoreApplication(id);
+        return applicationService.getById(id);
+    }
+
+    @PostMapping("/bulk-deletion-impact")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Impact cumule d'une action groupee")
+    public DeletionImpactResponse bulkDeletionImpact(@Valid @RequestBody BulkActionRequest request) {
+        return deletionService.applicationsImpact(request.ids());
+    }
+
+    @PostMapping("/bulk-archive")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Archiver ou restaurer plusieurs applications",
+            description = "mode = ARCHIVE (defaut) ou RESTORE. Resultat detaille par application (succes partiels possibles).")
+    public BulkActionResponse bulkArchive(@Valid @RequestBody BulkActionRequest request) {
+        String mode = request.mode() == null ? "ARCHIVE" : request.mode().toUpperCase();
+        return switch (mode) {
+            case "ARCHIVE" -> bulkService.archive(request.ids());
+            case "RESTORE" -> bulkService.restore(request.ids());
+            default -> throw new LoadConfigurationException("Mode inconnu : " + request.mode() + " (ARCHIVE ou RESTORE).");
+        };
+    }
+
+    @PostMapping("/bulk-delete")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Supprimer plusieurs applications",
+            description = "mode = ARCHIVE (defaut) ou PERMANENT (SUPER_ADMIN uniquement). Resultat detaille par application.")
+    public BulkActionResponse bulkDelete(@Valid @RequestBody BulkActionRequest request, Authentication authentication) {
+        String mode = request.mode() == null ? "ARCHIVE" : request.mode().toUpperCase();
+        return switch (mode) {
+            case "ARCHIVE" -> bulkService.archive(request.ids());
+            case "PERMANENT" -> {
+                boolean superAdmin = authentication.getAuthorities().stream()
+                        .anyMatch(a -> "ROLE_SUPER_ADMIN".equals(a.getAuthority()));
+                if (!superAdmin) {
+                    throw new AccessDeniedException("La suppression definitive est reservee au role SUPER_ADMIN.");
+                }
+                yield bulkService.deletePermanently(request.ids());
+            }
+            default -> throw new LoadConfigurationException("Mode inconnu : " + request.mode() + " (ARCHIVE ou PERMANENT).");
+        };
     }
 
     @PostMapping("/{id}/test")
