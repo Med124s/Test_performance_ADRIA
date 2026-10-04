@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Statut INACTIVE fonctionnel (scenario.status est un VARCHAR : aucune modification de
+        colonne necessaire pour la nouvelle valeur).
+
+        scheduled_execution.paused_by_scenario : vrai pour une planification desactivee
+        automatiquement par la desactivation de son scenario - elle peut etre reactivee a la
+        reactivation du scenario, sans jamais reactiver une planification que l'utilisateur
+        avait lui-meme mise en pause.
+    -->
+    <changeSet id="019-scenario-inactive-paused-schedules" author="loadpilot">
+        <addColumn tableName="scheduled_execution">
+            <column name="paused_by_scenario" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

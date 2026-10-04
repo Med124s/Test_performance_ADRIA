@@ -16,7 +16,7 @@
 // ============================================================
 
 import { springHttp } from './httpClient'
-import { BackendStepRequest, BackendStepResponse } from '../../types/backendContracts'
+import { BackendStepRequest, BackendStepResponse, BackendTestRunResponse } from '../../types/backendContracts'
 
 const RESOURCE = '/api/steps'
 
@@ -30,4 +30,7 @@ export const stepsBackendApi = {
   update: (id: string, data: BackendStepRequest) =>
     springHttp.put<BackendStepResponse>(`${RESOURCE}/${id}`, data),
   remove: (id: string) => springHttp.delete<void>(`${RESOURCE}/${id}`),
+  /** Test détaillé d'une seule étape, avec les variables déjà connues (ex. transferId). */
+  testRun: (id: string, variables: Record<string, string> = {}) =>
+    springHttp.post<BackendTestRunResponse>(`${RESOURCE}/${id}/test-run`, { variables }),
 }

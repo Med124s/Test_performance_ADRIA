@@ -119,6 +119,14 @@ public class Step {
     @Column(name = "capture_json_path", length = 500)
     private String captureJsonPath;
 
+    /** Variables de chemin (:nom / {nom}) : objet JSON {"nom": "valeur ou ${variable}"}. */
+    @Column(name = "path_params", length = 4000)
+    private String pathParams;
+
+    /** Parametres de requete : tableau JSON [{"key","value","enabled"}]. */
+    @Column(name = "query_params", length = 8000)
+    private String queryParams;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private StepStatus status;

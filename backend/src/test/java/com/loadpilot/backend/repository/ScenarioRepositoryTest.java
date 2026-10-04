@@ -111,7 +111,7 @@ class ScenarioRepositoryTest {
     void countByApplicationId_countsExactlyScenariosOfThatApplication() {
         Application other = otherApplication();
         save(application, "a-1", ScenarioStatus.ACTIVE);
-        save(application, "a-2", ScenarioStatus.INACTIVE);
+        save(application, "a-2", ScenarioStatus.DRAFT);
         save(other, "b-1", ScenarioStatus.ACTIVE);
 
         assertThat(scenarioRepository.countByApplicationId(application.getId())).isEqualTo(2L);
@@ -122,10 +122,10 @@ class ScenarioRepositoryTest {
     void countByApplicationIdAndStatus_filtersByBothDimensions() {
         save(application, "active-1", ScenarioStatus.ACTIVE);
         save(application, "active-2", ScenarioStatus.ACTIVE);
-        save(application, "inactive-1", ScenarioStatus.INACTIVE);
+        save(application, "inactive-1", ScenarioStatus.DRAFT);
 
         assertThat(scenarioRepository.countByApplicationIdAndStatus(application.getId(), ScenarioStatus.ACTIVE)).isEqualTo(2L);
-        assertThat(scenarioRepository.countByApplicationIdAndStatus(application.getId(), ScenarioStatus.INACTIVE)).isEqualTo(1L);
+        assertThat(scenarioRepository.countByApplicationIdAndStatus(application.getId(), ScenarioStatus.DRAFT)).isEqualTo(1L);
     }
 
     @Test

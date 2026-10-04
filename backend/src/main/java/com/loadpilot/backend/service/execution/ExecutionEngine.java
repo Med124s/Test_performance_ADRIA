@@ -1,5 +1,6 @@
 package com.loadpilot.backend.service.execution;
 
+import com.loadpilot.backend.service.auth.ApplicationAuthSpec;
 import java.util.List;
 import java.util.Map;
 
@@ -34,6 +35,25 @@ public interface ExecutionEngine {
      * jamais un echec, jamais une ligne vide inventee. Liste vide = aucune
      * variable de donnees (comportement historique inchange).
      */
-    ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl,
+    default ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl,
+            LoadTestSpec loadSpec, RunningExecutionHandle handle, List<Map<String, String>> vuVariableRows) {
+        return execute(steps, applicationBaseUrl, ApplicationAuthSpec.none(), loadSpec, handle, vuVariableRows);
+    }
+
+    /**
+     * Meme contrat que ci-dessus, avec l'authentification de l'Application
+     * ({@code auth}) appliquee automatiquement a chaque requete. Pour
+     * LOGIN_TOKEN, la connexion a lieu une seule fois au debut de
+     * l'Execution : si elle echoue, aucune etape n'est jouee et le resultat
+     * est FAILED avec la cause (jamais une exception).
+     */
+    ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
             LoadTestSpec loadSpec, RunningExecutionHandle handle, List<Map<String, String>> vuVariableRows);
+
+    /**
+     * Contrat complet : sources de variables (CSV et sa distribution, variables du scenario).
+     * Chaque VU a son propre contexte (VariableContext) ; captures videes a chaque iteration.
+     */
+    ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
+            LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableSources sources);
 }

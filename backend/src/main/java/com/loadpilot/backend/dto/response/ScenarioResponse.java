@@ -24,6 +24,24 @@ public record ScenarioResponse(
         Integer targetRps,
         String createdBy,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        boolean archived,
+        Instant archivedAt,
+        /** Vrai si l'application du scenario est archivee (scenario masque). */
+        boolean applicationArchived,
+        /** Brouillons uniquement : etape de l'assistant atteinte (0..3). */
+        Integer wizardStep,
+        /** Brouillons uniquement : etat brut de l'assistant (JSON). */
+        String draftState,
+        /** Planifications suspendues par la desactivation du scenario (reactivables). */
+        long pausedSchedules,
+        /** Variables du scenario (objet JSON) et distribution du CSV. */
+        String variables,
+        com.loadpilot.backend.enums.CsvDistribution csvDistribution
 ) {
+    public ScenarioResponse withPausedSchedules(long count) {
+        return new ScenarioResponse(id, applicationId, applicationName, name, description, status, virtualUsers,
+                rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData, targetRps, createdBy, createdAt,
+                updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, count, variables, csvDistribution);
+    }
 }

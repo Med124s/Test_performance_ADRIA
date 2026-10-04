@@ -79,6 +79,21 @@ public record StepRequest(
         String captureVariableName,
 
         @Size(max = 500, message = "Le chemin de capture ne doit pas depasser 500 caracteres.")
-        String captureJsonPath
+        String captureJsonPath,
+
+        // Variables de chemin (:nom / {nom}) : objet JSON {"nom": "valeur ou ${variable}"} (voir StepRules).
+        @Size(max = 4000, message = "Les variables de chemin ne doivent pas depasser 4000 caracteres.")
+        String pathParams,
+
+        // Parametres de requete : tableau JSON [{"key","value","enabled"}] (voir StepRules).
+        @Size(max = 8000, message = "Les parametres de requete ne doivent pas depasser 8000 caracteres.")
+        String queryParams
 ) {
+    /** Compatibilite : etape sans parametres de chemin ni de requete separes. */
+    public StepRequest(UUID scenarioId, String name, HttpMethod method, String url, String headers, String body,
+            Integer order, Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
+            String assertionBodyContains, String captureVariableName, String captureJsonPath) {
+        this(scenarioId, name, method, url, headers, body, order, expectedStatus, thinkTimeMs, timeoutSeconds,
+                followRedirects, assertionBodyContains, captureVariableName, captureJsonPath, null, null);
+    }
 }

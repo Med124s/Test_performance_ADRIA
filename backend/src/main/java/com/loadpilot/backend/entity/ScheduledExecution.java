@@ -95,6 +95,12 @@ public class ScheduledExecution {
     @Builder.Default
     private boolean enabled = true;
 
+    /** Desactivee automatiquement par la desactivation de son scenario (reactivable a sa
+     * reactivation) - jamais vrai pour une pause decidee par l'utilisateur. */
+    @Column(name = "paused_by_scenario", nullable = false)
+    @Builder.Default
+    private boolean pausedByScenario = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false, updatable = false)
     private AppUser createdBy;

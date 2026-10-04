@@ -17,6 +17,10 @@ public record ExecutionStepResultResponse(
         Long responseTime,
         Boolean success,
         String error,
-        Instant timestamp
+        Instant timestamp,
+        /** Utilisateur virtuel (0..n-1), iteration (0..) et URL finale reellement appelee. */
+        Integer virtualUser,
+        Integer iteration,
+        String requestUrl
 ) {
 }

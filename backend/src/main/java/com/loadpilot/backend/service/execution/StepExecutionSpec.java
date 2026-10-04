@@ -35,6 +35,17 @@ public record StepExecutionSpec(
         String captureVariableName,
         /** Master prompt final (Lot B) — chemin (sous-ensemble simple, voir
          * JsonPathExtractor) dans le corps JSON de la reponse. */
-        String captureJsonPath
+        String captureJsonPath,
+        /** Variables de chemin (objet JSON), voir RequestBuilder. */
+        String pathParams,
+        /** Parametres de requete (tableau JSON), voir RequestBuilder. */
+        String queryParams
 ) {
+    /** Compatibilite : etape sans parametres de chemin ni de requete separes. */
+    public StepExecutionSpec(UUID stepId, String name, HttpMethod method, String url, String headers, String body,
+            Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
+            String assertionBodyContains, String captureVariableName, String captureJsonPath) {
+        this(stepId, name, method, url, headers, body, expectedStatus, thinkTimeMs, timeoutSeconds, followRedirects,
+                assertionBodyContains, captureVariableName, captureJsonPath, null, null);
+    }
 }

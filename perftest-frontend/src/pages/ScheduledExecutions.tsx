@@ -285,7 +285,7 @@ function ScheduledExecutions() {
                 <label style={labelStyle}>Scénario *</label>
                 <select style={inputStyle} value={form.scenarioId} onChange={(e) => setForm((p) => ({ ...p, scenarioId: e.target.value }))}>
                   <option value="" disabled>Sélectionner un scénario…</option>
-                  {scenarios.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.applicationName})</option>)}
+                  {scenarios.filter((s) => s.status === 'ACTIVE').map((s) => <option key={s.id} value={s.id}>{s.name} ({s.applicationName})</option>)}
                 </select>
               </div>
               <div className="col-12">

@@ -688,6 +688,28 @@ class HttpClientExecutionEngineTest {
     }
 
     @Test
+    void importedCsvFile_withBomSemicolonsAndQuotes_reachesRealRequests_oneRowPerVirtualUser() throws IOException {
+        Set<String> receivedBodies = new CopyOnWriteArraySet<>();
+        HttpServer s = startServer(exchange -> {
+            receivedBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+
+        // Fichier type export Excel FR : BOM, separateur ";", valeur entre guillemets avec ";" et "".
+        String file = "﻿account;label\r\nACC001;\"Loyer; janvier\"\r\nACC002;\"Dit \"\"urgent\"\"\"\r\n";
+        assertThat(CsvDataSource.validate(file)).isNull();
+        StepExecutionSpec spec = stepWithOptions("virement", HttpMethod.POST, "/transfers", null,
+                "${account}|${label}", null, null, null, null, null);
+
+        ScenarioExecutionOutcome outcome = engine.execute(List.of(spec), baseUrl(s), new LoadTestSpec(2, 0, null, null, 0, null),
+                new RunningExecutionHandle(), CsvDataSource.parse(file));
+
+        assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.SUCCESS);
+        assertThat(receivedBodies).containsExactlyInAnyOrder("ACC001|Loyer; janvier", "ACC002|Dit \"urgent\"");
+    }
+
+    @Test
     void noCsvData_meansNoVariables_urlUsedVerbatim() throws IOException {
         AtomicReference<String> receivedPath = new AtomicReference<>();
         HttpServer s = startServer(exchange -> {
@@ -1039,7 +1061,7 @@ class HttpClientExecutionEngineTest {
     }
 
     @Test
-    void dynamicVariable_missingPath_neverThrows_placeholderLeftUnsubstitutedInBody() throws IOException {
+    void dynamicVariable_missingPath_neverThrows_stepFailsBeforeSendingRawPlaceholderInBody() throws IOException {
         AtomicReference<String> receivedBody = new AtomicReference<>();
         HttpServer s = startServer(exchange -> {
             if (exchange.getRequestURI().getPath().equals("/login")) {
@@ -1055,32 +1077,24 @@ class HttpClientExecutionEngineTest {
 
         StepExecutionSpec login = stepWithCapture("login", HttpMethod.POST, "/login", null, null, null,
                 "token", "token");
-        // Le corps (texte libre, jamais parse comme une URI) reste le
-        // meilleur champ pour observer un placeholder non substitue tel
-        // quel : contrairement a l'URL, "${token}" y est un contenu valide,
-        // jamais une cause de rejet a la construction de la requete (voir
-        // test suivant pour le cas URL, ou "{"/"}" sont illegaux dans une
-        // URI et produisent honnetement une erreur "URL invalide" plutot
-        // que d'envoyer un chemin litteral au serveur).
+        // Variable introuvable (capture manquee) : l'etape echoue AVANT l'envoi, avec un message
+        // clair - jamais de requete envoyee avec un ${...} brut, meme dans le corps.
         StepExecutionSpec next = step("next", HttpMethod.POST, "/x", null, "{\"token\":\"${token}\"}", null);
 
         ScenarioExecutionOutcome outcome = engine.execute(List.of(login, next), baseUrl(s), LoadTestSpec.singlePass(),
                 new RunningExecutionHandle(), List.of());
 
-        // Chemin introuvable -> aucune variable produite -> placeholder laisse tel quel, jamais une exception.
-        assertThat(receivedBody.get()).isEqualTo("{\"token\":\"${token}\"}");
+        assertThat(receivedBody.get()).isNull();
         assertThat(outcome.stepOutcomes()).hasSize(2);
-        assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.SUCCESS);
+        assertThat(outcome.stepOutcomes().get(1).error())
+                .isEqualTo("Variable ${token} introuvable : vérifiez la capture de l'étape 1 ou le CSV.");
+        assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.FAILED);
     }
 
     @Test
-    void dynamicVariable_missingPath_inUrl_failsCleanlyAsInvalidUrl_neverSentLiterally() throws IOException {
-        // Decouverte reelle documentee ici : "{"/"}" ne sont jamais des
-        // caracteres valides dans une URI (RFC 3986) - un "${token}" laisse
-        // tel quel dans une URL (capture manquee) ne peut donc JAMAIS partir
-        // sur le reseau tel quel : URI.create() rejette la requete AVANT tout
-        // envoi, produisant un echec propre ("URL invalide"), jamais un
-        // comportement indefini ni une exception non capturee.
+    void dynamicVariable_missingPath_inUrl_failsCleanlyBeforeSending_neverSentLiterally() throws IOException {
+        // Un "${token}" non resolu dans l'URL (capture manquee) ne part jamais sur le reseau :
+        // l'etape echoue avant l'envoi avec un message qui designe l'etape de capture.
         HttpServer s = startServer(exchange -> {
             byte[] body = "{\"other\":\"value\"}".getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
@@ -1098,7 +1112,8 @@ class HttpClientExecutionEngineTest {
         assertThat(outcome.stepOutcomes()).hasSize(2);
         StepOutcome secondOutcome = outcome.stepOutcomes().get(1);
         assertThat(secondOutcome.success()).isFalse();
-        assertThat(secondOutcome.error()).contains("URL invalide");
+        assertThat(secondOutcome.error()).isEqualTo("Variable ${token} introuvable : vérifiez la capture de l'étape 1 ou le CSV.");
+        assertThat(secondOutcome.httpStatus()).isNull();
     }
 
     @Test

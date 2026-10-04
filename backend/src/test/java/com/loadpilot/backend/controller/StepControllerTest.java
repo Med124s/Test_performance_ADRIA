@@ -468,13 +468,14 @@ class StepControllerTest {
     // ------------------------------------------------------------
 
     @Test
-    void deleteScenario_withDependentStep_returns409() throws Exception {
-        String appId = createApplicationAndGetId("conflict-app");
-        String scenarioId = createScenarioAndGetId(appId, "conflict-scenario");
-        createStepAndGetId(scenarioId, "conflict-step", 1);
+    void deleteScenario_withDependentStep_cascadesPermanently() throws Exception {
+        String appId = createApplicationAndGetId("cascade-app");
+        String scenarioId = createScenarioAndGetId(appId, "cascade-scenario");
+        String stepId = createStepAndGetId(scenarioId, "cascade-step", 1);
 
         mockMvc.perform(delete("/api/scenarios/" + scenarioId).with(AS_SUPER_ADMIN))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409));
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/steps/" + stepId).with(AS_SUPER_ADMIN))
+                .andExpect(status().isNotFound());
     }
 }

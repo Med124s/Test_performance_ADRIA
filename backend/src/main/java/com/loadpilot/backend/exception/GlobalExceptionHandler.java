@@ -58,6 +58,12 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
     }
 
+    /** Regle metier lisible (brouillon non executable, scenario incomplet, CSV invalide...). */
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
     /** Phase 25 : l'Admin API Keycloak (service tiers du point de vue de ce
      * backend) est injoignable ou renvoie une erreur - jamais un 500 brut. */
     /** P1-B : configuration invalide d'une ScheduledExecution (voir sa Javadoc). */
@@ -110,7 +116,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex, HttpServletRequest request) {
         log.warn("Contrainte d'integrite violee sur {} : {}", request.getRequestURI(), ex.getMessage());
-        return build(HttpStatus.CONFLICT, "Cette operation viole une contrainte d'integrite (relation existante).", request);
+        return build(HttpStatus.CONFLICT,
+                "Opération impossible : cet élément est encore utilisé par d'autres données (scénarios, étapes ou exécutions).", request);
     }
 
     private ResponseEntity<ErrorResponse> build(HttpStatus status, String message, HttpServletRequest request) {

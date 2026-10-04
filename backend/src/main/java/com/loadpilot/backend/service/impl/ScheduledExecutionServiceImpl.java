@@ -41,12 +41,21 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
     private final ScheduledExecutionTransactionHelper transactionHelper;
     private final ScheduledExecutionTrigger trigger;
 
+    static final String INACTIVE_NOT_SCHEDULABLE = "Le scénario est inactif, activez-le pour le planifier.";
+
     @Override
     @Transactional
     public ScheduledExecutionResponse create(ScheduledExecutionRequest request, UUID createdByAppUserId) {
         try {
             var scenario = scenarioRepository.findById(request.scenarioId())
                     .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + request.scenarioId()));
+            if (scenario.getStatus() == com.loadpilot.backend.enums.ScenarioStatus.DRAFT) {
+                throw new com.loadpilot.backend.exception.BadRequestException(
+                        "Ce scénario est un brouillon : terminez-le dans l'assistant (« Reprendre ») avant de le planifier.");
+            }
+            if (scenario.getStatus() == com.loadpilot.backend.enums.ScenarioStatus.INACTIVE) {
+                throw new com.loadpilot.backend.exception.BadRequestException(INACTIVE_NOT_SCHEDULABLE);
+            }
             AppUser createdBy = appUserRepository.getReferenceById(createdByAppUserId);
 
             Instant now = Instant.now();
@@ -84,6 +93,13 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
                     .orElseThrow(() -> new ResourceNotFoundException("Planification introuvable : " + id));
             var scenario = scenarioRepository.findById(request.scenarioId())
                     .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + request.scenarioId()));
+            if (scenario.getStatus() == com.loadpilot.backend.enums.ScenarioStatus.DRAFT) {
+                throw new com.loadpilot.backend.exception.BadRequestException(
+                        "Ce scénario est un brouillon : terminez-le dans l'assistant (« Reprendre ») avant de le planifier.");
+            }
+            if (scenario.getStatus() == com.loadpilot.backend.enums.ScenarioStatus.INACTIVE) {
+                throw new com.loadpilot.backend.exception.BadRequestException(INACTIVE_NOT_SCHEDULABLE);
+            }
 
             Instant now = Instant.now();
             Instant nextRunAt = ScheduleNextRunCalculator.computeInitial(
@@ -134,7 +150,12 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
     public ScheduledExecutionResponse setEnabled(UUID id, boolean enabled) {
         ScheduledExecution schedule = scheduledExecutionRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Planification introuvable : " + id));
+        if (enabled && schedule.getScenario().getStatus() == com.loadpilot.backend.enums.ScenarioStatus.INACTIVE) {
+            throw new com.loadpilot.backend.exception.BadRequestException(INACTIVE_NOT_SCHEDULABLE);
+        }
         schedule.setEnabled(enabled);
+        // Choix explicite de l'utilisateur : la planification n'est plus "suspendue par le scenario".
+        schedule.setPausedByScenario(false);
         if (enabled && schedule.getNextRunAt() == null && schedule.getScheduleType() == com.loadpilot.backend.enums.ScheduleType.RECURRING_CRON) {
             // Reactivation d'une RECURRING_CRON dont "nextRunAt" avait ete
             // laisse null (ex: cron invalide historique corrige par un

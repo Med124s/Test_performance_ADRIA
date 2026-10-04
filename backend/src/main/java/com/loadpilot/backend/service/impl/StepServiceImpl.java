@@ -1,5 +1,6 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.exception.ConflictException;
 import com.loadpilot.backend.dto.request.StepRequest;
 import com.loadpilot.backend.dto.response.StepResponse;
 import com.loadpilot.backend.entity.Scenario;
@@ -8,12 +9,14 @@ import com.loadpilot.backend.enums.AuditAction;
 import com.loadpilot.backend.enums.AuditModule;
 import com.loadpilot.backend.enums.AuditResult;
 import com.loadpilot.backend.enums.StepStatus;
+import com.loadpilot.backend.exception.BadRequestException;
 import com.loadpilot.backend.exception.ResourceNotFoundException;
 import com.loadpilot.backend.mapper.StepMapper;
 import com.loadpilot.backend.repository.ScenarioRepository;
 import com.loadpilot.backend.repository.StepRepository;
 import com.loadpilot.backend.service.AuditLogService;
 import com.loadpilot.backend.service.StepService;
+import com.loadpilot.backend.service.validation.StepRules;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -43,12 +46,14 @@ public class StepServiceImpl implements StepService {
     private final ScenarioRepository scenarioRepository;
     private final StepMapper stepMapper;
     private final AuditLogService auditLogService;
+    private final DeletionServiceImpl deletionService;
 
     @Override
     @Transactional
     public StepResponse create(StepRequest request) {
         try {
             Scenario scenario = findScenarioOrThrow(request.scenarioId());
+            checkRules(request);
 
             Step step = stepMapper.toEntity(request);
             step.setScenario(scenario);
@@ -92,6 +97,7 @@ public class StepServiceImpl implements StepService {
         try {
             Step step = findOrThrow(id);
             Scenario scenario = findScenarioOrThrow(request.scenarioId());
+            checkRules(request);
 
             stepMapper.updateEntityFromRequest(request, step);
             step.setScenario(scenario);
@@ -112,14 +118,36 @@ public class StepServiceImpl implements StepService {
     public void delete(UUID id) {
         try {
             Step step = findOrThrow(id);
+            UUID scenarioId = step.getScenario().getId();
+            if (deletionService.runningForScenario(scenarioId) > 0) {
+                throw new ConflictException(DeletionServiceImpl.RUNNING_MESSAGE);
+            }
+            // Les resultats d'execution passes gardent leur copie de l'etape
+            // (nom, methode, URL) : la FK passe a NULL (ON DELETE SET NULL,
+            // migration 017), l'historique reste lisible.
             stepRepository.delete(step);
+            stepRepository.flush();
+            // Renumerotation 1..n des etapes restantes, dans leur ordre actuel.
+            List<Step> remaining = stepRepository.findByScenarioId(scenarioId, ORDER_ASC);
+            for (int i = 0; i < remaining.size(); i++) {
+                if (remaining.get(i).getOrder() == null || remaining.get(i).getOrder() != i + 1) {
+                    remaining.get(i).setOrder(i + 1);
+                }
+            }
+            stepRepository.saveAll(remaining);
             auditLogService.record(AuditAction.DELETE, AuditModule.STEP, AuditResult.SUCCESS,
-                    "Step deleted: " + step.getName());
+                    "Step deleted: " + step.getName() + " (" + remaining.size() + " remaining step(s) renumbered)");
         } catch (RuntimeException e) {
             auditLogService.record(AuditAction.DELETE, AuditModule.STEP, AuditResult.FAILURE,
                     "Step deletion failed for id " + id + ": " + e.getClass().getSimpleName());
             throw e;
         }
+    }
+
+    /** Memes regles que le frontend (URL, en-tetes, corps JSON, capture) - voir StepRules. */
+    private void checkRules(StepRequest request) {
+        String problem = StepRules.validate(request);
+        if (problem != null) throw new BadRequestException(problem);
     }
 
     private Step findOrThrow(UUID id) {

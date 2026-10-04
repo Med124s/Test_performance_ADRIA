@@ -11,6 +11,13 @@ public record StepOutcome(
         long responseTimeMs,
         boolean success,
         String error,
-        Instant timestamp
+        Instant timestamp,
+        /** Utilisateur virtuel (0..n-1), iteration (0..) et URL finale appelee (tracabilite). */
+        Integer virtualUser,
+        Integer iteration,
+        String requestUrl
 ) {
+    public StepOutcome(UUID stepId, Integer httpStatus, long responseTimeMs, boolean success, String error, Instant timestamp) {
+        this(stepId, httpStatus, responseTimeMs, success, error, timestamp, null, null, null);
+    }
 }

@@ -139,7 +139,9 @@ class ScenarioControllerTest {
                         .content(scenarioRequestJson(appId, "engineer-scenario-renamed", "desc")))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete("/api/scenarios/" + scenarioId).with(AS_ENGINEER)).andExpect(status().isNoContent());
+        // Suppression definitive reservee a SUPER_ADMIN ; l'archivage reste permis.
+        mockMvc.perform(delete("/api/scenarios/" + scenarioId).with(AS_ENGINEER)).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/scenarios/" + scenarioId + "/archive").with(AS_ENGINEER)).andExpect(status().isOk());
     }
 
     @Test
@@ -316,12 +318,13 @@ class ScenarioControllerTest {
     // ------------------------------------------------------------
 
     @Test
-    void deleteApplication_withDependentScenario_returns409() throws Exception {
-        String appId = createApplicationAndGetId("conflict-app");
-        createScenarioAndGetId(appId, "conflict-scenario");
+    void deleteApplication_withDependentScenario_cascadesPermanently() throws Exception {
+        String appId = createApplicationAndGetId("cascade-app");
+        String scenarioId = createScenarioAndGetId(appId, "cascade-scenario");
 
         mockMvc.perform(delete("/api/applications/" + appId).with(AS_SUPER_ADMIN))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409));
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/scenarios/" + scenarioId).with(AS_SUPER_ADMIN))
+                .andExpect(status().isNotFound());
     }
 }

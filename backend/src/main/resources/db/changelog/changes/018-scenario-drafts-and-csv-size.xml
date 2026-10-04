@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Brouillons de scenario (assistant « Nouveau scénario ») et CSV plus volumineux.
+
+        scenario.status       : nouveau statut DRAFT ; INACTIVE (jamais attribue par
+                                l'application) est retire - toute valeur historique
+                                repasse a ACTIVE.
+        scenario.wizard_step  : etape de l'assistant atteinte (0 Informations, 1 Etapes,
+                                2 Tester, 3 Charge & resume), brouillons uniquement.
+        scenario.draft_state  : etat brut de l'assistant (JSON : etapes incompletes
+                                comprises), brouillons uniquement ; vide a la publication.
+        scenario.csv_data     : 50 000 -> 1 000 000 caracteres (fichiers CSV importes).
+                                VARCHAR conserve (meme type sous PostgreSQL et H2,
+                                compatible avec ddl-auto: validate).
+    -->
+    <changeSet id="018-scenario-drafts-and-csv-size" author="loadpilot">
+        <update tableName="scenario">
+            <column name="status" value="ACTIVE"/>
+            <where>status = 'INACTIVE'</where>
+        </update>
+        <addColumn tableName="scenario">
+            <column name="wizard_step" type="INT"/>
+            <column name="draft_state" type="VARCHAR(1000000)"/>
+        </addColumn>
+        <modifyDataType tableName="scenario" columnName="csv_data" newDataType="VARCHAR(1000000)"/>
+    </changeSet>
+
+</databaseChangeLog>

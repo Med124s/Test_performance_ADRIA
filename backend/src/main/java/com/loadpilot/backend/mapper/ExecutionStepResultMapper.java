@@ -17,17 +17,20 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring", uses = MapperSupport.class)
 public abstract class ExecutionStepResultMapper {
 
-    @Mapping(target = "stepId", source = "step.id", qualifiedByName = "uuidToString")
-    @Mapping(target = "stepName", source = "step.name")
-    @Mapping(target = "method", source = "step.method")
+    // Lus via la copie de l'etape (displayStep*) : l'historique reste lisible
+    // meme si l'etape a ete supprimee depuis (step = null, migration 017).
+    @Mapping(target = "stepId", expression = "java(result.stepIdOrNull() != null ? result.stepIdOrNull().toString() : null)")
+    @Mapping(target = "stepName", expression = "java(result.displayStepName())")
+    @Mapping(target = "method", expression = "java(result.displayStepMethod())")
     @Mapping(target = "url", ignore = true)
     abstract ExecutionStepResultResponse toResponseWithoutUrl(ExecutionStepResult result);
 
     public ExecutionStepResultResponse toResponse(ExecutionStepResult result, String applicationBaseUrl) {
         ExecutionStepResultResponse partial = toResponseWithoutUrl(result);
-        String resolvedUrl = UrlResolver.resolve(applicationBaseUrl, result.getStep().getUrl());
+        String resolvedUrl = UrlResolver.resolve(applicationBaseUrl, result.displayStepUrl());
         return new ExecutionStepResultResponse(
                 partial.stepId(), partial.stepName(), partial.method(), resolvedUrl,
-                partial.httpStatus(), partial.responseTime(), partial.success(), partial.error(), partial.timestamp());
+                partial.httpStatus(), partial.responseTime(), partial.success(), partial.error(), partial.timestamp(),
+                partial.virtualUser(), partial.iteration(), partial.requestUrl());
     }
 }

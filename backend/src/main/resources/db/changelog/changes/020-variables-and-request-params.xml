@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Systeme de variables (type Postman) et parametres de requete.
+
+        scenario.variables         : variables du scenario (objet JSON {"nom": "valeur"}),
+                                     3e source apres capture et CSV.
+        scenario.csv_distribution  : PER_VIRTUAL_USER (une ligne par VU, historique) ou
+                                     PER_ITERATION (une nouvelle ligne a chaque iteration).
+        step.path_params           : variables de chemin (:transferId / {transferId}), objet JSON
+                                     {"transferId": "${transferId}"}.
+        step.query_params          : parametres de requete, tableau JSON
+                                     [{"key":"page","value":"1","enabled":true}].
+        execution_step_result.virtual_user / iteration / request_url : VU, iteration et URL
+                                     finale reellement appelee (valeurs injectees, encodees) -
+                                     tracabilite par VU et par iteration en test de charge.
+        Colonnes ADDITIONNELLES uniquement ; aucune donnee existante modifiee.
+    -->
+    <changeSet id="020-variables-and-request-params" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="variables" type="VARCHAR(20000)"/>
+            <column name="csv_distribution" type="VARCHAR(20)" defaultValue="PER_VIRTUAL_USER">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="step">
+            <column name="path_params" type="VARCHAR(4000)"/>
+            <column name="query_params" type="VARCHAR(8000)"/>
+        </addColumn>
+        <addColumn tableName="execution_step_result">
+            <column name="virtual_user" type="INT"/>
+            <column name="iteration" type="INT"/>
+            <column name="request_url" type="VARCHAR(2048)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

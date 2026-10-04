@@ -59,7 +59,52 @@ function createClient(baseUrl: string, serviceLabel: string) {
     return response.json() as Promise<T>
   }
 
+  /** POST dont la réponse est un flux NDJSON (une ligne JSON par évènement), lu au fil de l'eau. */
+  async function postStream<E>(path: string, body: unknown, onEvent: (event: E) => void): Promise<void> {
+    const token = await getAccessToken()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    let response: Response
+    try {
+      response = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      })
+    } catch {
+      throw new ApiError(`Impossible de joindre ${serviceLabel} sur ${baseUrl}. Vérifiez qu'il est bien lancé.`, 0)
+    }
+    if (!response.ok) {
+      let message = `Erreur ${response.status} sur ${path}`
+      try {
+        const json = await response.json()
+        if (json?.message) message = json.message
+      } catch {
+        // pas de corps JSON exploitable
+      }
+      throw new ApiError(message, response.status)
+    }
+    if (!response.body) throw new ApiError('Réponse vide du serveur.', response.status)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    for (;;) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done })
+      let newline = buffer.indexOf('\n')
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim()
+        buffer = buffer.slice(newline + 1)
+        if (line) onEvent(JSON.parse(line) as E)
+        newline = buffer.indexOf('\n')
+      }
+      if (done) break
+    }
+    if (buffer.trim()) onEvent(JSON.parse(buffer.trim()) as E)
+  }
+
   return {
+    postStream,
     get: <T>(path: string) => request<T>(path, { method: 'GET' }),
     post: <T>(path: string, body?: unknown) =>
       request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),

@@ -96,8 +96,25 @@ public class Scenario {
      * entre H2 (tests) et PostgreSQL (reel) - constat reel fait pendant
      * cette phase : "TEXT" y produit des types de colonne differents,
      * faisant echouer la validation de schema Hibernate). */
-    @Column(name = "csv_data", length = 50000)
+    @Column(name = "csv_data", length = 1_000_000)
     private String csvData;
+
+    /** Variables du scenario (objet JSON {"nom": "valeur"}) - 3e source apres capture et CSV. */
+    @Column(name = "variables", length = 20000)
+    private String variables;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "csv_distribution", nullable = false, length = 20)
+    @Builder.Default
+    private com.loadpilot.backend.enums.CsvDistribution csvDistribution = com.loadpilot.backend.enums.CsvDistribution.PER_VIRTUAL_USER;
+
+    /** Etape de l'assistant atteinte (0..3) - brouillons uniquement. */
+    @Column(name = "wizard_step")
+    private Integer wizardStep;
+
+    /** Etat brut de l'assistant (JSON, etapes incompletes comprises) - brouillons uniquement. */
+    @Column(name = "draft_state", length = 1_000_000)
+    private String draftState;
 
     /** Master prompt final (Lot A) — debit cible optionnel (requetes HTTP
      * demarrees par seconde, approximatif, partage entre tous les
@@ -107,6 +124,15 @@ public class Scenario {
      * rampUpSeconds/thinkTimeMs, qui restent tous actifs simultanement. */
     @Column(name = "target_rps")
     private Integer targetRps;
+
+    /** Archivage logique : masque des listes par defaut, historique conserve,
+     * restaurable (voir migration 017). */
+    @Column(name = "archived", nullable = false)
+    @Builder.Default
+    private boolean archived = false;
+
+    @Column(name = "archived_at")
+    private Instant archivedAt;
 
     /** Utilisateur (projection locale, voir AppUser) ayant cree ce scenario. */
     @ManyToOne(fetch = FetchType.LAZY)

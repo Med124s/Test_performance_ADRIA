@@ -26,6 +26,8 @@ public record StepResponse(
         String assertionBodyContains,
         String captureVariableName,
         String captureJsonPath,
+        String pathParams,
+        String queryParams,
         StepStatus status,
         Instant createdAt,
         Instant updatedAt

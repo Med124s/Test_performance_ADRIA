@@ -42,7 +42,8 @@ public interface ScheduledExecutionRepository extends JpaRepository<ScheduledExe
      * findByIdForUpdate (voir ScheduledExecutionTransactionHelper) - jamais
      * de decision de declenchement prise depuis cette lecture non verrouillee.
      */
-    @Query("SELECT s.id FROM ScheduledExecution s WHERE s.enabled = true AND s.nextRunAt IS NOT NULL AND s.nextRunAt <= :now")
+    @Query("SELECT s.id FROM ScheduledExecution s WHERE s.enabled = true AND s.nextRunAt IS NOT NULL AND s.nextRunAt <= :now "
+            + "AND s.scenario.status = com.loadpilot.backend.enums.ScenarioStatus.ACTIVE")
     List<UUID> findDueScheduleIds(@Param("now") Instant now);
 
     /**

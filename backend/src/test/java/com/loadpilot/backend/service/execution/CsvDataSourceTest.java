@@ -66,6 +66,37 @@ class CsvDataSourceTest {
     }
 
     @Test
+    void semicolonSeparator_bomAndQuotes_areHandled() {
+        List<Map<String, String>> rows = CsvDataSource.parse("﻿user;note\r\nagent001;\"a;b\"\r\nagent002;\"il dit \"\"oui\"\"\"");
+
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0)).containsEntry("user", "agent001").containsEntry("note", "a;b");
+        assertThat(rows.get(1)).containsEntry("note", "il dit \"oui\"");
+    }
+
+    @Test
+    void commaWins_whenHeaderHasMoreCommas_andQuotedNewlinesAreKept() {
+        List<Map<String, String>> rows = CsvDataSource.parse("a,b\n\"x;y\",\"ligne1\nligne2\"");
+
+        assertThat(rows.get(0)).containsEntry("a", "x;y").containsEntry("b", "ligne1\nligne2");
+        assertThat(CsvDataSource.validate("a,b\n\"x;y\",\"ligne1\nligne2\"")).isNull();
+    }
+
+    @Test
+    void validate_reportsClearErrors() {
+        assertThat(CsvDataSource.validate(null)).isNull();
+        assertThat(CsvDataSource.validate("username,password\nu1,p1")).isNull();
+        assertThat(CsvDataSource.validate("username,password")).contains("au moins une ligne de données");
+        assertThat(CsvDataSource.validate("user name,x\na,b")).contains("Nom de colonne invalide « user name »");
+        assertThat(CsvDataSource.validate("1col\na")).contains("Nom de colonne invalide");
+        assertThat(CsvDataSource.validate("a,,b\n1,2,3")).contains("une colonne n'a pas de nom");
+        assertThat(CsvDataSource.validate("a,a\n1,2")).contains("Colonne en double");
+        assertThat(CsvDataSource.validate("a,b\n1,2\n\n3")).isEqualTo("Ligne 4 : 1 colonne(s) au lieu de 2.");
+        assertThat(CsvDataSource.validate("a\n\"non fermé")).contains("Guillemet non fermé (ligne 2)");
+        assertThat(CsvDataSource.validate("a\n" + "x".repeat(CsvDataSource.MAX_LENGTH))).contains("1 000 000");
+    }
+
+    @Test
     void valuesAndColumnNames_areTrimmed() {
         List<Map<String, String>> rows = CsvDataSource.parse(" username , password \n user1 , pass1 ");
 

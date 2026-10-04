@@ -16,7 +16,7 @@ public interface ExecutionStepResultRepository extends JpaRepository<ExecutionSt
      * FETCH) pour construire les reponses sans requete supplementaire ni
      * risque de LazyInitializationException.
      */
-    @Query("SELECT r FROM ExecutionStepResult r JOIN FETCH r.step WHERE r.execution.id = :executionId ORDER BY r.timestamp ASC")
+    @Query("SELECT r FROM ExecutionStepResult r LEFT JOIN FETCH r.step WHERE r.execution.id = :executionId ORDER BY r.timestamp ASC")
     List<ExecutionStepResult> findByExecutionIdOrderByTimestampAsc(@Param("executionId") UUID executionId);
 
     // ---- Phase 11 (Dashboard) - "steps reellement executes" = nombre de

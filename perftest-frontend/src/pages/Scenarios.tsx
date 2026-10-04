@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   BackendScenarioRequest,
@@ -8,18 +8,26 @@ import {
   BackendStepResponse,
   BackendHttpMethod,
   BackendExecutionResponse,
+  BackendBulkActionResponse,
+  BackendScenarioStatus,
+  BackendCsvDistribution,
 } from '../types/backendContracts'
+import './applications.css'
+import StepDrawer from './scenario-wizard/StepDrawer'
+import { analyzeCsv, validateCsv } from './scenario-wizard/csvModel'
+import { VariableRow, validateScenarioVariables, variablesFromJson, variablesToJson } from './scenario-wizard/variablesModel'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
 import { applicationsBackendApi } from '../services/api/applicationsBackend'
 import { stepsBackendApi } from '../services/api/stepsBackend'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { useApiList } from '../hooks/useApiResource'
-import { usePagination } from '../hooks/usePagination'
+import DeletionDialog, { DeletionMode } from '../components/deletion/DeletionDialog'
 import Pagination from '../components/Pagination'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { backendToFrontendActiveStatus, backendToFrontendExecutionStatus } from '../utils/statusMapping'
+import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
+import { backendToFrontendExecutionStatus } from '../utils/statusMapping'
 import { firstError, validateRequired, validateMaxLength, validateStepUrl, validatePairedFields, NAME_MAX_LENGTH, DESCRIPTION_MAX_LENGTH } from '../utils/validation'
 
 // ============================================================
@@ -64,43 +72,28 @@ import { firstError, validateRequired, validateMaxLength, validateStepUrl, valid
 // jusqu'à un statut terminal.
 // ============================================================
 
-const emptyForm = {
-  name: '',
-  applicationId: '',
-  description: '',
-  // P0-A — paramètres de charge réels (voir LoadTestSpec côté backend) :
-  // chaînes contrôlées par le formulaire, converties en nombres (ou null
-  // pour durationSeconds/iterations, tous deux optionnels) dans buildPayload.
-  virtualUsers: '1',
-  rampUpSeconds: '0',
-  durationSeconds: '',
-  iterations: '',
-  thinkTimeMs: '0',
-  // P1-Q Étape B — données CSV optionnelles (variables ${nom} pour le
-  // moteur, voir Scenario.csvData/CsvDataSource côté backend). Chaîne vide
-  // = aucune donnée (comportement historique inchangé).
-  csvData: '',
-  // Master prompt final (Lot A) — débit cible optionnel (requêtes/s), voir
-  // Scenario.targetRps/PacingGate côté backend. Chaîne vide = aucun pacing.
-  targetRps: '',
-}
-
-const STEP_METHODS: BackendHttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-
-const emptyStepForm = {
-  name: '', method: 'GET' as BackendHttpMethod, url: '', headers: '', body: '', order: '1', expectedStatus: '',
-  // P1-Q Étape B — options par étape, toutes optionnelles (chaîne vide =
-  // absente/null envoyé au backend, comportement historique inchangé).
-  thinkTimeMs: '', timeoutSeconds: '', followRedirects: '' as '' | 'true' | 'false', assertionBodyContains: '',
-  // Master prompt final (Lot B) — capture de variable dynamique depuis la
-  // réponse de cette étape (voir Step.captureVariableName/captureJsonPath).
-  captureVariableName: '', captureJsonPath: '',
-}
-
 /** Traduit une erreur RÉELLE (jamais masquée) en message utilisateur — même
  * politique que Applications.tsx (Phase 17). Le code HTTP prime toujours ;
  * 409/400 réutilisent le message backend tel quel (déjà explicite, ex:
  * "des etapes y sont encore rattachees"). */
+const PAGE_SIZES = [5, 10, 25, 50]
+const DEFAULT_SORT = 'createdAt,desc'
+const SORT_OPTIONS = [
+  { value: 'createdAt,desc', label: 'Plus récents' },
+  { value: 'createdAt,asc', label: 'Plus anciens' },
+]
+const STATUS_FILTERS = [
+  { value: '', label: 'Tous les statuts' },
+  { value: 'ACTIVE', label: 'Actif' },
+  { value: 'INACTIVE', label: 'Inactif' },
+  { value: 'DRAFT', label: 'Brouillon' },
+]
+const STATUS_PILL: Record<BackendScenarioStatus, { className: string; icon: string; label: string; title?: string }> = {
+  ACTIVE: { className: 'success', icon: 'bi-check-circle-fill', label: 'Actif' },
+  INACTIVE: { className: 'neutral', icon: 'bi-pause-circle-fill', label: 'Inactif', title: 'Non exécutable ; ses planifications sont suspendues' },
+  DRAFT: { className: 'warning', icon: 'bi-pencil-square', label: 'Brouillon', title: 'Brouillon : à terminer dans l’assistant (ni exécutable ni planifiable)' },
+}
+
 function describeApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     switch (err.status) {
@@ -131,7 +124,8 @@ function Scenarios() {
   const navigate = useNavigate()
   const { authProvider, rawRoles } = useAuth()
   const { showToast } = useToast()
-  const [searchParams] = useSearchParams()
+  const monitor = useExecutionMonitor()
+  const [searchParams, setSearchParams] = useSearchParams()
   const appFilter = searchParams.get('app')
   const queryFilter = searchParams.get('q')
   const initialFilter = appFilter ?? queryFilter ?? ''
@@ -146,18 +140,108 @@ function Scenarios() {
   // est réservé à SUPER_ADMIN seul.
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
   const canDelete = canWrite
+  // Suppression DÉFINITIVE (cascade) réservée à SUPER_ADMIN ; l'archivage reste ouvert aux rédacteurs.
+  const canPermanentDelete = isKeycloak && rawRoles.includes('ROLE_SUPER_ADMIN')
 
-  const { data: scenarios, loading: scenariosLoading, error: scenariosError, refetch: refetchScenarios } =
-    useApiList<BackendScenarioResponse>(() => scenariosBackendApi.getAll())
+  // ---------------------------------------------------------------- pagination serveur
+  // Page, taille, tri, recherche, statut et vue "archivés" vivent dans l'URL :
+  // l'état survit au rechargement et se partage par lien (comme Applications).
+  const showArchived = searchParams.get('archived') === 'true'
+  const urlPage = Math.max(1, Number(searchParams.get('page')) || 1)
+  const urlSize = PAGE_SIZES.includes(Number(searchParams.get('size'))) ? Number(searchParams.get('size')) : 10
+  const urlSort = SORT_OPTIONS.some((o) => o.value === searchParams.get('sort')) ? (searchParams.get('sort') as string) : DEFAULT_SORT
+  const urlStatus = STATUS_FILTERS.some((o) => o.value === searchParams.get('status')) ? (searchParams.get('status') as string) : ''
+  const urlQuery = queryFilter ?? appFilter ?? ''
+  const updateParams = useCallback((patch: Record<string, string | null>, resetPage = true) =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      Object.entries(patch).forEach(([k, v]) => (v === null || v === '' ? next.delete(k) : next.set(k, v)))
+      if (resetPage) next.delete('page')
+      return next
+    }, { replace: true }), [setSearchParams])
+
+  // Recherche avec debounce : l'URL (et donc la requête) suit la saisie après 350 ms.
+  const [searchInput, setSearchInput] = useState(initialFilter)
+  useEffect(() => {
+    if (searchInput === urlQuery) return
+    const timer = window.setTimeout(() => updateParams({ q: searchInput.trim() || null, app: null }), 350)
+    return () => window.clearTimeout(timer)
+  }, [searchInput, urlQuery, updateParams])
+
+  const [pageData, setPageData] = useState<{ content: BackendScenarioResponse[]; totalElements: number; totalPages: number }>(
+    { content: [], totalElements: 0, totalPages: 0 })
+  const [scenariosLoading, setScenariosLoading] = useState(true)
+  const [scenariosError, setScenariosError] = useState<string | null>(null)
+  const scenarios = pageData.content
+
+  const loadPage = useCallback(async () => {
+    setScenariosLoading(true)
+    setScenariosError(null)
+    try {
+      const result = await scenariosBackendApi.getPage({
+        page: urlPage - 1, size: urlSize, sort: urlSort, search: urlQuery, status: urlStatus, archived: showArchived,
+      })
+      // Page devenue vide (ex. après une suppression) : revenir à la dernière page existante.
+      if (result.content.length === 0 && urlPage > 1 && result.totalElements > 0) {
+        updateParams({ page: String(Math.max(1, result.totalPages)) }, false)
+        return
+      }
+      setPageData({ content: result.content, totalElements: result.totalElements, totalPages: result.totalPages })
+    } catch (err) {
+      setScenariosError(err instanceof Error ? err.message : 'Erreur de chargement')
+    } finally {
+      setScenariosLoading(false)
+    }
+  }, [urlPage, urlSize, urlSort, urlQuery, urlStatus, showArchived, updateParams])
+  useEffect(() => { loadPage() }, [loadPage])
+
+  // Compteurs globaux (toutes pages, hors archivés), recalculés après chaque action.
+  const [statsVersion, setStatsVersion] = useState(0)
+  const [stats, setStats] = useState<{ total: number; active: number; inactive: number; drafts: number } | null>(null)
+  useEffect(() => {
+    let alive = true
+    const count = (status?: string) => scenariosBackendApi.getPage({ page: 0, size: 5, status }).then((r) => r.totalElements)
+    Promise.all([count(), count('ACTIVE'), count('INACTIVE'), count('DRAFT')])
+      .then(([total, active, inactive, drafts]) => { if (alive) setStats({ total, active, inactive, drafts }) })
+      .catch(() => { if (alive) setStats(null) })
+    return () => { alive = false }
+  }, [statsVersion])
+  const refetchScenarios = async () => {
+    setStatsVersion((v) => v + 1)
+    await loadPage()
+  }
+
   const { data: applications } = useApiList<BackendApplicationResponse>(() => applicationsBackendApi.getAll())
   const { data: executions, refetch: refetchExecutions } = useApiList<BackendExecutionResponse>(() => executionsBackendApi.getAll())
   // Étapes de TOUS les scénarios Spring Boot (Phase 19) — sert à afficher un
   // aperçu réel sous le nom du scénario dans la liste.
   const { data: allSteps, refetch: refetchAllSteps } = useApiList<BackendStepResponse>(() => stepsBackendApi.getAll())
 
-  const [searchTerm, setSearchTerm] = useState(initialFilter)
-  const [selectedStatus, setSelectedStatus] = useState<'Tous' | 'ACTIVE' | 'INACTIVE'>('Tous')
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  /** Brouillon à supprimer (confirmation simple : aucun historique possible pour un brouillon). */
+  const [deleteDraftConfirm, setDeleteDraftConfirm] = useState<BackendScenarioResponse | null>(null)
+  const [deletingDraft, setDeletingDraft] = useState(false)
+
+  // ---------------------------------------------------------------- sélection multiple
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Vidée au changement de page, de taille, de tri, de filtre ou de recherche.
+  useEffect(() => { setSelected(new Set()) }, [urlPage, urlSize, urlSort, urlQuery, urlStatus, showArchived])
+  const pageIds = scenarios.map((s) => s.id)
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
+  const someSelected = !allSelected && pageIds.some((id) => selected.has(id))
+  const selectAllRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected }, [someSelected])
+  const toggleOne = (id: string) => setSelected((prev) => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pageIds))
+  const [bulkBusy, setBulkBusy] = useState(false)
+  /** Suppression/archivage groupé (la suppression unitaire garde `deleteConfirm`). */
+  const [bulkDeletion, setBulkDeletion] = useState<string[] | null>(null)
+  /** Scénarios réactivés qui ont des planifications suspendues : proposition de les réactiver. */
+  const [resumeOffer, setResumeOffer] = useState<{ ids: string[]; schedules: number } | null>(null)
 
   // Modale Détail (lecture seule pour le scénario, mais gestion réelle des
   // étapes Spring Boot depuis cette même modale — voir Phase 19)
@@ -166,143 +250,16 @@ function Scenarios() {
   const [detailSteps, setDetailSteps] = useState<BackendStepResponse[]>([])
   const [detailStepsLoading, setDetailStepsLoading] = useState(false)
 
-  // Modale Créer / Modifier Scénario (Spring Boot, métadonnées uniquement)
-  const [showModal, setShowModal] = useState(false)
-  const [editingScenario, setEditingScenario] = useState<BackendScenarioResponse | null>(null)
-  const [form, setForm] = useState(emptyForm)
-  const [touched, setTouched] = useState<{
-    name?: boolean
-    applicationId?: boolean
-    virtualUsers?: boolean
-    rampUpSeconds?: boolean
-    durationSeconds?: boolean
-    iterations?: boolean
-    thinkTimeMs?: boolean
-  }>({})
-  const [saving, setSaving] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-
   // Confirmation de suppression Scénario
   const [deleteConfirm, setDeleteConfirm] = useState<BackendScenarioResponse | null>(null)
-  const [deleting, setDeleting] = useState(false)
 
-  // Modale Créer / Modifier une Étape (Spring Boot) — accessible depuis la
-  // modale Détail d'un scénario. Champs alignés sur StepRequest
-  // (name/method/url/headers/body/order/expectedStatus + options
-  // d'exécution par étape ajoutées en P1-Q Étape B : thinkTimeMs/
-  // timeoutSeconds/followRedirects/assertionBodyContains). "headers" reste
-  // un texte libre (jamais une structure de liste) — même choix qu'à
-  // l'origine, aucune structure enrichie ajoutée pour ce champ précis.
-  const [showStepModal, setShowStepModal] = useState(false)
-  const [editingStep, setEditingStep] = useState<BackendStepResponse | null>(null)
-  const [stepForm, setStepForm] = useState(emptyStepForm)
-  const [stepTouched, setStepTouched] = useState<{ name?: boolean; url?: boolean; order?: boolean; expectedStatus?: boolean }>({})
-  const [savingStep, setSavingStep] = useState(false)
+  // Panneau latéral « Ajouter / Modifier une étape » (même éditeur que l'assistant, voir StepDrawer).
+  const [stepDrawer, setStepDrawer] = useState<{ editing: BackendStepResponse | null } | null>(null)
   const [stepActionError, setStepActionError] = useState<string | null>(null)
 
   // Confirmation de suppression Étape
   const [deleteStepConfirm, setDeleteStepConfirm] = useState<BackendStepResponse | null>(null)
   const [deletingStep, setDeletingStep] = useState(false)
-
-  const nameError = firstError(
-    validateRequired(form.name, 'Le nom du scénario'),
-    validateMaxLength(form.name, NAME_MAX_LENGTH, 'Le nom du scénario')
-  )
-  const descriptionError = validateMaxLength(form.description, DESCRIPTION_MAX_LENGTH, 'La description')
-
-  // P0-A — validation des paramètres de charge, mêmes bornes que
-  // ScenarioRequest côté backend (@Min/@Max) : jamais de valeur envoyée que
-  // le backend rejetterait de toute façon en 400.
-  const virtualUsersNum = Number(form.virtualUsers)
-  const virtualUsersError = !form.virtualUsers.trim()
-    ? 'Le nombre d\'utilisateurs virtuels est obligatoire.'
-    : !Number.isInteger(virtualUsersNum) || virtualUsersNum < 1 || virtualUsersNum > 500
-    ? 'Doit être un entier entre 1 et 500.'
-    : null
-  const rampUpNum = Number(form.rampUpSeconds)
-  const rampUpError = !form.rampUpSeconds.trim()
-    ? 'Le ramp-up est obligatoire (0 = démarrage immédiat de tous les utilisateurs).'
-    : !Number.isInteger(rampUpNum) || rampUpNum < 0
-    ? 'Doit être un entier positif ou nul.'
-    : null
-  const durationNum = form.durationSeconds.trim() ? Number(form.durationSeconds) : null
-  const durationError =
-    durationNum !== null && (!Number.isInteger(durationNum) || durationNum < 1)
-      ? 'Doit être un entier d\'au moins 1 seconde.'
-      : null
-  const iterationsNum = form.iterations.trim() ? Number(form.iterations) : null
-  const iterationsError =
-    iterationsNum !== null && (!Number.isInteger(iterationsNum) || iterationsNum < 1)
-      ? 'Doit être un entier d\'au moins 1.'
-      : null
-  const thinkTimeNum = Number(form.thinkTimeMs)
-  const thinkTimeError = !form.thinkTimeMs.trim()
-    ? 'Le think time est obligatoire (0 = aucune pause entre itérations).'
-    : !Number.isInteger(thinkTimeNum) || thinkTimeNum < 0
-    ? 'Doit être un entier positif ou nul.'
-    : null
-
-  // P1-Q Étape B — données CSV optionnelles, même borne que ScenarioRequest
-  // côté backend (@Size(max = 50000)) : jamais une valeur que le backend
-  // rejetterait de toute façon en 400.
-  const csvDataError = form.csvData.length > 50000 ? 'Les données CSV ne doivent pas dépasser 50000 caractères.' : null
-
-  // Master prompt final (Lot A) — débit cible optionnel, même borne que
-  // ScenarioRequest côté backend (@Min(1)) : 0 et les valeurs négatives
-  // sont explicitement rejetés (sens invalide pour un débit cible).
-  const targetRpsNum = form.targetRps.trim() ? Number(form.targetRps) : null
-  const targetRpsError =
-    targetRpsNum !== null && (!Number.isInteger(targetRpsNum) || targetRpsNum < 1)
-      ? 'Le débit cible (requêtes/s) doit être un entier d\'au moins 1 si renseigné.'
-      : null
-
-  const isFormValid =
-    !nameError && !descriptionError && !!form.applicationId &&
-    !virtualUsersError && !rampUpError && !durationError && !iterationsError && !thinkTimeError && !csvDataError &&
-    !targetRpsError
-
-  const stepNameError = validateRequired(stepForm.name, "Le nom de l'étape")
-  const stepUrlError = firstError(validateRequired(stepForm.url, 'La ressource'), validateStepUrl(stepForm.url))
-  const stepOrderNum = Number(stepForm.order)
-  const stepOrderError = !stepForm.order.trim()
-    ? "L'ordre est obligatoire."
-    : !Number.isInteger(stepOrderNum) || stepOrderNum <= 0
-    ? "L'ordre doit être un entier strictement positif."
-    : null
-  const stepExpectedStatusNum = stepForm.expectedStatus.trim() ? Number(stepForm.expectedStatus) : null
-  const stepExpectedStatusError =
-    stepExpectedStatusNum !== null && (!Number.isInteger(stepExpectedStatusNum) || stepExpectedStatusNum < 100 || stepExpectedStatusNum > 599)
-      ? 'Le code de statut attendu doit être compris entre 100 et 599.'
-      : null
-  // P1-Q Étape B — options par étape, mêmes bornes que StepRequest côté
-  // backend (@Min/@Size) : jamais une valeur que le backend rejetterait de
-  // toute façon en 400. Toutes optionnelles (chaîne vide = absente).
-  const stepThinkTimeNum = stepForm.thinkTimeMs.trim() ? Number(stepForm.thinkTimeMs) : null
-  const stepThinkTimeError =
-    stepThinkTimeNum !== null && (!Number.isInteger(stepThinkTimeNum) || stepThinkTimeNum < 0)
-      ? 'Doit être un entier positif ou nul.'
-      : null
-  const stepTimeoutNum = stepForm.timeoutSeconds.trim() ? Number(stepForm.timeoutSeconds) : null
-  const stepTimeoutError =
-    stepTimeoutNum !== null && (!Number.isInteger(stepTimeoutNum) || stepTimeoutNum < 1)
-      ? 'Doit être un entier d\'au moins 1 seconde.'
-      : null
-  const stepAssertionError =
-    stepForm.assertionBodyContains.length > 500 ? "L'assertion ne doit pas dépasser 500 caractères." : null
-  // Master prompt final (Lot B) — capture de variable dynamique : les deux
-  // champs sont liés (l'un sans l'autre n'a aucun effet côté moteur, voir
-  // Step.captureVariableName/captureJsonPath) — on le signale explicitement
-  // plutôt que de laisser un champ orphelin silencieusement ignoré.
-  const stepCaptureNameError =
-    stepForm.captureVariableName.length > 255 ? 'Le nom de variable ne doit pas dépasser 255 caractères.' : null
-  const stepCaptureJsonPathError =
-    stepForm.captureJsonPath.length > 500 ? 'Le chemin de capture ne doit pas dépasser 500 caractères.' : null
-  const stepCaptureIncompleteError = validatePairedFields(
-    stepForm.captureVariableName, stepForm.captureJsonPath, 'Le nom de variable et le chemin de capture'
-  )
-  const isStepFormValid = !stepNameError && !stepUrlError && !stepOrderError && !stepExpectedStatusError &&
-    !stepThinkTimeError && !stepTimeoutError && !stepAssertionError &&
-    !stepCaptureNameError && !stepCaptureJsonPathError && !stepCaptureIncompleteError
 
   // Étapes de chaque scénario Spring Boot, triées dans l'ordre réel (champ
   // backend `order`, jamais l'index du tableau côté frontend) — pour
@@ -349,7 +306,8 @@ function Scenarios() {
       // QUEUED/RUNNING), jamais le résultat final. On ne prétend donc plus
       // que le test est "terminé" ici — voir la page Exécutions (Spring
       // Boot) pour suivre la progression réelle jusqu'à un statut terminal.
-      await executionsBackendApi.execute({ scenarioId: scenario.id })
+      const execution = await executionsBackendApi.execute({ scenarioId: scenario.id })
+      monitor.track(execution.id, scenario.name)
       await refetchExecutions()
       showToast(
         `Exécution de « ${scenario.name} » lancée (${scenario.virtualUsers} utilisateur(s) virtuel(s)). Suivez sa progression depuis la page Exécutions.`,
@@ -368,117 +326,121 @@ function Scenarios() {
     return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   }
 
-  const openAdd = () => {
-    setEditingScenario(null)
-    setForm(emptyForm)
-    setTouched({})
-    setActionError(null)
-    setShowModal(true)
-  }
-
-  const openEdit = (scenario: BackendScenarioResponse) => {
-    setEditingScenario(scenario)
-    setForm({
-      name: scenario.name,
-      applicationId: scenario.applicationId,
-      description: scenario.description ?? '',
-      virtualUsers: String(scenario.virtualUsers),
-      rampUpSeconds: String(scenario.rampUpSeconds),
-      durationSeconds: scenario.durationSeconds != null ? String(scenario.durationSeconds) : '',
-      iterations: scenario.iterations != null ? String(scenario.iterations) : '',
-      thinkTimeMs: String(scenario.thinkTimeMs),
-      csvData: scenario.csvData ?? '',
-      targetRps: scenario.targetRps != null ? String(scenario.targetRps) : '',
-    })
-    setTouched({})
-    setActionError(null)
-    setShowModal(true)
-  }
-
-  const closeModal = () => {
-    setShowModal(false)
-  }
-
-  const buildPayload = (): BackendScenarioRequest => ({
-    applicationId: form.applicationId,
-    name: form.name.trim(),
-    description: form.description.trim() || null,
-    virtualUsers: virtualUsersNum,
-    rampUpSeconds: rampUpNum,
-    durationSeconds: durationNum,
-    iterations: iterationsNum,
-    thinkTimeMs: thinkTimeNum,
-    csvData: form.csvData.trim() || null,
-    targetRps: targetRpsNum,
-  })
-
-  const handleSubmit = async () => {
-    // Filet de sécurité (en plus des boutons masqués/fieldset désactivé) :
-    // le backend revalide de toute façon (403).
-    if (!canWrite) return
-    setTouched({ name: true, applicationId: true, virtualUsers: true, rampUpSeconds: true, durationSeconds: true, iterations: true, thinkTimeMs: true })
-    if (!isFormValid || saving) return
-    setSaving(true)
-    setActionError(null)
-    try {
-      if (editingScenario) {
-        const updated = await scenariosBackendApi.update(editingScenario.id, buildPayload())
-        showToast(`Scénario « ${updated.name} » modifié avec succès.`, 'success')
-      } else {
-        const created = await scenariosBackendApi.create(buildPayload())
-        showToast(`Scénario « ${created.name} » créé avec succès.`, 'success')
-      }
-      await refetchScenarios()
-      setShowModal(false)
-    } catch (err) {
-      const message = describeApiError(err, "Erreur lors de l'enregistrement.")
-      setActionError(message)
-      showToast(message, 'danger')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   // Suppression réelle contre Spring Boot : le backend refuse lui-même
   // (409) si des Steps y sont encore rattachés (voir ScenarioServiceImpl) —
   // plus de cascade-delete des Steps depuis le frontend (c'était une
   // logique spécifique à JSON Server, qui ne cascade jamais rien).
-  const handleDeleteScenario = async () => {
-    if (!canDelete || !deleteConfirm) return
-    setDeleting(true)
-    setActionError(null)
+  const confirmScenarioDeletion = async (mode: DeletionMode) => {
+    if (!deleteConfirm) return
+    if (mode === 'ARCHIVE') await scenariosBackendApi.archive(deleteConfirm.id)
+    else await scenariosBackendApi.remove(deleteConfirm.id)
+    setSelected((prev) => { const next = new Set(prev); next.delete(deleteConfirm.id); return next })
+    showToast(mode === 'ARCHIVE'
+      ? `Scénario « ${deleteConfirm.name} » archivé. Vous pouvez le restaurer depuis « Afficher les archivés ».`
+      : `Scénario « ${deleteConfirm.name} » supprimé définitivement.`, 'success')
+    setDeleteConfirm(null)
+    await refetchScenarios()
+  }
+
+  const handleRestoreScenario = async (scenario: BackendScenarioResponse) => {
     try {
-      await scenariosBackendApi.remove(deleteConfirm.id)
+      await scenariosBackendApi.restore(scenario.id)
+      showToast(`Scénario « ${scenario.name} » restauré.`, 'success')
       await refetchScenarios()
-      setSelectedIds((prev) => prev.filter((id) => id !== deleteConfirm.id))
-      showToast(`Scénario « ${deleteConfirm.name} » supprimé avec succès.`, 'success')
-      setDeleteConfirm(null)
     } catch (err) {
-      const message = describeApiError(err, 'Erreur lors de la suppression.')
-      setActionError(message)
-      showToast(message, 'danger')
-    } finally {
-      setDeleting(false)
+      showToast(describeApiError(err, 'Erreur lors de la restauration.'), 'danger')
     }
   }
 
-  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSelectedIds(e.target.checked ? filteredScenarios.map((s) => s.id) : [])
+  // ---------------------------------------------------------------- actions groupées / statut
+
+  const reportBulk = (result: BackendBulkActionResponse, verb: string) => {
+    if (result.failed === 0) {
+      showToast(`${result.succeeded} scénario(s) ${verb}.`, 'success')
+      return
+    }
+    const failures = result.results.filter((r) => !r.success).map((r) => `« ${r.name ?? '?'} » : ${r.message}`).join(' ; ')
+    showToast(`${result.succeeded} scénario(s) ${verb}, ${result.failed} en échec — ${failures}`, result.succeeded > 0 ? 'warning' : 'danger')
   }
 
-  const handleSelectOne = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
+  const afterMutation = async () => {
+    setSelected(new Set())
+    await refetchScenarios()
   }
 
-  const filteredScenarios = scenarios.filter((scenario) => {
-    const matchesSearch =
-      scenario.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      scenario.applicationName.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = selectedStatus === 'Tous' || scenario.status === selectedStatus
-    return matchesSearch && matchesStatus
-  })
+  /** Propose de réactiver les planifications suspendues des scénarios réactivés avec succès. */
+  const offerResume = (activatedIds: string[]) => {
+    const candidates = scenarios.filter((s) => activatedIds.includes(s.id) && s.pausedSchedules > 0)
+    if (candidates.length > 0) {
+      setResumeOffer({ ids: candidates.map((s) => s.id), schedules: candidates.reduce((n, s) => n + s.pausedSchedules, 0) })
+    }
+  }
 
-  const { page, setPage, totalPages, pageItems, startIndex, endIndex, totalItems } = usePagination(filteredScenarios, 10)
+  const changeStatus = async (ids: string[], target: 'ACTIVE' | 'INACTIVE') => {
+    setBulkBusy(true)
+    try {
+      if (ids.length === 1) {
+        const scenario = target === 'ACTIVE' ? await scenariosBackendApi.activate(ids[0]) : await scenariosBackendApi.deactivate(ids[0])
+        showToast(target === 'ACTIVE'
+          ? `Scénario « ${scenario.name} » activé.`
+          : `Scénario « ${scenario.name} » désactivé${scenario.pausedSchedules > 0 ? ` : ${scenario.pausedSchedules} planification(s) suspendue(s)` : ''}.`, 'success')
+        if (target === 'ACTIVE') offerResume(ids)
+      } else {
+        const result = await scenariosBackendApi.bulkStatus(ids, target)
+        reportBulk(result, target === 'ACTIVE' ? 'activé(s)' : 'désactivé(s)')
+        if (target === 'ACTIVE') offerResume(result.results.filter((r) => r.success).map((r) => r.id))
+      }
+      await afterMutation()
+    } catch (err) {
+      showToast(describeApiError(err, 'Changement de statut impossible.'), 'danger')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const resumeSchedules = async () => {
+    if (!resumeOffer) return
+    setBulkBusy(true)
+    try {
+      reportBulk(await scenariosBackendApi.bulkResumeSchedules(resumeOffer.ids), 'avec planifications réactivées')
+      setResumeOffer(null)
+      await refetchScenarios()
+    } catch (err) {
+      showToast(describeApiError(err, 'Réactivation des planifications impossible.'), 'danger')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const restoreSelected = async (ids: string[]) => {
+    setBulkBusy(true)
+    try {
+      reportBulk(await scenariosBackendApi.bulkRestore(ids), 'restauré(s)')
+      await afterMutation()
+    } catch (err) {
+      showToast(describeApiError(err, 'Erreur lors de la restauration.'), 'danger')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const confirmBulkDeletion = async (mode: DeletionMode) => {
+    if (!bulkDeletion) return
+    const result = mode === 'ARCHIVE'
+      ? await scenariosBackendApi.bulkArchive(bulkDeletion)
+      : await scenariosBackendApi.bulkDelete(bulkDeletion)
+    reportBulk(result, mode === 'ARCHIVE' ? 'archivé(s)' : 'supprimé(s) définitivement')
+    setBulkDeletion(null)
+    await afterMutation()
+  }
+
+  const totalItems = pageData.totalElements
+  const totalPages = Math.max(1, pageData.totalPages)
+  const page = urlPage
+  const pageItems = scenarios
+  const startIndex = totalItems === 0 ? 0 : (page - 1) * urlSize + 1
+  const endIndex = Math.min((page - 1) * urlSize + scenarios.length, totalItems)
+  const setPage = (p: number) => updateParams({ page: p > 1 ? String(p) : null }, false)
 
   // ------------------------------------------------------------
   // Gestion des Étapes (Spring Boot, Phase 19) — depuis la modale Détail.
@@ -492,89 +454,14 @@ function Scenarios() {
       .finally(() => setDetailStepsLoading(false))
   }
 
+  // Ajout / modification d'une étape : panneau latéral avec l'éditeur de l'assistant (StepDrawer).
   const openAddStep = () => {
     if (!selectedScenarioDetail) return
-    const maxOrder = detailSteps.reduce((max, s) => Math.max(max, s.order), 0)
-    setEditingStep(null)
-    setStepForm({ ...emptyStepForm, order: String(maxOrder + 1) })
-    setStepTouched({})
-    setStepActionError(null)
-    setShowStepModal(true)
+    loadDetailSteps(selectedScenarioDetail.id)
+    setStepDrawer({ editing: null })
   }
 
-  const openEditStep = (step: BackendStepResponse) => {
-    setEditingStep(step)
-    setStepForm({
-      name: step.name,
-      method: step.method,
-      url: step.url,
-      headers: step.headers ?? '',
-      body: step.body ?? '',
-      order: String(step.order),
-      expectedStatus: step.expectedStatus != null ? String(step.expectedStatus) : '',
-      thinkTimeMs: step.thinkTimeMs != null ? String(step.thinkTimeMs) : '',
-      timeoutSeconds: step.timeoutSeconds != null ? String(step.timeoutSeconds) : '',
-      followRedirects: step.followRedirects === true ? 'true' : step.followRedirects === false ? 'false' : '',
-      assertionBodyContains: step.assertionBodyContains ?? '',
-      captureVariableName: step.captureVariableName ?? '',
-      captureJsonPath: step.captureJsonPath ?? '',
-    })
-    setStepTouched({})
-    setStepActionError(null)
-    setShowStepModal(true)
-  }
-
-  const closeStepModal = () => {
-    setShowStepModal(false)
-  }
-
-  const buildStepPayload = (): BackendStepRequest => ({
-    scenarioId: selectedScenarioDetail!.id,
-    name: stepForm.name.trim(),
-    method: stepForm.method,
-    url: stepForm.url.trim(),
-    headers: stepForm.headers.trim() || null,
-    body: stepForm.body.trim() || null,
-    order: stepOrderNum,
-    expectedStatus: stepExpectedStatusNum,
-    thinkTimeMs: stepThinkTimeNum,
-    timeoutSeconds: stepTimeoutNum,
-    followRedirects: stepForm.followRedirects === '' ? null : stepForm.followRedirects === 'true',
-    assertionBodyContains: stepForm.assertionBodyContains.trim() || null,
-    captureVariableName: stepForm.captureVariableName.trim() || null,
-    captureJsonPath: stepForm.captureJsonPath.trim() || null,
-  })
-
-  // Chaque étape est créée/modifiée par son PROPRE appel PUT/POST vers
-  // /api/steps — il n'existe côté backend aucun endpoint transactionnel
-  // "Scénario + Steps" (voir Phase 19, section 15) : cette opération est
-  // donc volontairement unitaire et explicite (un clic = une étape), jamais
-  // une soumission groupée qui pourrait échouer partiellement sans le dire.
-  const handleSubmitStep = async () => {
-    if (!canWrite || !selectedScenarioDetail) return
-    setStepTouched({ name: true, url: true, order: true, expectedStatus: true })
-    if (!isStepFormValid || savingStep) return
-    setSavingStep(true)
-    setStepActionError(null)
-    try {
-      if (editingStep) {
-        await stepsBackendApi.update(editingStep.id, buildStepPayload())
-        showToast('Étape modifiée avec succès.', 'success')
-      } else {
-        await stepsBackendApi.create(buildStepPayload())
-        showToast('Étape créée avec succès.', 'success')
-      }
-      loadDetailSteps(selectedScenarioDetail.id)
-      await refetchAllSteps()
-      setShowStepModal(false)
-    } catch (err) {
-      const message = describeApiError(err, "Erreur lors de l'enregistrement de l'étape.")
-      setStepActionError(message)
-      showToast(message, 'danger')
-    } finally {
-      setSavingStep(false)
-    }
-  }
+  const openEditStep = (step: BackendStepResponse) => setStepDrawer({ editing: step })
 
   const handleDeleteStep = async () => {
     if (!canDelete || !deleteStepConfirm || !selectedScenarioDetail) return
@@ -744,10 +631,17 @@ function Scenarios() {
                 </div>
               </div>
 
-              <div className="modal-footer d-flex justify-content-end">
+              <div className="modal-footer d-flex justify-content-end gap-2">
                 <button className="pt-btn-outline" onClick={() => { setSelectedScenarioDetail(null); setShowStepsInDetail(false) }}>
                   Fermer
                 </button>
+                {canWrite && !selectedScenarioDetail.archived && !selectedScenarioDetail.applicationArchived && (
+                  <button className="pt-btn-primary" onClick={() => navigate(selectedScenarioDetail.status === 'DRAFT'
+                    ? `/scenarios/new?draft=${selectedScenarioDetail.id}`
+                    : `/scenarios/${selectedScenarioDetail.id}/edit`)}>
+                    <i className="bi bi-pencil"></i> {selectedScenarioDetail.status === 'DRAFT' ? 'Reprendre' : 'Modifier le scénario'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -774,51 +668,46 @@ function Scenarios() {
 
       {/* Stat Cards */}
       <div className="row g-3 mb-4">
-        <div className="col-6 col-md-4">
-          <div className="pt-stat-card">
-            <div className="stat-header">
-              <div>
-                <div className="stat-label">Total des scénarios</div>
-                <div className="stat-value">{scenariosLoading ? '—' : scenarios.length}</div>
+        {[
+          { label: 'Total des scénarios', value: stats?.total, icon: 'bi-collection-play', color: 'blue' },
+          { label: 'Scénarios actifs', value: stats?.active, icon: 'bi-check-circle', color: 'green' },
+          { label: 'Scénarios inactifs', value: stats?.inactive, icon: 'bi-pause-circle', color: 'orange' },
+          { label: 'Brouillons', value: stats?.drafts, icon: 'bi-pencil-square', color: 'purple' },
+        ].map((card) => (
+          <div key={card.label} className="col-6 col-md-3">
+            <div className="pt-stat-card">
+              <div className="stat-header">
+                <div>
+                  <div className="stat-label">{card.label}</div>
+                  <div className="stat-value">{card.value ?? '—'}</div>
+                </div>
+                <div className={`stat-icon ${card.color}`}><i className={`bi ${card.icon}`}></i></div>
               </div>
-              <div className="stat-icon blue"><i className="bi bi-collection-play"></i></div>
             </div>
           </div>
-        </div>
-        <div className="col-6 col-md-4">
-          <div className="pt-stat-card">
-            <div className="stat-header">
-              <div>
-                <div className="stat-label">Scénarios actifs</div>
-                <div className="stat-value">{scenariosLoading ? '—' : scenarios.filter((s) => s.status === 'ACTIVE').length}</div>
-              </div>
-              <div className="stat-icon green"><i className="bi bi-check-circle"></i></div>
-            </div>
-          </div>
-        </div>
-        <div className="col-6 col-md-4">
-          <div className="pt-stat-card">
-            <div className="stat-header">
-              <div>
-                <div className="stat-label">Scénarios inactifs</div>
-                <div className="stat-value">{scenariosLoading ? '—' : scenarios.filter((s) => s.status === 'INACTIVE').length}</div>
-              </div>
-              <div className="stat-icon purple"><i className="bi bi-pause-circle"></i></div>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Search + Create */}
       <div className="d-flex align-items-center gap-3 flex-wrap mb-3">
         <div className="pt-search">
           <i className="bi bi-search"></i>
-          <input type="text" placeholder="Rechercher par nom ou application..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          <input type="text" placeholder="Rechercher (nom, application, description)…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} aria-label="Rechercher un scénario" />
         </div>
+        <select className="pt-form-control" style={{ width: 'auto' }} value={urlStatus} onChange={(e) => updateParams({ status: e.target.value || null })} aria-label="Filtrer par statut">
+          {STATUS_FILTERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <select className="pt-form-control" style={{ width: 'auto' }} value={urlSort} onChange={(e) => updateParams({ sort: e.target.value === DEFAULT_SORT ? null : e.target.value })} aria-label="Trier">
+          {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <label className="d-flex align-items-center gap-2 mb-0" style={{ fontSize: '13px', color: 'var(--pt-text-muted)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={showArchived} onChange={(e) => updateParams({ archived: e.target.checked ? 'true' : null })} />
+          Afficher les archivés
+        </label>
         {canWrite && (
-          <button className="pt-btn-primary" onClick={openAdd}>
+          <button className="pt-btn-primary" onClick={() => navigate('/scenarios/new')}>
             <i className="bi bi-plus-lg"></i>
-            + Nouveau scénario
+            Nouveau scénario
           </button>
         )}
       </div>
@@ -826,27 +715,47 @@ function Scenarios() {
       {/* Table Card */}
       <div className="pt-card" style={{ padding: 0 }}>
         <div className="d-flex justify-content-between align-items-center p-3 flex-wrap gap-2" style={{ borderBottom: '1px solid var(--pt-border)' }}>
-          <div className="d-flex align-items-center gap-3">
-            <h6 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>Liste des scénarios</h6>
-            <span className="pt-pill neutral" style={{ fontSize: '11px' }}>
-              {filteredScenarios.length} sur {scenarios.length}
-            </span>
-          </div>
-          <div className="d-flex align-items-center gap-2 flex-wrap">
-            <select
-              className="pt-form-control"
-              style={{ width: 'auto', fontSize: '12.5px' }}
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value as 'Tous' | 'ACTIVE' | 'INACTIVE')}
-            >
-              <option value="Tous">Tous les statuts</option>
-              <option value="ACTIVE">Actif</option>
-              <option value="INACTIVE">Inactif</option>
-            </select>
-          </div>
+          <h6 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>
+            {showArchived ? 'Scénarios archivés' : 'Liste des scénarios'} ({totalItems})
+          </h6>
         </div>
 
-        {scenariosLoading ? (
+        {canWrite && selected.size > 0 && (
+          <div className="ap-bulk-bar" role="region" aria-label="Actions sur la sélection">
+            <strong>{selected.size} sélectionné{selected.size > 1 ? 's' : ''}</strong>
+            <div className="d-flex gap-2 flex-wrap">
+              {!showArchived && (
+                <>
+                  <button type="button" className="pt-btn-outline" onClick={() => changeStatus([...selected], 'ACTIVE')} disabled={bulkBusy}>
+                    <i className="bi bi-play-circle"></i> Activer
+                  </button>
+                  <button type="button" className="pt-btn-outline" onClick={() => changeStatus([...selected], 'INACTIVE')} disabled={bulkBusy}>
+                    <i className="bi bi-pause-circle"></i> Désactiver
+                  </button>
+                </>
+              )}
+              {showArchived ? (
+                <button type="button" className="pt-btn-outline" onClick={() => restoreSelected([...selected])} disabled={bulkBusy}>
+                  <i className="bi bi-arrow-counterclockwise"></i> Restaurer
+                </button>
+              ) : (
+                <button type="button" className="pt-btn-outline" onClick={() => setBulkDeletion([...selected])} disabled={bulkBusy}>
+                  <i className="bi bi-archive"></i> Archiver
+                </button>
+              )}
+              {canPermanentDelete && (
+                <button type="button" className="pt-btn-danger" onClick={() => setBulkDeletion([...selected])} disabled={bulkBusy}>
+                  <i className="bi bi-trash3"></i> Supprimer définitivement
+                </button>
+              )}
+              <button type="button" className="pt-btn-ghost" onClick={() => setSelected(new Set())} disabled={bulkBusy}>
+                Annuler la sélection
+              </button>
+            </div>
+          </div>
+        )}
+
+        {scenariosLoading && scenarios.length === 0 ? (
           <div className="pt-empty-state">
             <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }}></i>
             <p>Chargement des scénarios...</p>
@@ -856,9 +765,11 @@ function Scenarios() {
           <table className="pt-table">
             <thead>
               <tr>
-                <th style={{ width: '40px' }}>
-                  <input type="checkbox" checked={filteredScenarios.length > 0 && selectedIds.length === filteredScenarios.length} onChange={handleSelectAll} />
-                </th>
+                {canWrite && (
+                  <th style={{ width: '40px' }}>
+                    <input ref={selectAllRef} type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Sélectionner tous les scénarios de la page" />
+                  </th>
+                )}
                 <th>Nom</th>
                 <th>Application</th>
                 <th>Statut</th>
@@ -870,29 +781,35 @@ function Scenarios() {
               </tr>
             </thead>
             <tbody>
-              {filteredScenarios.length === 0 ? (
+              {scenarios.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>
+                  <td colSpan={canWrite ? 9 : 8} style={{ textAlign: 'center', padding: '2rem' }}>
                     <i className="bi bi-inbox" style={{ fontSize: '28px', color: 'var(--pt-text-muted)' }}></i>
                     <p style={{ color: 'var(--pt-text-muted)', marginTop: '0.5rem', margin: 0 }}>Aucun scénario trouvé</p>
                   </td>
                 </tr>
               ) : (
                 pageItems.map((scenario) => {
-                  const isSelected = selectedIds.includes(scenario.id)
+                  const isSelected = selected.has(scenario.id)
                   const latestExec = latestExecByScenario.get(scenario.id)
                   const scenarioSteps = stepsByScenario.get(scenario.id) ?? []
                   const stepsPreview =
                     scenarioSteps.length === 0
                       ? 'Aucune étape'
                       : scenarioSteps.map((s) => `${s.order}. ${s.method} ${s.url}`).join('  →  ')
-                  const displayStatus = backendToFrontendActiveStatus(scenario.status)
+                  const isDraft = scenario.status === 'DRAFT'
+                  const isInactive = scenario.status === 'INACTIVE'
+                  const visible = !scenario.archived && !scenario.applicationArchived
+                  const canResume = canWrite && isDraft && visible
+                  const pill = STATUS_PILL[scenario.status]
 
                   return (
                     <tr key={scenario.id} style={{ background: isSelected ? 'var(--pt-sidebar-item-hover)' : undefined, cursor: 'pointer' }}>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={isSelected} onChange={() => handleSelectOne(scenario.id)} />
-                      </td>
+                      {canWrite && (
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={isSelected} onChange={() => toggleOne(scenario.id)} aria-label={`Sélectionner ${scenario.name}`} />
+                        </td>
+                      )}
                       <td onClick={() => { setSelectedScenarioDetail(scenario); setShowStepsInDetail(false) }}>
                         <div className="d-flex align-items-center gap-3">
                           <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'var(--pt-primary-light)', color: 'var(--pt-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '17px', flexShrink: 0 }}>
@@ -924,10 +841,15 @@ function Scenarios() {
                         <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--pt-text)' }}>{scenario.applicationName}</span>
                       </td>
                       <td onClick={() => { setSelectedScenarioDetail(scenario); setShowStepsInDetail(false) }}>
-                        <span className={`pt-pill ${displayStatus === 'Actif' ? 'success' : 'neutral'}`}>
-                          <i className={`bi ${displayStatus === 'Actif' ? 'bi-check-circle-fill' : 'bi-pause-circle-fill'}`} style={{ fontSize: '11px' }}></i>
-                          {displayStatus}
+                        <span className={`pt-pill ${pill.className}`} title={pill.title}>
+                          <i className={`bi ${pill.icon}`} style={{ fontSize: '11px' }}></i>
+                          {pill.label}
                         </span>
+                        {isInactive && scenario.pausedSchedules > 0 && (
+                          <div style={{ fontSize: '11px', color: 'var(--pt-text-muted)', marginTop: '2px' }}>
+                            {scenario.pausedSchedules} planification(s) suspendue(s)
+                          </div>
+                        )}
                       </td>
                       <td onClick={() => { setSelectedScenarioDetail(scenario); setShowStepsInDetail(false) }}>
                         <span style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>
@@ -965,24 +887,59 @@ function Scenarios() {
                           <button className="topbar-icon" title="Voir détails" style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-border)', background: 'var(--pt-card-bg)' }} onClick={() => { setSelectedScenarioDetail(scenario); setShowStepsInDetail(false) }}>
                             <i className="bi bi-eye" style={{ fontSize: '13px', color: 'var(--pt-text-muted)' }}></i>
                           </button>
-                          {canWrite && (
+                          {canResume && (
+                            <button
+                              className="pt-btn-outline"
+                              style={{ fontSize: '12px', padding: '0.2rem 0.6rem', height: '30px' }}
+                              title={`Reprendre l'assistant à l'étape « ${['Informations', 'Étapes', 'Tester', 'Charge & résumé'][scenario.wizardStep ?? 0] ?? 'Informations'} »`}
+                              onClick={() => navigate(`/scenarios/new?draft=${scenario.id}`)}
+                            >
+                              <i className="bi bi-play-circle"></i> Reprendre
+                            </button>
+                          )}
+                          {canWrite && isDraft && (
+                            <button className="topbar-icon" title="Supprimer le brouillon" aria-label={`Supprimer le brouillon ${scenario.name}`} style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-danger)', background: 'rgba(220,38,38,0.06)' }} onClick={() => setDeleteDraftConfirm(scenario)}>
+                              <i className="bi bi-trash" style={{ fontSize: '13px', color: 'var(--pt-danger)' }}></i>
+                            </button>
+                          )}
+                          {canWrite && !isDraft && visible && (
                             <button
                               className="topbar-icon"
-                              disabled={launchingScenarioId === scenario.id}
-                              title={`Exécuter le scénario (${scenario.virtualUsers} VU, ramp-up ${scenario.rampUpSeconds}s${scenario.durationSeconds ? `, durée ${scenario.durationSeconds}s` : scenario.iterations ? `, ${scenario.iterations} itération(s)` : ''}) — asynchrone, suivez la progression sur la page Exécutions`}
-                              style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-success)', background: 'var(--pt-success-light)' }}
+                              title={isInactive ? 'Activer le scénario' : 'Désactiver le scénario (non exécutable, planifications suspendues)'}
+                              aria-label={`${isInactive ? 'Activer' : 'Désactiver'} ${scenario.name}`}
+                              disabled={bulkBusy}
+                              style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-border)', background: 'var(--pt-card-bg)' }}
+                              onClick={() => changeStatus([scenario.id], isInactive ? 'ACTIVE' : 'INACTIVE')}
+                            >
+                              <i className={`bi ${isInactive ? 'bi-play-circle' : 'bi-pause-circle'}`} style={{ fontSize: '13px', color: 'var(--pt-text-muted)' }}></i>
+                            </button>
+                          )}
+                          {canWrite && !isDraft && visible && (
+                            <span title={isInactive ? 'Scénario inactif : activez-le pour l’exécuter.' : undefined}>
+                            <button
+                              className="topbar-icon"
+                              disabled={isInactive || launchingScenarioId === scenario.id}
+                              aria-label={`Exécuter ${scenario.name}`}
+                              title={isInactive ? undefined : `Exécuter le scénario (${scenario.virtualUsers} VU, ramp-up ${scenario.rampUpSeconds}s${scenario.durationSeconds ? `, durée ${scenario.durationSeconds}s` : scenario.iterations ? `, ${scenario.iterations} itération(s)` : ''}) — asynchrone, suivez la progression sur la page Exécutions`}
+                              style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-success)', background: 'var(--pt-success-light)', opacity: isInactive ? 0.45 : 1, cursor: isInactive ? 'not-allowed' : undefined }}
                               onClick={() => handleExecuteScenario(scenario)}
                             >
                               <i className={`bi ${launchingScenarioId === scenario.id ? 'bi-arrow-repeat pt-spin' : 'bi-play-fill'}`} style={{ fontSize: '14px', color: 'var(--pt-success)' }}></i>
                             </button>
+                            </span>
                           )}
-                          {canWrite && (
-                            <button className="topbar-icon" title="Modifier" style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-primary)', background: 'var(--pt-primary-light)' }} onClick={() => openEdit(scenario)}>
+                          {canWrite && !isDraft && !scenario.archived && !scenario.applicationArchived && (
+                            <button className="topbar-icon" title="Modifier" style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-primary)', background: 'var(--pt-primary-light)' }} onClick={() => navigate(`/scenarios/${scenario.id}/edit`)} aria-label={`Modifier ${scenario.name}`}>
                               <i className="bi bi-pencil" style={{ fontSize: '13px', color: 'var(--pt-primary)' }}></i>
                             </button>
                           )}
-                          {canDelete && (
-                            <button className="topbar-icon" title="Supprimer" disabled={deleting} style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-danger)', background: 'rgba(220,38,38,0.06)' }} onClick={() => setDeleteConfirm(scenario)}>
+                          {canWrite && (scenario.archived || scenario.applicationArchived) && (
+                            <button className="topbar-icon" title={scenario.applicationArchived ? "Restaurez d'abord l'application" : 'Restaurer'} aria-label={`Restaurer ${scenario.name}`} disabled={scenario.applicationArchived} style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-primary)', background: 'var(--pt-primary-light)' }} onClick={() => handleRestoreScenario(scenario)}>
+                              <i className="bi bi-arrow-counterclockwise" style={{ fontSize: '13px', color: 'var(--pt-primary)' }}></i>
+                            </button>
+                          )}
+                          {!isDraft && (canPermanentDelete || (canDelete && !scenario.archived && !scenario.applicationArchived)) && (
+                            <button className="topbar-icon" title={scenario.archived ? 'Supprimer définitivement' : 'Supprimer / archiver'} aria-label={`Supprimer ${scenario.name}`} style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-danger)', background: 'rgba(220,38,38,0.06)' }} onClick={() => setDeleteConfirm(scenario)}>
                               <i className="bi bi-trash" style={{ fontSize: '13px', color: 'var(--pt-danger)' }}></i>
                             </button>
                           )}
@@ -1005,506 +962,111 @@ function Scenarios() {
           endIndex={endIndex}
           totalItems={totalItems}
           itemLabel="scénarios"
+          pageSize={urlSize}
+          pageSizeOptions={[5, 10, 25, 50]}
+          onPageSizeChange={(size) => updateParams({ size: size === 10 ? null : String(size) })}
         />
       </div>
 
-      {/* Add/Edit Modal — Spring Boot, métadonnées uniquement (sans étapes) */}
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '520px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-            <div className="d-flex justify-content-between align-items-center mb-4">
-              <h5 style={{ fontWeight: 700, margin: 0 }}>
-                {editingScenario ? 'Modifier le scénario' : 'Nouveau scénario'}
-              </h5>
-              <button onClick={closeModal} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}>
-                <i className="bi bi-x"></i>
-              </button>
-            </div>
 
-            {actionError && (
-              <div className="pt-alert-banner danger mb-3">
-                <i className="bi bi-exclamation-triangle-fill"></i>
-                {actionError}
-              </div>
-            )}
-
-            {!editingScenario && (
-              <div className="pt-alert-banner mb-3" style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', color: 'var(--pt-text-muted)' }}>
-                <i className="bi bi-info-circle-fill"></i>
-                Ce scénario sera créé sans étape (les étapes restent gérées séparément, voir Limitations Phase 18).
-              </div>
-            )}
-
-            <fieldset disabled={!canWrite} className="row g-3" style={{ border: 'none', padding: 0, margin: 0 }}>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Nom du scénario *</label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.name && nameError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: Parcours achat complet"
-                  value={form.name}
-                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, name: true }))}
-                />
-                {touched.name && nameError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{nameError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Application *</label>
-                <select
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.applicationId && !form.applicationId ? 'var(--pt-danger)' : undefined }}
-                  value={form.applicationId}
-                  disabled={!canWrite || !!editingScenario}
-                  title={editingScenario ? "L'application d'un scénario ne peut plus être changée une fois créé." : undefined}
-                  onChange={e => setForm(p => ({ ...p, applicationId: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, applicationId: true }))}
-                >
-                  <option value="" disabled>Sélectionner une application…</option>
-                  {applications.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-                {touched.applicationId && !form.applicationId && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>Veuillez sélectionner une application.</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Description <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <textarea
-                  className="pt-form-control"
-                  rows={2}
-                  style={{ width: '100%' }}
-                  value={form.description}
-                  onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
-                ></textarea>
-                {descriptionError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{descriptionError}</div>
-                )}
-              </div>
-
-              {/* P0-A — paramètres réels du moteur de charge (voir LoadTestSpec) :
-                  chaque champ ci-dessous est effectivement utilisé par
-                  HttpClientExecutionEngine, jamais décoratif. */}
-              <div className="col-12">
-                <hr style={{ margin: '4px 0 12px', borderColor: 'var(--pt-border)' }} />
-                <div style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)', marginBottom: '10px' }}>
-                  <i className="bi bi-speedometer2 me-1" style={{ color: 'var(--pt-primary)' }}></i>
-                  PARAMÈTRES DE CHARGE
-                </div>
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Utilisateurs virtuels *</label>
-                <input
-                  type="number" min={1} max={500}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.virtualUsers && virtualUsersError ? 'var(--pt-danger)' : undefined }}
-                  value={form.virtualUsers}
-                  onChange={e => setForm(p => ({ ...p, virtualUsers: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, virtualUsers: true }))}
-                />
-                {touched.virtualUsers && virtualUsersError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{virtualUsersError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Ramp-up (s) *
-                </label>
-                <input
-                  type="number" min={0}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.rampUpSeconds && rampUpError ? 'var(--pt-danger)' : undefined }}
-                  value={form.rampUpSeconds}
-                  onChange={e => setForm(p => ({ ...p, rampUpSeconds: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, rampUpSeconds: true }))}
-                />
-                {touched.rampUpSeconds && rampUpError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{rampUpError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Durée (s) <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="number" min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.durationSeconds && durationError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: 60"
-                  value={form.durationSeconds}
-                  onChange={e => setForm(p => ({ ...p, durationSeconds: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, durationSeconds: true }))}
-                />
-                {touched.durationSeconds && durationError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{durationError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Itérations <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="number" min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.iterations && iterationsError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: 10"
-                  value={form.iterations}
-                  onChange={e => setForm(p => ({ ...p, iterations: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, iterations: true }))}
-                />
-                {touched.iterations && iterationsError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{iterationsError}</div>
-                )}
-              </div>
-              {form.durationSeconds.trim() && form.iterations.trim() && (
-                <div className="col-12">
-                  <div className="pt-alert-banner" style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', color: 'var(--pt-text-muted)', fontSize: '11.5px' }}>
-                    <i className="bi bi-info-circle-fill"></i>
-                    Durée et itérations sont toutes deux configurées : chaque utilisateur virtuel s'arrête à la première condition atteinte (durée écoulée ou nombre d'itérations atteint).
-                  </div>
-                </div>
-              )}
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Think time (ms) *
-                </label>
-                <input
-                  type="number" min={0}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.thinkTimeMs && thinkTimeError ? 'var(--pt-danger)' : undefined }}
-                  value={form.thinkTimeMs}
-                  onChange={e => setForm(p => ({ ...p, thinkTimeMs: e.target.value }))}
-                  onBlur={() => setTouched(t => ({ ...t, thinkTimeMs: true }))}
-                />
-                {touched.thinkTimeMs && thinkTimeError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{thinkTimeError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Données CSV (optionnel)
-                </label>
-                <textarea
-                  className="pt-form-control" rows={3}
-                  placeholder={'username,password\nuser1,pass1\nuser2,pass2'}
-                  style={{ width: '100%', fontFamily: 'monospace', fontSize: '12.5px', borderColor: csvDataError ? 'var(--pt-danger)' : undefined }}
-                  value={form.csvData}
-                  onChange={e => setForm(p => ({ ...p, csvData: e.target.value }))}
-                />
-                {csvDataError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{csvDataError}</div>
-                )}
-                <div style={{ color: 'var(--pt-text-muted)', fontSize: '11px', marginTop: '4px' }}>
-                  Première ligne = noms de variables. Une ligne distribuée par utilisateur virtuel (cyclique si moins de lignes que de VUs) — utilisables dans les étapes via <code>{'${nomColonne}'}</code>.
-                </div>
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Débit cible (req/s)
-                </label>
-                <input
-                  type="number" min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: targetRpsError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="aucun pacing si vide"
-                  value={form.targetRps}
-                  onChange={e => setForm(p => ({ ...p, targetRps: e.target.value }))}
-                />
-                {targetRpsError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{targetRpsError}</div>
-                )}
-                <div style={{ color: 'var(--pt-text-muted)', fontSize: '11px', marginTop: '4px' }}>
-                  Débit approximatif partagé entre tous les utilisateurs virtuels — ne remplace pas leur nombre, le ramp-up ni le think time.
-                </div>
-              </div>
-            </fieldset>
-
-            <div className="d-flex gap-2 justify-content-end mt-4">
-              <button onClick={closeModal} disabled={saving} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                Annuler
-              </button>
-              {canWrite && (
-                <button onClick={handleSubmit} disabled={!isFormValid || saving} style={{ background: !isFormValid ? '#93C5FD' : 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: !isFormValid ? 'not-allowed' : 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
-                  {saving ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Enregistrement...</> : <><i className="bi bi-check2 me-2"></i>Enregistrer</>}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
+      {/* Suppression / archivage d'un scénario : modale d'impact */}
       {deleteConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '400px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', textAlign: 'center' }}>
-            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--pt-danger-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
-              <i className="bi bi-trash" style={{ fontSize: '24px', color: 'var(--pt-danger)' }}></i>
-            </div>
-            <h5 style={{ fontWeight: 700, marginBottom: '8px' }}>Supprimer le scénario ?</h5>
-            <p style={{ color: 'var(--pt-text-muted)', fontSize: '14px', marginBottom: '1.5rem' }}>
-              « {deleteConfirm.name} » sera définitivement supprimé. Refusé si des étapes y sont encore rattachées.
-            </p>
-            {actionError && (
-              <div className="pt-alert-banner danger mb-3" style={{ textAlign: 'left' }}>
-                <i className="bi bi-exclamation-triangle-fill"></i>
-                {actionError}
+        <DeletionDialog
+          subject={`le scénario « ${deleteConfirm.name} »`}
+          confirmText={deleteConfirm.name}
+          loadImpact={() => scenariosBackendApi.deletionImpact(deleteConfirm.id)}
+          canPermanent={canPermanentDelete}
+          archiveAvailable={!deleteConfirm.archived && !deleteConfirm.applicationArchived}
+          onConfirm={confirmScenarioDeletion}
+          onClose={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {/* Archivage / suppression définitive groupés : impact total + confirmation par saisie. */}
+      {bulkDeletion && (
+        <DeletionDialog
+          subject={`${bulkDeletion.length} scénario${bulkDeletion.length > 1 ? 's' : ''}`}
+          confirmText="SUPPRIMER"
+          loadImpact={() => scenariosBackendApi.bulkDeletionImpact(bulkDeletion)}
+          canPermanent={canPermanentDelete}
+          archiveAvailable={!showArchived}
+          onConfirm={confirmBulkDeletion}
+          onClose={() => setBulkDeletion(null)}
+        />
+      )}
+
+      {/* Réactivation : proposer de réactiver les planifications suspendues par la désactivation. */}
+      {resumeOffer && (
+        <div className="modal fade show d-block" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="resume-title" style={{ background: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content" style={{ borderRadius: 'var(--pt-radius)', background: 'var(--pt-card-bg)', color: 'var(--pt-text)' }}>
+              <div className="modal-body p-4">
+                <h5 id="resume-title" style={{ fontWeight: 700, marginBottom: '8px' }}>Réactiver les planifications ?</h5>
+                <p className="mb-0" style={{ color: 'var(--pt-text-muted)', fontSize: '13.5px' }}>
+                  {resumeOffer.schedules} planification(s) avaient été suspendues par la désactivation. Les planifications
+                  ponctuelles dont la date est passée resteront désactivées (aucun rattrapage).
+                </p>
               </div>
-            )}
-            <div className="d-flex gap-2 justify-content-center">
-              <button onClick={() => { setDeleteConfirm(null); setActionError(null) }} disabled={deleting} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                Annuler
-              </button>
-              <button onClick={handleDeleteScenario} disabled={deleting} style={{ background: 'var(--pt-danger)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
-                {deleting ? 'Suppression...' : 'Supprimer'}
-              </button>
+              <div className="modal-footer">
+                <button className="pt-btn-outline" onClick={() => setResumeOffer(null)} disabled={bulkBusy}>Plus tard</button>
+                <button className="pt-btn-primary" onClick={resumeSchedules} disabled={bulkBusy}>Réactiver les planifications</button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add/Edit Step Modal — Spring Boot (Phase 19), champs limités au contrat réel StepRequest */}
-      {showStepModal && selectedScenarioDetail && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1070, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '520px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-            <div className="d-flex justify-content-between align-items-center mb-4">
-              <h5 style={{ fontWeight: 700, margin: 0 }}>
-                {editingStep ? "Modifier l'étape" : 'Nouvelle étape'}
-              </h5>
-              <button onClick={closeStepModal} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}>
-                <i className="bi bi-x"></i>
-              </button>
-            </div>
-
-            {stepActionError && (
-              <div className="pt-alert-banner danger mb-3">
-                <i className="bi bi-exclamation-triangle-fill"></i>
-                {stepActionError}
+      {/* Brouillon : suppression simple (aucune exécution possible, donc aucun historique à conserver). */}
+      {deleteDraftConfirm && (
+        <div className="modal fade show d-block" tabIndex={-1} role="dialog" aria-modal="true" style={{ background: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content" style={{ borderRadius: 'var(--pt-radius)', background: 'var(--pt-card-bg)', color: 'var(--pt-text)' }}>
+              <div className="modal-body p-4">
+                <h5 style={{ fontWeight: 700, marginBottom: '8px' }}>Supprimer le brouillon ?</h5>
+                <p className="mb-0" style={{ color: 'var(--pt-text-muted)', fontSize: '13.5px' }}>
+                  Le brouillon « {deleteDraftConfirm.name} » et ses étapes seront supprimés définitivement.
+                </p>
               </div>
-            )}
-
-            <fieldset disabled={!canWrite} className="row g-3" style={{ border: 'none', padding: 0, margin: 0 }}>
-              <div className="col-12 col-md-4">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Méthode *</label>
-                <select
-                  className="pt-form-control"
-                  style={{ width: '100%' }}
-                  value={stepForm.method}
-                  onChange={e => setStepForm(p => ({ ...p, method: e.target.value as BackendHttpMethod }))}
-                >
-                  {STEP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-              <div className="col-12 col-md-8">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Nom de l'étape *</label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTouched.name && stepNameError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: Login utilisateur"
-                  value={stepForm.name}
-                  onChange={e => setStepForm(p => ({ ...p, name: e.target.value }))}
-                  onBlur={() => setStepTouched(t => ({ ...t, name: true }))}
-                />
-                {stepTouched.name && stepNameError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{stepNameError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>URL / Ressource *</label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTouched.url && stepUrlError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="/api/auth/login"
-                  value={stepForm.url}
-                  onChange={e => setStepForm(p => ({ ...p, url: e.target.value }))}
-                  onBlur={() => setStepTouched(t => ({ ...t, url: true }))}
-                />
-                {stepTouched.url && stepUrlError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{stepUrlError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-4">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Ordre *</label>
-                <input
-                  type="number"
-                  min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTouched.order && stepOrderError ? 'var(--pt-danger)' : undefined }}
-                  value={stepForm.order}
-                  onChange={e => setStepForm(p => ({ ...p, order: e.target.value }))}
-                  onBlur={() => setStepTouched(t => ({ ...t, order: true }))}
-                />
-                {stepTouched.order && stepOrderError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{stepOrderError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-8">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Code de statut attendu <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="number"
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTouched.expectedStatus && stepExpectedStatusError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: 200"
-                  value={stepForm.expectedStatus}
-                  onChange={e => setStepForm(p => ({ ...p, expectedStatus: e.target.value }))}
-                  onBlur={() => setStepTouched(t => ({ ...t, expectedStatus: true }))}
-                />
-                {stepTouched.expectedStatus && stepExpectedStatusError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{stepExpectedStatusError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Headers <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel — texte libre (le backend ne structure pas les headers)</span>
-                </label>
-                <textarea
-                  className="pt-form-control"
-                  rows={2}
-                  style={{ width: '100%' }}
-                  placeholder={'Content-Type: application/json'}
-                  value={stepForm.headers}
-                  onChange={e => setStepForm(p => ({ ...p, headers: e.target.value }))}
-                ></textarea>
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Body <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel — texte libre</span>
-                </label>
-                <textarea
-                  className="pt-form-control"
-                  rows={2}
-                  style={{ width: '100%' }}
-                  value={stepForm.body}
-                  onChange={e => setStepForm(p => ({ ...p, body: e.target.value }))}
-                ></textarea>
-              </div>
-              <div className="col-12">
-                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--pt-text-muted)', margin: '8px 0 4px' }}>
-                  Options d'exécution (optionnelles — comportement global inchangé si non renseignées)
-                </div>
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Think time étape (ms)
-                </label>
-                <input
-                  type="number" min={0}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepThinkTimeError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="global si vide"
-                  value={stepForm.thinkTimeMs}
-                  onChange={e => setStepForm(p => ({ ...p, thinkTimeMs: e.target.value }))}
-                />
-                {stepThinkTimeError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepThinkTimeError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Timeout étape (s)
-                </label>
-                <input
-                  type="number" min={1}
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepTimeoutError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="global si vide"
-                  value={stepForm.timeoutSeconds}
-                  onChange={e => setStepForm(p => ({ ...p, timeoutSeconds: e.target.value }))}
-                />
-                {stepTimeoutError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepTimeoutError}</div>
-                )}
-              </div>
-              <div className="col-6 col-md-3">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Suivre les redirections
-                </label>
-                <select
-                  className="pt-form-control"
-                  style={{ width: '100%' }}
-                  value={stepForm.followRedirects}
-                  onChange={e => setStepForm(p => ({ ...p, followRedirects: e.target.value as '' | 'true' | 'false' }))}
-                >
-                  <option value="">Global (par défaut)</option>
-                  <option value="true">Oui</option>
-                  <option value="false">Non</option>
-                </select>
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Assertion — la réponse doit contenir <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="text"
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: stepAssertionError ? 'var(--pt-danger)' : undefined }}
-                  placeholder={'ex: "status":"ok"'}
-                  value={stepForm.assertionBodyContains}
-                  onChange={e => setStepForm(p => ({ ...p, assertionBodyContains: e.target.value }))}
-                />
-                {stepAssertionError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepAssertionError}</div>
-                )}
-              </div>
-              <div className="col-6">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Capturer une variable — nom <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  type="text"
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: (stepCaptureNameError || stepCaptureIncompleteError) ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: token"
-                  value={stepForm.captureVariableName}
-                  onChange={e => setStepForm(p => ({ ...p, captureVariableName: e.target.value }))}
-                />
-                {stepCaptureNameError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepCaptureNameError}</div>
-                )}
-              </div>
-              <div className="col-6">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Capturer une variable — chemin JSON
-                </label>
-                <input
-                  type="text"
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: (stepCaptureJsonPathError || stepCaptureIncompleteError) ? 'var(--pt-danger)' : undefined }}
-                  placeholder={'ex: $.token ou data.token'}
-                  value={stepForm.captureJsonPath}
-                  onChange={e => setStepForm(p => ({ ...p, captureJsonPath: e.target.value }))}
-                />
-                {stepCaptureJsonPathError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px', marginTop: '4px' }}>{stepCaptureJsonPathError}</div>
-                )}
-              </div>
-              {stepCaptureIncompleteError && (
-                <div className="col-12">
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '11.5px' }}>{stepCaptureIncompleteError}</div>
-                </div>
-              )}
-              <div className="col-12">
-                <div style={{ color: 'var(--pt-text-muted)', fontSize: '11px' }}>
-                  La valeur capturée est disponible dans les étapes suivantes de ce scénario via <code>{'${nomDeVariable}'}</code> — isolée par utilisateur virtuel (jamais partagée entre eux).
-                </div>
-              </div>
-            </fieldset>
-
-            <div className="d-flex gap-2 justify-content-end mt-4">
-              <button onClick={closeStepModal} disabled={savingStep} style={{ background: 'var(--pt-bg)', border: '1px solid var(--pt-border)', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: 'pointer', fontSize: '13.5px', color: 'var(--pt-text)' }}>
-                Annuler
-              </button>
-              {canWrite && (
-                <button onClick={handleSubmitStep} disabled={!isStepFormValid || savingStep} style={{ background: !isStepFormValid ? '#93C5FD' : 'var(--pt-primary)', color: 'white', border: 'none', borderRadius: 'var(--pt-radius-sm)', padding: '8px 20px', cursor: !isStepFormValid ? 'not-allowed' : 'pointer', fontSize: '13.5px', fontWeight: 600 }}>
-                  {savingStep ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Enregistrement...</> : <><i className="bi bi-check2 me-2"></i>Enregistrer</>}
+              <div className="modal-footer">
+                <button className="pt-btn-outline" onClick={() => setDeleteDraftConfirm(null)} disabled={deletingDraft}>Annuler</button>
+                <button className="pt-btn-danger" disabled={deletingDraft} onClick={async () => {
+                  setDeletingDraft(true)
+                  try {
+                    await scenariosBackendApi.removeDraft(deleteDraftConfirm.id)
+                    showToast(`Brouillon « ${deleteDraftConfirm.name} » supprimé.`, 'success')
+                    setSelected((prev) => { const next = new Set(prev); next.delete(deleteDraftConfirm.id); return next })
+                    setDeleteDraftConfirm(null)
+                    refetchScenarios()
+                  } catch (err) {
+                    showToast(describeApiError(err, 'Suppression du brouillon impossible.'), 'danger')
+                  } finally {
+                    setDeletingDraft(false)
+                  }
+                }}>
+                  {deletingDraft ? 'Suppression…' : 'Supprimer'}
                 </button>
-              )}
+              </div>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Ajouter / modifier une étape : même éditeur que l'assistant, dans un panneau latéral. */}
+      {stepDrawer && selectedScenarioDetail && (
+        <StepDrawer
+          scenario={selectedScenarioDetail}
+          application={applications.find((a) => a.id === selectedScenarioDetail.applicationId)}
+          steps={[...detailSteps].sort((a, b) => a.order - b.order)}
+          editing={stepDrawer.editing}
+          onClose={() => setStepDrawer(null)}
+          onSaved={async (message) => {
+            showToast(message, 'success')
+            setStepDrawer(null)
+            setShowStepsInDetail(true)
+            loadDetailSteps(selectedScenarioDetail.id)
+            await refetchAllSteps()
+          }}
+        />
       )}
 
       {/* Delete Step Confirmation Modal */}

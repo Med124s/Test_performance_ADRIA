@@ -26,6 +26,12 @@ public interface ScenarioMapper {
     @Mapping(target = "createdBy", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
+    @Mapping(target = "archived", ignore = true)
+    @Mapping(target = "archivedAt", ignore = true)
+    @Mapping(target = "wizardStep", ignore = true)
+    @Mapping(target = "draftState", ignore = true)
+    @Mapping(target = "variables", ignore = true)
+    @Mapping(target = "csvDistribution", ignore = true)
     Scenario toEntity(ScenarioRequest request);
 
     @Mapping(target = "id", ignore = true)
@@ -39,12 +45,20 @@ public interface ScenarioMapper {
     @Mapping(target = "createdBy", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
+    @Mapping(target = "archived", ignore = true)
+    @Mapping(target = "archivedAt", ignore = true)
+    @Mapping(target = "wizardStep", ignore = true)
+    @Mapping(target = "draftState", ignore = true)
+    @Mapping(target = "variables", ignore = true)
+    @Mapping(target = "csvDistribution", ignore = true)
     void updateEntityFromRequest(ScenarioRequest request, @MappingTarget Scenario scenario);
 
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")
     @Mapping(target = "applicationId", source = "application.id", qualifiedByName = "uuidToString")
     @Mapping(target = "applicationName", source = "application.name")
+    @Mapping(target = "applicationArchived", source = "application.archived")
     @Mapping(target = "createdBy", source = "createdBy", qualifiedByName = "appUserDisplayName")
+    @Mapping(target = "pausedSchedules", ignore = true)
     ScenarioResponse toResponse(Scenario scenario);
 
     List<ScenarioResponse> toResponseList(List<Scenario> scenarios);

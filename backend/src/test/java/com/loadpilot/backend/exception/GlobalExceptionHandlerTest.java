@@ -65,7 +65,7 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.message").value(
-                        "Cette operation viole une contrainte d'integrite (relation existante)."));
+                        "Opération impossible : cet élément est encore utilisé par d'autres données (scénarios, étapes ou exécutions)."));
     }
 
     @Test
