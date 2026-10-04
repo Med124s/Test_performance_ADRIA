@@ -1,9 +1,11 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.service.execution.LiveStats;
 import com.loadpilot.backend.dto.request.ExecutionHistoryFilterRequest;
 import com.loadpilot.backend.dto.request.ExecutionRequest;
 import com.loadpilot.backend.dto.response.ExecutionDetailResponse;
 import com.loadpilot.backend.dto.response.ExecutionHistoryResponse;
+import com.loadpilot.backend.dto.response.ExecutionPageResponse;
 import com.loadpilot.backend.dto.response.ExecutionReportResponse;
 import com.loadpilot.backend.dto.response.ExecutionResponse;
 import com.loadpilot.backend.dto.response.ExecutionStatusResponse;
@@ -174,11 +176,12 @@ public class ExecutionServiceImpl implements ExecutionService {
             if (handle.isCancelled() || !transactionHelper.markRunning(prepared.executionId())) {
                 outcome = new ScenarioExecutionOutcome(List.of(), ExecutionStatus.FAILED, null);
             } else {
-                outcome = executionEngine.execute(prepared.steps(), prepared.applicationBaseUrl(),
-                        prepared.loadSpec(), handle, prepared.vuVariableRows());
+                outcome = executionEngine.execute(prepared.steps(), prepared.applicationBaseUrl(), prepared.auth(),
+                        prepared.loadSpec(), handle, prepared.variableSources());
             }
 
-            Execution finalized = transactionHelper.finalizeExecution(prepared.executionId(), outcome, handle.isCancelled());
+            Execution finalized = transactionHelper.finalizeExecution(prepared.executionId(), outcome, handle.isCancelled(),
+                    handle.cancellationReason());
 
             // Transaction courte separee, APRES finalisation (Phase 10) - voir
             // commentaire historique : un echec de generation de Metric ne
@@ -266,6 +269,27 @@ public class ExecutionServiceImpl implements ExecutionService {
     public ExecutionStatusResponse getStatus(UUID id) {
         Execution execution = executionRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + id));
+        // Execution en cours (ou en pause) : compteurs en memoire du moteur (aucune lecture des resultats en base).
+        boolean started = execution.getStatus() == ExecutionStatus.RUNNING || execution.getStatus() == ExecutionStatus.PAUSED;
+        RunningExecutionHandle handle = started ? registry.get(id) : null;
+        LiveStats.Snapshot live = handle != null && handle.liveStats() != null ? handle.liveStats().snapshot() : null;
+        long pausedMs = pausedDurationMs(execution, Instant.now());
+        // Temps de travail : depuis le demarrage reel des VU (sinon depuis la creation), pauses exclues.
+        // Pendant l'execution, temps ecoule et temps de pause viennent de la meme horloge (celle du
+        // moteur) : la progression reste parfaitement figee pendant une pause.
+        Long activeElapsedMs = null;
+        if (started) {
+            activeElapsedMs = live != null
+                    ? handle.activeNanosSince(handle.liveStats().startedNanos()) / 1_000_000L
+                    : Math.max(0L, Duration.between(execution.getStartedAt(), Instant.now()).toMillis() - pausedMs);
+        } else if (execution.getDuration() != null) {
+            activeElapsedMs = Math.max(0L, execution.getDuration() - pausedMs);
+        }
+        int vus = execution.getVirtualUsers() == null ? 1 : execution.getVirtualUsers();
+        // Iterations prevues : VU x iterations ; sans duree ni iterations, une par VU ; duree seule : inconnu.
+        Long planned = null;
+        if (execution.getIterations() != null) planned = (long) vus * execution.getIterations();
+        else if (execution.getDurationSeconds() == null) planned = (long) vus;
         return new ExecutionStatusResponse(
                 execution.getId().toString(),
                 execution.getStatus(),
@@ -273,10 +297,30 @@ public class ExecutionServiceImpl implements ExecutionService {
                 execution.getFinishedAt(),
                 execution.getDuration(),
                 execution.getVirtualUsers(),
-                execution.getSuccessfulSteps() + execution.getFailedSteps(),
-                execution.getSuccessfulSteps(),
-                execution.getFailedSteps(),
-                computeProgressPercent(execution));
+                live != null ? (int) live.requests() : execution.getSuccessfulSteps() + execution.getFailedSteps(),
+                live != null ? (int) live.successes() : execution.getSuccessfulSteps(),
+                live != null ? (int) live.failures() : execution.getFailedSteps(),
+                computeProgressPercent(execution, live, planned, activeElapsedMs),
+                execution.getScenario() != null ? execution.getScenario().getId().toString() : null,
+                execution.getScenario() != null ? execution.getScenario().getName() : null,
+                execution.getRampUpSeconds(),
+                execution.getDurationSeconds(),
+                execution.getIterations(),
+                planned,
+                execution.getErrorMessage(),
+                live,
+                execution.getPausedAt(),
+                pausedMs,
+                activeElapsedMs);
+    }
+
+    /** Pauses terminees + pause en cours eventuelle (ms). */
+    static long pausedDurationMs(Execution execution, Instant now) {
+        long total = execution.getPausedDurationMs() == null ? 0L : execution.getPausedDurationMs();
+        if (execution.getPausedAt() != null) {
+            total += Math.max(0L, Duration.between(execution.getPausedAt(), now).toMillis());
+        }
+        return total;
     }
 
     /**
@@ -287,17 +331,22 @@ public class ExecutionServiceImpl implements ExecutionService {
      * (mode iterations ou mode 1-passe), la progression n'est pas
      * calculable honnetement pendant l'execution : null, jamais invente.
      */
-    private Integer computeProgressPercent(Execution execution) {
+    private Integer computeProgressPercent(Execution execution, LiveStats.Snapshot live, Long plannedIterations,
+            Long activeElapsedMs) {
         return switch (execution.getStatus()) {
             case SUCCESS, FAILED, CANCELLED -> 100;
             case QUEUED -> 0;
-            case RUNNING -> {
-                if (execution.getDurationSeconds() == null) {
-                    yield null;
+            case RUNNING, PAUSED -> {
+                if (execution.getDurationSeconds() != null) {
+                    // Temps de travail reel (pauses exclues) : la progression ne bouge pas pendant une pause.
+                    long elapsedMs = activeElapsedMs != null ? activeElapsedMs : 0L;
+                    long totalMs = execution.getDurationSeconds() * 1000L;
+                    yield (int) Math.min(99, Math.max(0, totalMs <= 0 ? 99 : (elapsedMs * 100) / totalMs));
                 }
-                long elapsedMs = Duration.between(execution.getStartedAt(), Instant.now()).toMillis();
-                long totalMs = execution.getDurationSeconds() * 1000L;
-                yield (int) Math.min(99, Math.max(0, totalMs <= 0 ? 99 : (elapsedMs * 100) / totalMs));
+                if (live != null && plannedIterations != null && plannedIterations > 0) {
+                    yield (int) Math.min(99, (live.completedIterations() * 100) / plannedIterations);
+                }
+                yield null;
             }
         };
     }
@@ -384,6 +433,78 @@ public class ExecutionServiceImpl implements ExecutionService {
         }
     }
 
+    /**
+     * Pause REELLE : statut PAUSED en base (sous verrou), puis les utilisateurs virtuels
+     * cessent d'envoyer de nouvelles requetes (les requetes en vol recoivent leur reponse).
+     * 409 si l'execution n'est pas en cours dans ce processus.
+     */
+    @Override
+    public ExecutionResponse pause(UUID id) {
+        try {
+            // Statut reel d'abord (404 clair si introuvable, 409 clair si terminee / en attente / deja en pause).
+            ExecutionStatus current = transactionHelper.currentStatus(id);
+            if (current != ExecutionStatus.RUNNING) {
+                throw new ConflictException(ExecutionTransactionHelper.pauseRefusal(current));
+            }
+            RunningExecutionHandle handle = registry.get(id);
+            if (handle == null) {
+                throw new ConflictException(ExecutionTransactionHelper.NOT_ACTIVE_IN_MEMORY);
+            }
+            if (handle.isCancelled()) {
+                throw new ConflictException(ExecutionTransactionHelper.PAUSE_FINISHED);
+            }
+            Execution paused = transactionHelper.markPaused(id);
+            handle.pause();
+            auditLogService.record(AuditAction.PAUSE, AuditModule.EXECUTION, AuditResult.SUCCESS, "Execution paused: " + id);
+            return executionMapper.toResponse(paused);
+        } catch (RuntimeException e) {
+            auditLogService.record(AuditAction.PAUSE, AuditModule.EXECUTION, AuditResult.FAILURE,
+                    "Execution pause failed for id " + id + ": " + e.getClass().getSimpleName());
+            throw e;
+        }
+    }
+
+    /** Reprise : les utilisateurs virtuels repartent exactement la ou ils s'etaient arretes. */
+    @Override
+    public ExecutionResponse resume(UUID id) {
+        try {
+            ExecutionStatus current = transactionHelper.currentStatus(id);
+            if (current != ExecutionStatus.PAUSED) {
+                throw new ConflictException(ExecutionTransactionHelper.resumeRefusal(current));
+            }
+            RunningExecutionHandle handle = registry.get(id);
+            if (handle == null) {
+                throw new ConflictException(ExecutionTransactionHelper.NOT_ACTIVE_IN_MEMORY);
+            }
+            Execution resumed = transactionHelper.markResumed(id);
+            handle.resume();
+            auditLogService.record(AuditAction.RESUME, AuditModule.EXECUTION, AuditResult.SUCCESS, "Execution resumed: " + id);
+            return executionMapper.toResponse(resumed);
+        } catch (RuntimeException e) {
+            auditLogService.record(AuditAction.RESUME, AuditModule.EXECUTION, AuditResult.FAILURE,
+                    "Execution resume failed for id " + id + ": " + e.getClass().getSimpleName());
+            throw e;
+        }
+    }
+
+    /**
+     * Annule une execution restee en pause trop longtemps (voir PausedExecutionWatchdog) :
+     * meme chemin qu'une annulation utilisateur, avec un motif explicite.
+     */
+    public void cancelForPauseTimeout(UUID id, String reason) {
+        RunningExecutionHandle handle = registry.get(id);
+        if (handle == null) {
+            return;
+        }
+        CancellationAttempt attempt = transactionHelper.attemptCancellation(id);
+        if (attempt.outcome() == CancellationOutcome.ALREADY_TERMINAL) {
+            return;
+        }
+        handle.requestCancellation(reason);
+        auditLogService.record(AuditAction.CANCEL, AuditModule.EXECUTION, AuditResult.SUCCESS,
+                "Execution cancelled automatically after a too long pause: " + id);
+    }
+
     @Override
     public ExecutionResponse retry(UUID id, UUID triggeredByAppUserId) {
         try {
@@ -427,6 +548,30 @@ public class ExecutionServiceImpl implements ExecutionService {
     }
 
     /**
+     * Liste de la page Executions : memes filtres que l'historique (statut, scenario, application,
+     * recherche), pagination serveur, et compteurs par statut calcules avec ces memes filtres (une
+     * requete COUNT par statut, aucune si le filtre de statut l'exclut d'office). Jamais auditee :
+     * la page se rafraichit pendant qu'une execution tourne.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ExecutionPageResponse getPage(ExecutionHistoryFilterRequest filter, int page, int size, Sort sort) {
+        PagedResponse<ExecutionHistoryResponse> rows = getHistory(filter, page, size, sort);
+        java.util.Map<ExecutionStatus, Long> byStatus = new java.util.EnumMap<>(ExecutionStatus.class);
+        for (ExecutionStatus status : ExecutionStatus.values()) {
+            boolean excluded = filter.status() != null && filter.status() != status;
+            byStatus.put(status, excluded ? 0L : executionRepository.count(ExecutionSpecifications.withFilters(
+                    new ExecutionHistoryFilterRequest(status, filter.scenarioId(), filter.applicationId(),
+                            filter.dateFrom(), filter.dateTo(), filter.search()))));
+        }
+        long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
+        return new ExecutionPageResponse(rows.content(), rows.page(), rows.size(), rows.totalElements(), rows.totalPages(),
+                new ExecutionPageResponse.Counts(total, byStatus.get(ExecutionStatus.QUEUED), byStatus.get(ExecutionStatus.RUNNING),
+                        byStatus.get(ExecutionStatus.PAUSED), byStatus.get(ExecutionStatus.SUCCESS),
+                        byStatus.get(ExecutionStatus.FAILED), byStatus.get(ExecutionStatus.CANCELLED)));
+    }
+
+    /**
      * P1-A — construit le rapport complet (statistiques/percentiles reels,
      * agregation par step, erreurs) a la demande depuis
      * ExecutionStepResult (voir PerformanceStatisticsService pour le choix
@@ -441,7 +586,10 @@ public class ExecutionServiceImpl implements ExecutionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + id));
         List<ExecutionStepResult> results = executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id);
 
-        ExecutionStatistics statistics = performanceStatisticsService.computeOverallStatistics(results, execution.getDuration());
+        // Debit calcule sur le temps de travail reel : le temps passe en pause est exclu.
+        long pausedMs = pausedDurationMs(execution, Instant.now());
+        Long activeDurationMs = execution.getDuration() != null ? Math.max(0L, execution.getDuration() - pausedMs) : null;
+        ExecutionStatistics statistics = performanceStatisticsService.computeOverallStatistics(results, activeDurationMs);
         List<StepReportEntry> steps = performanceStatisticsService.computeStepBreakdown(results);
         List<ReportErrorEntry> errors = performanceStatisticsService.extractErrors(results);
 
@@ -461,6 +609,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 execution.getDurationSeconds(),
                 execution.getIterations(),
                 com.loadpilot.backend.mapper.MapperSupport.appUserDisplayName(execution.getTriggeredBy()),
+                pausedMs,
                 statistics,
                 steps,
                 errors);
@@ -486,7 +635,7 @@ public class ExecutionServiceImpl implements ExecutionService {
         StringBuilder csv = new StringBuilder();
 
         csv.append("EXECUTION\r\n");
-        csv.append("id,scenario,application,status,startedAt,finishedAt,duration_ms,triggeredBy,errorMessage\r\n");
+        csv.append("id,scenario,application,status,startedAt,finishedAt,duration_ms,paused_ms,triggeredBy,errorMessage\r\n");
         csv.append(CsvUtils.field(report.id())).append(',')
                 .append(CsvUtils.field(report.scenarioName())).append(',')
                 .append(CsvUtils.field(report.applicationName())).append(',')
@@ -494,6 +643,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 .append(CsvUtils.field(report.startedAt())).append(',')
                 .append(CsvUtils.field(report.finishedAt())).append(',')
                 .append(CsvUtils.field(report.duration())).append(',')
+                .append(CsvUtils.field(report.pausedDurationMs())).append(',')
                 .append(CsvUtils.field(report.triggeredByUsername())).append(',')
                 .append(CsvUtils.field(report.errorMessage())).append("\r\n\r\n");
 
@@ -506,7 +656,7 @@ public class ExecutionServiceImpl implements ExecutionService {
 
         ExecutionStatistics stats = report.statistics();
         csv.append("STATISTICS (response times in milliseconds)\r\n");
-        csv.append("totalRequests,successfulRequests,failedRequests,successRate,errorRate,min,max,avg,stdDev,p50,p75,p90,p95,p99,throughput_req_per_s\r\n");
+        csv.append("totalRequests,successfulRequests,failedRequests,successRate,errorRate,min,max,avg,p50,p75,p90,p95,p99,throughput_req_per_s\r\n");
         csv.append(CsvUtils.field(stats.totalRequests())).append(',')
                 .append(CsvUtils.field(stats.successfulRequests())).append(',')
                 .append(CsvUtils.field(stats.failedRequests())).append(',')
@@ -515,7 +665,6 @@ public class ExecutionServiceImpl implements ExecutionService {
                 .append(CsvUtils.field(stats.minResponseTime())).append(',')
                 .append(CsvUtils.field(stats.maxResponseTime())).append(',')
                 .append(CsvUtils.field(stats.avgResponseTime())).append(',')
-                .append(CsvUtils.field(stats.stdDevResponseTime())).append(',')
                 .append(CsvUtils.field(stats.p50())).append(',')
                 .append(CsvUtils.field(stats.p75())).append(',')
                 .append(CsvUtils.field(stats.p90())).append(',')
@@ -524,7 +673,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 .append(CsvUtils.field(stats.throughput())).append("\r\n\r\n");
 
         csv.append("STEPS\r\n");
-        csv.append("step,method,url,total,success,failed,errorRate,avg,min,max,stdDev,p95,p99\r\n");
+        csv.append("step,method,url,total,success,failed,errorRate,min,avg,max,p95,p99\r\n");
         for (StepReportEntry step : report.steps()) {
             csv.append(CsvUtils.field(step.stepName())).append(',')
                     .append(CsvUtils.field(step.method())).append(',')
@@ -533,10 +682,9 @@ public class ExecutionServiceImpl implements ExecutionService {
                     .append(CsvUtils.field(step.success())).append(',')
                     .append(CsvUtils.field(step.failed())).append(',')
                     .append(CsvUtils.field(step.errorRate())).append(',')
-                    .append(CsvUtils.field(step.avgResponseTime())).append(',')
                     .append(CsvUtils.field(step.minResponseTime())).append(',')
+                    .append(CsvUtils.field(step.avgResponseTime())).append(',')
                     .append(CsvUtils.field(step.maxResponseTime())).append(',')
-                    .append(CsvUtils.field(step.stdDevResponseTime())).append(',')
                     .append(CsvUtils.field(step.p95())).append(',')
                     .append(CsvUtils.field(step.p99())).append("\r\n");
         }

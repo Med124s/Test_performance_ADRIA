@@ -76,6 +76,10 @@ public interface ExecutionRepository extends JpaRepository<Execution, UUID>, Jpa
      */
     List<Execution> findByStatusIn(Collection<ExecutionStatus> statuses);
 
+    /** Executions en pause depuis avant "threshold" (voir PausedExecutionWatchdog). */
+    List<Execution> findByStatusAndPausedAtBefore(ExecutionStatus status, Instant threshold);
+
+
     // ---- Phase 11 (Dashboard) - agregations par statut/Application, une
     // seule requete COUNT chacune (jamais de N+1). ----
 

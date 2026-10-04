@@ -19,16 +19,19 @@
 // ---- Enums réels du backend (voir backend/src/main/java/.../enums) ----
 
 export type BackendApplicationStatus = 'CONNECTED' | 'FAILED' | 'ERROR'
-export type BackendScenarioStatus = 'ACTIVE' | 'INACTIVE'
+/** DRAFT : brouillon de l'assistant (ni exécutable ni planifiable). */
+export type BackendScenarioStatus = 'ACTIVE' | 'INACTIVE' | 'DRAFT'
 export type BackendStepStatus = 'ACTIVE' | 'INACTIVE'
-export type BackendExecutionStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'
+export type BackendExecutionStatus = 'QUEUED' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'FAILED' | 'CANCELLED'
 export type BackendHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type BackendAuditAction =
-  | 'CREATE' | 'READ' | 'UPDATE' | 'DELETE' | 'TEST' | 'EXECUTE' | 'RETRY' | 'CANCEL' | 'LOGIN' | 'LOGOUT'
+  | 'CREATE' | 'READ' | 'UPDATE' | 'DELETE' | 'TEST' | 'EXECUTE' | 'RETRY' | 'CANCEL' | 'PAUSE' | 'RESUME' | 'LOGIN' | 'LOGOUT'
   // P1-B — cycle de vie d'une ScheduledExecution (module SCHEDULING).
   | 'ENABLE' | 'DISABLE' | 'TRIGGER'
   // P1-C — traçabilité de la consultation de l'historique/des rapports.
   | 'VIEW_HISTORY' | 'EXPORT_REPORT' | 'EXPORT_CSV'
+  // Suppression coherente : archivage logique et restauration.
+  | 'ARCHIVE' | 'RESTORE'
 export type BackendAuditModule =
   | 'AUTH' | 'USER' | 'APPLICATION' | 'SCENARIO' | 'STEP' | 'EXECUTION' | 'METRIC' | 'DASHBOARD' | 'ADMIN'
   | 'SCHEDULING'
@@ -60,10 +63,54 @@ export interface BackendProfileUpdateRequest {
 
 // ---- Applications ----
 
+/** Authentification appliquée automatiquement à toutes les requêtes vers
+ * l'Application (voir enums.ApplicationAuthType côté backend). */
+export type BackendApplicationAuthType = 'NONE' | 'BEARER_TOKEN' | 'API_KEY' | 'BASIC' | 'LOGIN_TOKEN'
+export type BackendApiKeyLocation = 'HEADER' | 'QUERY'
+
+/** Secrets (token, apiKeyValue, password, loginBody) : vides en mise à jour
+ * = valeur déjà enregistrée conservée (jamais renvoyée par le backend). */
+export interface BackendApplicationAuthRequest {
+  type: BackendApplicationAuthType
+  token?: string | null
+  apiKeyName?: string | null
+  apiKeyValue?: string | null
+  apiKeyLocation?: BackendApiKeyLocation | null
+  username?: string | null
+  password?: string | null
+  loginPath?: string | null
+  loginBody?: string | null
+  tokenJsonPath?: string | null
+  tokenHeaderName?: string | null
+  tokenPrefix?: string | null
+  /** BEARER_TOKEN / API_KEY / BASIC : endpoint protégé où le test de
+   * connectivité vérifie réellement les identifiants (obligatoire). */
+  verificationPath?: string | null
+}
+
+/** Vue SANS secret : seules des indications "configuré" sont exposées. */
+export interface BackendApplicationAuthResponse {
+  type: BackendApplicationAuthType
+  apiKeyName: string | null
+  apiKeyLocation: BackendApiKeyLocation | null
+  username: string | null
+  loginPath: string | null
+  tokenJsonPath: string | null
+  tokenHeaderName: string | null
+  tokenPrefix: string | null
+  verificationPath: string | null
+  tokenConfigured: boolean
+  apiKeyValueConfigured: boolean
+  passwordConfigured: boolean
+  loginBodyConfigured: boolean
+}
+
 export interface BackendApplicationRequest {
   name: string
   description: string | null
   url: string
+  /** Absent = aucune authentification à la création, inchangée en mise à jour. */
+  auth?: BackendApplicationAuthRequest
 }
 
 export interface BackendApplicationResponse {
@@ -71,11 +118,19 @@ export interface BackendApplicationResponse {
   name: string
   description: string | null
   url: string
+  auth: BackendApplicationAuthResponse
+  /** Archivage logique : masquée des listes par défaut, restaurable. */
+  archived: boolean
+  archivedAt: string | null
   /** `null` tant qu'aucun test de disponibilité réel n'a été lancé — voir
    * BackendApplicationStatus. Ne pas confondre avec Application.status côté
    * frontend actuel (`Actif`/`Inactif`), qui est un simple bascule
    * activé/désactivé et n'a pas d'équivalent direct côté backend. */
   status: BackendApplicationStatus | null
+  /** Message lisible du dernier test (jamais de secret) ; null si aucun test
+   * valide (jamais testée, ou modifiée depuis le dernier test). */
+  statusMessage: string | null
+  statusCheckedAt: string | null
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -114,7 +169,30 @@ export interface BackendScenarioRequest {
    * historique inchange. Ne remplace jamais virtualUsers/rampUpSeconds/
    * thinkTimeMs. */
   targetRps?: number | null
+  /** Création uniquement : true crée un brouillon (DRAFT), publié ensuite via /publish. */
+  draft?: boolean | null
+  /** Brouillon : étape de l'assistant atteinte (0..3) ; null/absent = inchangée. */
+  wizardStep?: number | null
+  /** Brouillon : état brut de l'assistant (JSON, voir draftModel.ts) ; null/absent = inchangé. */
+  draftState?: string | null
+  /** Variables du scénario : objet JSON {"nom": "valeur"} ; null/absent = inchangées, "{}" = aucune. */
+  variables?: string | null
+  csvDistribution?: BackendCsvDistribution | null
 }
+
+/** PUT /api/scenarios/{id}/full : informations + étapes (avec id = modifiée, sans id = créée, absente = supprimée ; ordre = position). */
+export interface BackendScenarioFullRequest {
+  scenario: BackendScenarioRequest
+  steps: { id: string | null; step: BackendStepRequest }[]
+}
+
+export interface BackendScenarioFullResponse {
+  scenario: BackendScenarioResponse
+  steps: BackendStepResponse[]
+}
+
+/** Distribution du CSV : une ligne par utilisateur virtuel, ou une nouvelle ligne à chaque itération. */
+export type BackendCsvDistribution = 'PER_VIRTUAL_USER' | 'PER_ITERATION'
 
 export interface BackendScenarioResponse {
   id: string
@@ -136,6 +214,17 @@ export interface BackendScenarioResponse {
   createdBy: string
   createdAt: string
   updatedAt: string
+  archived: boolean
+  archivedAt: string | null
+  /** Vrai si l'application du scénario est archivée (scénario masqué). */
+  applicationArchived: boolean
+  /** Brouillons uniquement : étape de l'assistant atteinte et état brut de l'assistant. */
+  wizardStep: number | null
+  draftState: string | null
+  /** Planifications suspendues par la désactivation du scénario (réactivables). */
+  pausedSchedules: number
+  variables: string | null
+  csvDistribution: BackendCsvDistribution
 }
 
 // ---- Steps ----
@@ -162,7 +251,85 @@ export interface BackendStepRequest {
    * virtuel uniquement (jamais partage entre VUs). */
   captureVariableName?: string | null
   captureJsonPath?: string | null
+  /** Variables de chemin (:nom / {nom}) : objet JSON {"nom": "valeur ou ${variable}"}. */
+  pathParams?: string | null
+  /** Paramètres de requête : tableau JSON [{"key","value","enabled"}] (l'URL finale est construite par le backend). */
+  queryParams?: string | null
 }
+
+// ------------------------------------------------------------
+// Test détaillé (TestRunController / TestRunResponse.java) : 1 utilisateur
+// virtuel, 1 passage, aucune Execution créée. Secrets déjà masqués ("••••••").
+// ------------------------------------------------------------
+
+export type BackendTestRunStepStatus = 'PASSED' | 'FAILED' | 'SKIPPED'
+
+export interface BackendTestRunAuth {
+  type: string
+  success: boolean
+  message: string
+  durationMs: number
+}
+
+export interface BackendTestRunStepResult {
+  index: number
+  stepId: string | null
+  name: string
+  status: BackendTestRunStepStatus
+  success: boolean
+  error: string | null
+  /** TIMEOUT, CONNECTION_REFUSED, DNS, TLS, NETWORK, INVALID_REQUEST, UNRESOLVED_VARIABLE,
+   * HTTP_STATUS, ASSERTION, AUTH_FAILED, GLOBAL_TIMEOUT, PREVIOUS_FAILED, INTERRUPTED */
+  errorKind: string | null
+  request: {
+    method: BackendHttpMethod
+    url: string
+    headers: Record<string, string>
+    body: string | null
+    followRedirects: boolean
+    timeoutSeconds: number
+  } | null
+  response: {
+    status: number
+    statusText: string
+    durationMs: number
+    sizeBytes: number
+    contentType: string | null
+    headers: Record<string, string>
+    body: string
+    truncated: boolean
+    json: boolean
+  } | null
+  checks: {
+    status: { expected: string; actual: number | null; ok: boolean }
+    assertion: { expectedContent: string; ok: boolean | null } | null
+    capture: { variableName: string; jsonPath: string; found: boolean; value: string | null; masked: boolean; message: string } | null
+  } | null
+  urlWarning: { message: string; suggestedPath: string } | null
+  warnings: string[]
+}
+
+export interface BackendTestRunResponse {
+  scenarioId: string
+  applicationUrl: string
+  success: boolean
+  totalSteps: number
+  executedSteps: number
+  passedSteps: number
+  totalDurationMs: number
+  timedOut: boolean
+  auth: BackendTestRunAuth
+  steps: BackendTestRunStepResult[]
+  variables: Record<string, string>
+}
+
+/** Évènements du flux NDJSON (?stream=true). */
+export type BackendTestRunEvent =
+  | { type: 'started'; totalSteps: number; steps: { stepId: string; name: string; method: string; url: string }[] }
+  | { type: 'auth'; auth: BackendTestRunAuth }
+  | { type: 'step-started'; index: number; name: string }
+  | { type: 'step'; step: BackendTestRunStepResult }
+  | { type: 'done'; result: BackendTestRunResponse }
 
 export interface BackendStepResponse {
   id: string
@@ -187,6 +354,9 @@ export interface BackendStepResponse {
   assertionBodyContains: string | null
   captureVariableName: string | null
   captureJsonPath: string | null
+  /** Variables de chemin (objet JSON {"nom": "valeur"}) et paramètres de requête (tableau JSON). */
+  pathParams: string | null
+  queryParams: string | null
   status: BackendStepStatus
   createdAt: string
   updatedAt: string
@@ -235,6 +405,46 @@ export interface BackendExecutionStatusResponse {
   successfulRequests: number
   failedRequests: number
   progressPercent: number | null
+  scenarioId: string | null
+  scenarioName: string | null
+  rampUpSeconds: number | null
+  durationSeconds: number | null
+  iterations: number | null
+  /** Itérations prévues au total (VU × itérations) ; null avec une durée seule. */
+  plannedIterations: number | null
+  errorMessage: string | null
+  /** Compteurs en direct pendant RUNNING / PAUSED (mémoire du moteur) ; null sinon. */
+  live: BackendLiveStats | null
+  /** Début de la pause en cours (PAUSED), sinon null. */
+  pausedAt: string | null
+  /** Temps total passé en pause (ms), pause en cours comprise. */
+  pausedDurationMs: number
+  /** Temps de travail réel (ms), pauses exclues ; null tant que non démarré. */
+  activeElapsedMs: number | null
+}
+
+export interface BackendLiveStepStats {
+  stepId: string | null
+  name: string
+  method: BackendHttpMethod | null
+  requests: number
+  successes: number
+  failures: number
+  avgResponseTimeMs: number | null
+}
+
+export interface BackendLiveStats {
+  elapsedMs: number
+  activeVirtualUsers: number
+  startedVirtualUsers: number
+  completedIterations: number
+  requests: number
+  successes: number
+  failures: number
+  /** Requêtes par seconde sur les 5 dernières secondes. */
+  throughputRps: number
+  avgResponseTimeMs: number | null
+  steps: BackendLiveStepStats[]
 }
 
 /** P1-A — GET /api/executions/history (voir ExecutionController#history) :
@@ -301,9 +511,7 @@ export interface BackendExecutionStatistics {
   p90: number | null
   p95: number | null
   p99: number | null
-  /** P1-C — écart-type de population des temps de réponse (voir
-   * PercentileCalculator#stdDev côté backend) — `null` si population vide. */
-  stdDevResponseTime: number | null
+  /** Requêtes / s sur le temps de travail réel (pauses exclues). */
   throughput: number | null
 }
 
@@ -320,8 +528,6 @@ export interface BackendStepReportEntry {
   maxResponseTime: number | null
   p95: number | null
   p99: number | null
-  /** P1-C — voir BackendExecutionStatistics.stdDevResponseTime. */
-  stdDevResponseTime: number | null
   errorRate: number | null
 }
 
@@ -360,6 +566,8 @@ export interface BackendExecutionReportResponse {
   iterations: number | null
   /** P1-C — voir BackendExecutionHistoryResponse.triggeredByUsername. */
   triggeredByUsername: string | null
+  /** Temps total passé en pause (ms) ; le débit est calculé sans ce temps. */
+  pausedDurationMs: number
   statistics: BackendExecutionStatistics
   steps: BackendStepReportEntry[]
   errors: BackendReportErrorEntry[]
@@ -376,6 +584,10 @@ export interface BackendExecutionStepResultResponse {
   success: boolean
   error: string | null
   timestamp: string
+  /** Utilisateur virtuel (0..n-1), itération (0..) et URL finale réellement appelée (null : résultats antérieurs). */
+  virtualUser: number | null
+  iteration: number | null
+  requestUrl: string | null
 }
 
 export interface BackendExecutionDetailResponse extends BackendExecutionResponse {
@@ -412,7 +624,7 @@ export interface BackendApplicationsSummary {
 export interface BackendScenariosSummary {
   totalScenarios: number
   activeScenarios: number
-  inactiveScenarios: number
+  draftScenarios: number
 }
 
 export interface BackendExecutionsSummary {
@@ -611,4 +823,63 @@ export interface BackendErrorResponse {
   error: string
   message: string
   path: string
+}
+
+// ---- Suppression cohérente (migration 017) ----
+
+/** Impact d'une suppression / d'un archivage, affiché avant confirmation. */
+export interface BackendDeletionImpact {
+  applications: number
+  scenarios: number
+  steps: number
+  executions: number
+  scheduledExecutions: number
+  runningExecutions: number
+  hasRunningExecution: boolean
+}
+
+/** Résultat d'une action groupée, élément par élément (succès partiels). */
+/** GET /api/executions/page : lignes de la page + compteurs par statut avec les mêmes filtres. */
+export interface BackendExecutionPageResponse {
+  content: BackendExecutionHistoryResponse[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+  counts: { total: number; queued: number; running: number; paused: number; success: number; failed: number; cancelled: number }
+}
+
+/** POST /api/executions/deletion-impact : ce que supprime une suppression d'exécutions. */
+export interface BackendExecutionDeletionImpact {
+  executions: number
+  results: number
+  metrics: number
+  /** En attente, en cours ou en pause : jamais supprimées. */
+  active: number
+}
+
+export interface BackendBulkActionResponse {
+  results: { id: string; name: string | null; success: boolean; message: string }[]
+  succeeded: number
+  failed: number
+}
+
+/** Paramètres de GET /api/scenarios paginé (status : ACTIVE, INACTIVE ou DRAFT). */
+export interface ScenarioPageQuery {
+  page: number
+  size: number
+  sort?: string
+  search?: string
+  status?: string
+  archived?: boolean
+}
+
+/** Paramètres de GET /api/applications paginé. */
+export interface ApplicationPageQuery {
+  page: number
+  size: number
+  sort?: string
+  search?: string
+  status?: string
+  archived?: boolean
 }

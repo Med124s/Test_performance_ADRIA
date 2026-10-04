@@ -78,4 +78,49 @@
     -->
     <include file="db/changelog/changes/014-add-pacing-and-variable-capture.xml"/>
 
+    <!--
+        Authentification de l'Application cible (Bearer, cle API, Basic,
+        login automatique) - voir changes/015-add-application-authentication.xml.
+    -->
+    <include file="db/changelog/changes/015-add-application-authentication.xml"/>
+
+    <!--
+        Message et date du dernier test de connectivite d'une Application -
+        voir changes/016-add-application-status-message.xml.
+    -->
+    <include file="db/changelog/changes/016-add-application-status-message.xml"/>
+
+    <!--
+        Suppression coherente : copie de l'etape dans les resultats (FK ON
+        DELETE SET NULL) et archivage logique des applications/scenarios -
+        voir changes/017-deletion-history-and-archiving.xml.
+    -->
+    <include file="db/changelog/changes/017-deletion-history-and-archiving.xml"/>
+
+    <!--
+        Brouillons de scenario (statut DRAFT remplacant INACTIVE, etape atteinte, etat de
+        l'assistant) et colonne csv_data elargie - voir changes/018-scenario-drafts-and-csv-size.xml.
+    -->
+    <include file="db/changelog/changes/018-scenario-drafts-and-csv-size.xml"/>
+
+    <!--
+        Statut INACTIVE fonctionnel : planifications suspendues par la desactivation du
+        scenario - voir changes/019-scenario-inactive-paused-schedules.xml.
+    -->
+    <include file="db/changelog/changes/019-scenario-inactive-paused-schedules.xml"/>
+
+    <!--
+        Variables du scenario, distribution du CSV, parametres de chemin/requete des etapes et
+        tracabilite VU/iteration/URL finale des resultats - voir changes/020-variables-and-request-params.xml.
+    -->
+    <include file="db/changelog/changes/020-variables-and-request-params.xml"/>
+    <!--
+        Pause / reprise d'une execution - voir changes/021-execution-pause.xml.
+    -->
+    <include file="db/changelog/changes/021-execution-pause.xml"/>
+    <!--
+        Index sur execution_id (resultats, metriques) - voir changes/022-execution-foreign-key-indexes.xml.
+    -->
+    <include file="db/changelog/changes/022-execution-foreign-key-indexes.xml"/>
+
 </databaseChangeLog>

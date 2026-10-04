@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Index sur les cles etrangeres vers execution (PostgreSQL ne les cree pas automatiquement) :
+        lecture des resultats d'une execution, rapport, et suppression d'une execution sans parcourir
+        toute la table (plusieurs milliers de lignes par execution en test de charge).
+    -->
+    <changeSet id="022-execution-foreign-key-indexes" author="loadpilot">
+        <createIndex indexName="idx_execution_step_result_execution" tableName="execution_step_result">
+            <column name="execution_id"/>
+        </createIndex>
+        <createIndex indexName="idx_metric_execution" tableName="metric">
+            <column name="execution_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

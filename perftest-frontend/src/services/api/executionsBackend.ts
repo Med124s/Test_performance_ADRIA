@@ -31,6 +31,9 @@ import {
   BackendExecutionHistoryResponse,
   BackendExecutionReportResponse,
   BackendPagedResponse,
+  BackendExecutionPageResponse,
+  BackendExecutionDeletionImpact,
+  BackendBulkActionResponse,
   ExecutionHistoryFilters,
 } from '../../types/backendContracts'
 
@@ -68,6 +71,10 @@ export const executionsBackendApi = {
    * réelle des utilisateurs virtuels en cours, voir rapport P0-A) ; 409 si déjà
    * terminée. */
   cancel: (id: string) => springHttp.post<BackendExecutionResponse>(`${RESOURCE}/${id}/cancel`),
+  /** Met en pause une Execution RUNNING (plus aucune nouvelle requête) ; 409 sinon. */
+  pause: (id: string) => springHttp.post<BackendExecutionResponse>(`${RESOURCE}/${id}/pause`),
+  /** Reprend une Execution PAUSED là où elle s'était arrêtée ; 409 sinon. */
+  resume: (id: string) => springHttp.post<BackendExecutionResponse>(`${RESOURCE}/${id}/resume`),
   /** Crée une NOUVELLE Execution pour le même scénario (le backend ne modifie
    * jamais l'exécution d'origine) — jamais un clone local côté React. */
   retry: (id: string) => springHttp.post<BackendExecutionResponse>(`${RESOURCE}/${id}/retry`),
@@ -76,6 +83,15 @@ export const executionsBackendApi = {
    * filtrage/tri en React. */
   getHistory: (filters: ExecutionHistoryFilters) =>
     springHttp.get<BackendPagedResponse<BackendExecutionHistoryResponse>>(`${RESOURCE}/history${buildHistoryQuery(filters)}`),
+  /** Page de la liste Exécutions : filtres serveur + compteurs par statut (jamais auditée). */
+  getPage: (filters: ExecutionHistoryFilters) =>
+    springHttp.get<BackendExecutionPageResponse>(`${RESOURCE}/page${buildHistoryQuery(filters)}`),
+  /** Impact d'une suppression (résultats, métriques, exécutions actives ignorées). */
+  deletionImpact: (ids: string[]) => springHttp.post<BackendExecutionDeletionImpact>(`${RESOURCE}/deletion-impact`, { ids }),
+  /** Suppression définitive d'une exécution terminée ; 409 si active. */
+  remove: (id: string) => springHttp.delete<void>(`${RESOURCE}/${id}`),
+  /** Suppression groupée : résultat par exécution (succès partiels possibles). */
+  bulkDelete: (ids: string[]) => springHttp.post<BackendBulkActionResponse>(`${RESOURCE}/bulk-delete`, { ids }),
   /** P1-A — rapport statistique complet (percentiles réels, agrégation par
    * step, erreurs) — voir GET /api/executions/{id}/report. */
   getReport: (id: string) => springHttp.get<BackendExecutionReportResponse>(`${RESOURCE}/${id}/report`),

@@ -1,6 +1,12 @@
 package com.loadpilot.backend.controller;
 
+import com.loadpilot.backend.dto.request.ExecutionBulkRequest;
 import com.loadpilot.backend.dto.request.ExecutionHistoryFilterRequest;
+import com.loadpilot.backend.dto.response.BulkActionResponse;
+import com.loadpilot.backend.dto.response.ExecutionDeletionImpactResponse;
+import com.loadpilot.backend.dto.response.ExecutionPageResponse;
+import com.loadpilot.backend.service.impl.ExecutionDeletionService;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import com.loadpilot.backend.dto.request.ExecutionRequest;
 import com.loadpilot.backend.dto.response.ExecutionDetailResponse;
 import com.loadpilot.backend.dto.response.ExecutionHistoryResponse;
@@ -66,6 +72,7 @@ public class ExecutionController {
     private final ExecutionService executionService;
     private final AppUserSyncService appUserSyncService;
     private final AuditLogService auditLogService;
+    private final ExecutionDeletionService deletionService;
 
     /** ?scenarioId= filtre par scenario (meme convention que Scenarios/Steps). */
     @GetMapping
@@ -111,6 +118,54 @@ public class ExecutionController {
         auditLogService.record(AuditAction.VIEW_HISTORY, AuditModule.EXECUTION, AuditResult.SUCCESS,
                 "History viewed: page " + page + ", size " + size + ", " + result.totalElements() + " total matching");
         return result;
+    }
+
+    /**
+     * Liste de la page Executions : memes filtres que /history (combinables en ET), pagination
+     * serveur et compteurs par statut suivant ces filtres. Contrairement a /history, jamais
+     * auditee (la page se rafraichit automatiquement pendant une execution).
+     */
+    @GetMapping("/page")
+    @Operation(summary = "Page de la liste des executions (filtres + compteurs par statut)",
+            description = "Filtres : status, scenarioId, applicationId, search. size borne a 5..100. Tri whitelist : startedAt|duration|status.")
+    public ExecutionPageResponse page(
+            @RequestParam(required = false) ExecutionStatus status,
+            @RequestParam(required = false) UUID scenarioId,
+            @RequestParam(required = false) UUID applicationId,
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort) {
+        ExecutionHistoryFilterRequest filter = new ExecutionHistoryFilterRequest(status, scenarioId, applicationId, null, null, search);
+        return executionService.getPage(filter, Math.max(0, page), Math.min(100, Math.max(5, size)), resolveHistorySort(sort));
+    }
+
+    @PostMapping("/deletion-impact")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Impact d'une suppression d'executions",
+            description = "Nombre d'executions, de resultats de requetes et de metriques supprimes ; executions actives (ignorees).")
+    public ExecutionDeletionImpactResponse deletionImpact(@Valid @RequestBody ExecutionBulkRequest request) {
+        return deletionService.impact(request.ids());
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Supprimer definitivement une execution",
+            description = "Supprime l'execution, ses resultats de requetes et ses metriques. Refuse (409) pour une execution en attente, "
+                    + "en cours ou en pause. Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER (comme la suppression d'une etape).")
+    @ApiResponse(responseCode = "409", description = "Execution en attente, en cours ou en pause")
+    public void delete(@PathVariable UUID id) {
+        deletionService.delete(id);
+    }
+
+    @PostMapping("/bulk-delete")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Supprimer definitivement plusieurs executions",
+            description = "Chaque execution dans sa propre transaction : les executions actives sont refusees, les autres supprimees. "
+                    + "Resultat detaille par execution.")
+    public BulkActionResponse bulkDelete(@Valid @RequestBody ExecutionBulkRequest request) {
+        return deletionService.deleteMany(request.ids());
     }
 
     /**
@@ -165,7 +220,7 @@ public class ExecutionController {
      * section 26).
      */
     @GetMapping("/{id}/report")
-    @Operation(summary = "Rapport statistique d'une execution", description = "Statistiques globales, percentiles reels (p50/p75/p90/p95/p99/stdDev), agregation par step et liste des erreurs - calcules a la demande depuis ExecutionStepResult.")
+    @Operation(summary = "Rapport statistique d'une execution", description = "Statistiques globales, percentiles reels (p50/p75/p90/p95/p99), debit hors temps de pause, agregation par step et liste des erreurs - calcules a la demande depuis ExecutionStepResult.")
     @ApiResponse(responseCode = "404", description = "Execution introuvable")
     public ExecutionReportResponse getReport(@PathVariable UUID id) {
         try {
@@ -231,6 +286,26 @@ public class ExecutionController {
     @ApiResponse(responseCode = "409", description = "L'execution est deja terminee, ou plus active en memoire (redemarrage serveur)")
     public ExecutionResponse cancel(@PathVariable UUID id) {
         return executionService.cancel(id);
+    }
+
+    @PostMapping("/{id}/pause")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Mettre une execution en pause",
+            description = "Les utilisateurs virtuels n'envoient plus de nouvelle requete (les requetes en vol recoivent leur "
+                    + "reponse). Le temps de pause n'est compte ni dans la duree du test ni dans le debit. Annulation "
+                    + "automatique au-dela de app.execution.max-pause-minutes. Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER.")
+    @ApiResponse(responseCode = "409", description = "L'execution n'est pas en cours (en attente, deja en pause ou terminee)")
+    public ExecutionResponse pause(@PathVariable UUID id) {
+        return executionService.pause(id);
+    }
+
+    @PostMapping("/{id}/resume")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Reprendre une execution en pause",
+            description = "Le test reprend exactement la ou il s'etait arrete. Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER.")
+    @ApiResponse(responseCode = "409", description = "L'execution n'est pas en pause")
+    public ExecutionResponse resume(@PathVariable UUID id) {
+        return executionService.resume(id);
     }
 
     @PostMapping("/{id}/retry")

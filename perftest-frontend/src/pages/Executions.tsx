@@ -1,75 +1,68 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import TopBar from '../components/TopBar'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  BackendExecutionRequest,
-  BackendExecutionResponse,
+  BackendApplicationResponse,
+  BackendBulkActionResponse,
+  BackendExecutionDeletionImpact,
   BackendExecutionDetailResponse,
+  BackendExecutionHistoryResponse,
+  BackendExecutionPageResponse,
+  BackendExecutionRequest,
+  BackendExecutionStatus,
+  BackendExecutionStatusResponse,
   BackendScenarioResponse,
   BackendStepResponse,
 } from '../types/backendContracts'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
+import { applicationsBackendApi } from '../services/api/applicationsBackend'
 import { stepsBackendApi } from '../services/api/stepsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { useApiList } from '../hooks/useApiResource'
-import { usePagination } from '../hooks/usePagination'
 import Pagination from '../components/Pagination'
+import SearchSelect from '../components/SearchSelect'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
+import { isTerminal, progressOf, useExecutionMonitor } from '../context/ExecutionMonitorContext'
+import './applications.css'
 
 // ============================================================
-// P1-O — Le moteur legacy (JSON Server, useScenarioLauncher/
-// LaunchScenarioModal, onglet "Legacy (JSON Server)") a été retiré : voir
-// rapport P1-O pour la preuve runtime complète du chemin réel (PostgreSQL +
-// Keycloak + Spring Boot + Spring Security, RBAC SUPER_ADMIN/
-// PERFORMANCE_ENGINEER/VIEWER validés, workflow métier complet
-// Application→Scenario→Step→Execution→History→Report testé de bout en
-// bout). Cette page n'a plus qu'un seul chemin réel.
+// Page Exécutions : liste filtrée et paginée CÔTÉ SERVEUR
+// (GET /api/executions/page : statut, scénario, application, recherche,
+// compteurs par statut suivant les mêmes filtres). Filtres, page et
+// recherche vivent dans l'URL (rechargement / partage de lien) ; tout
+// changement de filtre ramène à la page 1.
 //
-// P0-A — HttpClientExecutionEngine (threads virtuels Java 21) est désormais
-// un vrai moteur de charge ASYNCHRONE : POST /api/executions répond
-// immédiatement (202, QUEUED/RUNNING), la charge réelle (utilisateurs
-// virtuels, ramp-up, durée/itérations — configurés sur le Scénario, voir
-// Scenarios.tsx) s'exécute en arrière-plan. Cette page poll donc
-// GET /api/executions (toutes les 2s, uniquement tant qu'au moins une
-// Execution affichée est QUEUED/RUNNING — jamais de polling permanent) pour
-// suivre la progression réelle jusqu'à un statut terminal. Le bouton
-// "Annuler" est câblé et actif uniquement pour QUEUED/RUNNING (voir
-// isCancellable et ExecutionServiceImpl.cancel — interruption réelle des
-// utilisateurs virtuels en cours, pas un simple changement de statut).
-// "Relancer" utilise le vrai endpoint POST /{id}/retry, qui crée une
-// NOUVELLE Execution côté backend (jamais un clone local React).
+// Sélection multiple + suppression définitive (simple ou groupée, résultat
+// par exécution), relance avec suivi en direct, progression des exécutions
+// en cours ou en pause directement dans le tableau.
 // ============================================================
 
-const STATUS_TABS = ['Tous', 'QUEUED', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLED'] as const
+const STATUS_TABS = ['', 'QUEUED', 'RUNNING', 'PAUSED', 'SUCCESS', 'FAILED', 'CANCELLED'] as const
 type StatusTab = typeof STATUS_TABS[number]
+const PAGE_SIZES = [10, 20, 50]
 
-// P0-A — QUEUED et RUNNING doivent rester visuellement distinguables (voir
-// rapport P0-A, section UX) : QUEUED n'a pas encore réellement démarré
-// (aucun utilisateur virtuel n'a encore envoyé de requête), RUNNING est la
-// charge réelle en cours.
-const statusLabel: Record<Exclude<StatusTab, 'Tous'>, string> = {
+const statusLabel: Record<BackendExecutionStatus, string> = {
   QUEUED: 'En attente',
   RUNNING: 'En cours',
+  PAUSED: 'En pause',
   SUCCESS: 'Réussie',
   FAILED: 'Échouée',
   CANCELLED: 'Annulée',
 }
 
-const statusPillClass: Record<Exclude<StatusTab, 'Tous'>, string> = {
+const statusPillClass: Record<BackendExecutionStatus, string> = {
   QUEUED: 'neutral',
   RUNNING: 'info',
+  PAUSED: 'warning',
   SUCCESS: 'success',
   FAILED: 'danger',
   CANCELLED: 'neutral',
 }
 
-/** P0-A — seuls ces deux statuts sont réellement annulables côté backend
- * (voir ExecutionServiceImpl.cancel) : gate réelle du bouton Annuler, jamais
- * affiché/actif pour un statut terminal. */
-function isCancellable(status: BackendExecutionResponse['status']): boolean {
-  return status === 'QUEUED' || status === 'RUNNING'
+/** En attente, en cours ou en pause : annulable, jamais supprimable. */
+function isActive(status: BackendExecutionStatus): boolean {
+  return status === 'QUEUED' || status === 'RUNNING' || status === 'PAUSED'
 }
 
 function describeApiError(err: unknown, fallback: string): string {
@@ -77,24 +70,17 @@ function describeApiError(err: unknown, fallback: string): string {
     switch (err.status) {
       case 0:
         return err.message
-      case 400:
-        return `Données invalides : ${err.message}`
       case 401:
         return 'Vous devez être connecté (Keycloak) pour effectuer cette action.'
       case 403:
         return "Action refusée : votre rôle ne dispose pas des permissions nécessaires."
       case 404:
-        return 'Scénario ou exécution introuvable (il/elle a peut-être déjà été supprimé(e)).'
-      case 409:
-        return err.message
+        return err.message.startsWith('Erreur 404') ? 'Scénario ou exécution introuvable (déjà supprimé ?).' : err.message
       case 429:
-        // P0-B — limite de capacite LoadPilot atteinte (utilisateurs
-        // virtuels globaux ou nombre d'executions simultanees, voir
-        // RunningExecutionRegistry) : le backend fournit deja un message
-        // explicite (quelle limite, quelle valeur) - jamais un message
-        // generique qui masquerait la vraie raison du refus.
+        // Limite de capacité (utilisateurs virtuels globaux / exécutions simultanées) : le backend précise laquelle.
         return `Limite de capacité LoadPilot atteinte : ${err.message}`
       default:
+        // 400 (brouillon, scénario inactif…) et 409 (archivé, exécution en cours…) : message clair du backend.
         return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
     }
   }
@@ -116,86 +102,292 @@ function formatDuration(ms: number | null): string {
   return `${h}:${m}:${s}`
 }
 
+function plural(n: number, singular: string, pluralForm = `${singular}s`) {
+  return `${n} ${n > 1 ? pluralForm : singular}`
+}
+
 // ============================================================
-// Vue Spring Boot (Phase 20)
+// Confirmation de suppression : impact réel (résultats, métriques), définitif.
+// ============================================================
+
+function ExecutionDeletionDialog({ ids, onConfirm, onClose }: {
+  ids: string[]
+  onConfirm: () => Promise<void>
+  onClose: () => void
+}) {
+  const [impact, setImpact] = useState<BackendExecutionDeletionImpact | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    executionsBackendApi.deletionImpact(ids)
+      .then((r) => { if (alive) setImpact(r) })
+      .catch((err) => { if (alive) setLoadError(describeApiError(err, 'Impact indisponible.')) })
+    return () => { alive = false }
+  }, [ids])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, onClose])
+
+  const deletable = impact ? impact.executions - impact.active : 0
+  const submit = async () => {
+    setBusy(true)
+    setActionError(null)
+    try {
+      await onConfirm()
+    } catch (err) {
+      setActionError(describeApiError(err, 'Suppression impossible.'))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1060 }}>
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="ex-del-title"
+          style={{ borderRadius: 'var(--pt-radius)', border: '1px solid var(--pt-border)', background: 'var(--pt-card-bg)' }}>
+          <div className="modal-body p-4">
+            <h5 id="ex-del-title" style={{ fontWeight: 700 }}>
+              <i className="bi bi-trash3 text-danger me-2"></i>
+              Supprimer {ids.length > 1 ? `${ids.length} exécutions` : 'cette exécution'} ?
+            </h5>
+            {!impact && !loadError && <p className="text-muted mb-0"><span className="spinner-border spinner-border-sm me-2"></span>Calcul de l’impact…</p>}
+            {loadError && <div className="pt-alert-banner danger mb-0"><i className="bi bi-exclamation-octagon"></i>{loadError}</div>}
+            {impact && (
+              <>
+                <p className="mb-2" style={{ fontSize: '13.5px' }}>Seront supprimés <strong>définitivement</strong> :</p>
+                <ul style={{ fontSize: '13.5px' }} aria-label="Impact">
+                  <li><strong>{deletable}</strong> {deletable > 1 ? 'exécutions' : 'exécution'}</li>
+                  <li><strong>{impact.results}</strong> {impact.results > 1 ? 'résultats de requêtes' : 'résultat de requête'}</li>
+                  <li><strong>{impact.metrics}</strong> {impact.metrics > 1 ? 'métriques' : 'métrique'}</li>
+                </ul>
+                {impact.active > 0 && (
+                  <div className="pt-alert-banner warning mb-2" role="alert" style={{ fontSize: '12.5px' }}>
+                    <i className="bi bi-hourglass-split"></i>
+                    {plural(impact.active, 'exécution est', 'exécutions sont')} en attente, en cours ou en pause : {impact.active > 1 ? 'elles ne seront pas supprimées' : 'elle ne sera pas supprimée'} (annulez-la d’abord).
+                  </div>
+                )}
+                <p className="mb-0" style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>
+                  Cette action est irréversible : rapports et détails de ces exécutions ne seront plus consultables.
+                </p>
+              </>
+            )}
+            {actionError && <div className="pt-alert-banner danger mt-2 mb-0"><i className="bi bi-exclamation-octagon"></i>{actionError}</div>}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="pt-btn-ghost" onClick={onClose} disabled={busy}>Annuler</button>
+            <button type="button" className="pt-btn-danger" onClick={submit} disabled={busy || !impact || deletable === 0}>
+              {busy ? <span className="spinner-border spinner-border-sm me-1"></span> : <i className="bi bi-trash3"></i>} Supprimer définitivement
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// Vue Spring Boot
 // ============================================================
 
 function SpringExecutions() {
   const navigate = useNavigate()
   const { authProvider, rawRoles } = useAuth()
   const { showToast } = useToast()
+  const monitor = useExecutionMonitor()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const isKeycloak = authProvider === 'keycloak'
-  // POST /api/executions, /cancel et /retry sont tous réservés à SUPER_ADMIN
-  // et PERFORMANCE_ENGINEER côté backend (voir ExecutionController).
+  // Lancement / annulation / relance / suppression : SUPER_ADMIN et PERFORMANCE_ENGINEER (voir ExecutionController).
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
 
-  const { data: executions, loading: execLoading, error: execError, refetch: refetchExecutions } =
-    useApiList<BackendExecutionResponse>(() => executionsBackendApi.getAll())
+  // ---------------------------------------------------------------- filtres dans l'URL
+  const urlStatus = (STATUS_TABS as readonly string[]).includes(searchParams.get('status') ?? '') ? (searchParams.get('status') as StatusTab) : ''
+  const urlScenario = searchParams.get('scenario') ?? ''
+  const urlApp = searchParams.get('app') ?? ''
+  const urlQuery = searchParams.get('q') ?? ''
+  const urlPage = Math.max(1, Number(searchParams.get('page')) || 1)
+  const urlSize = PAGE_SIZES.includes(Number(searchParams.get('size'))) ? Number(searchParams.get('size')) : 10
+  const hasFilters = !!(urlStatus || urlScenario || urlApp || urlQuery)
+
+  const updateParams = useCallback((patch: Record<string, string | null>, resetPage = true) =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      Object.entries(patch).forEach(([k, v]) => (v === null || v === '' ? next.delete(k) : next.set(k, v)))
+      if (resetPage) next.delete('page')
+      return next
+    }, { replace: true }), [setSearchParams])
+
+  // Recherche avec debounce (350 ms) : l'URL, donc la requête, suit la saisie.
+  const [searchInput, setSearchInput] = useState(urlQuery)
+  useEffect(() => { setSearchInput(urlQuery) }, [urlQuery])
+  useEffect(() => {
+    if (searchInput.trim() === urlQuery) return
+    const timer = window.setTimeout(() => updateParams({ q: searchInput.trim() || null }), 350)
+    return () => window.clearTimeout(timer)
+  }, [searchInput, urlQuery, updateParams])
+
+  const resetFilters = () => {
+    setSearchInput('')
+    setSearchParams((prev) => {
+      const next = new URLSearchParams()
+      if (prev.get('size')) next.set('size', prev.get('size') as string)
+      return next
+    }, { replace: true })
+  }
+
+  // ---------------------------------------------------------------- données
+  const [data, setData] = useState<BackendExecutionPageResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const loadPage = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
+    try {
+      const result = await executionsBackendApi.getPage({
+        status: urlStatus || undefined, scenarioId: urlScenario || undefined, applicationId: urlApp || undefined,
+        search: urlQuery || undefined, page: urlPage - 1, size: urlSize,
+      })
+      // Page devenue vide (ex. après une suppression) : revenir à la dernière page existante.
+      if (result.content.length === 0 && urlPage > 1 && result.totalElements > 0) {
+        updateParams({ page: String(Math.max(1, result.totalPages)) }, false)
+        return
+      }
+      setData(result)
+      setLoadError(null)
+    } catch (err) {
+      setLoadError(describeApiError(err, 'Erreur de chargement'))
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [urlStatus, urlScenario, urlApp, urlQuery, urlPage, urlSize, updateParams])
+  useEffect(() => { loadPage() }, [loadPage])
+
+  const rows = data?.content ?? []
+  const activeIds = rows.filter((e) => isActive(e.status)).map((e) => e.id).join(',')
+
+  // Rafraîchissement automatique uniquement tant qu'une exécution affichée est active.
+  useEffect(() => {
+    if (!activeIds) return
+    const timer = window.setInterval(() => { loadPage(true) }, 3000)
+    return () => window.clearInterval(timer)
+  }, [activeIds, loadPage])
+
+  // Progression en direct des lignes actives (statut léger, toutes les 2 s).
+  const [liveStatus, setLiveStatus] = useState<Record<string, BackendExecutionStatusResponse>>({})
+  useEffect(() => {
+    if (!activeIds) return
+    const poll = () => {
+      for (const id of activeIds.split(',')) {
+        executionsBackendApi.getStatus(id).then((s) => setLiveStatus((prev) => ({ ...prev, [id]: s }))).catch(() => {})
+      }
+    }
+    poll()
+    const timer = window.setInterval(poll, 2000)
+    return () => window.clearInterval(timer)
+  }, [activeIds])
+
   const { data: scenarios } = useApiList<BackendScenarioResponse>(() => scenariosBackendApi.getAll())
+  const { data: applications } = useApiList<BackendApplicationResponse>(() => applicationsBackendApi.getAll())
   const { data: allSteps } = useApiList<BackendStepResponse>(() => stepsBackendApi.getAll())
 
   const scenarioById = useMemo(() => new Map(scenarios.map((s) => [s.id, s])), [scenarios])
   const stepCountByScenario = useMemo(() => {
     const map = new Map<string, number>()
-    for (const step of allSteps) {
-      map.set(step.scenarioId, (map.get(step.scenarioId) ?? 0) + 1)
-    }
+    for (const step of allSteps) map.set(step.scenarioId, (map.get(step.scenarioId) ?? 0) + 1)
     return map
   }, [allSteps])
+  const scenarioOptions = useMemo(() => scenarios
+    .filter((s) => !urlApp || s.applicationId === urlApp)
+    .map((s) => ({ value: s.id, label: s.name, hint: s.applicationName }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'fr')), [scenarios, urlApp])
 
-  const [activeTab, setActiveTab] = useState<StatusTab>('Tous')
-  const [searchQuery, setSearchQuery] = useState('')
+  // ---------------------------------------------------------------- sélection multiple
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  useEffect(() => { setSelected(new Set()) }, [urlStatus, urlScenario, urlApp, urlQuery, urlPage, urlSize])
+  const pageIds = rows.map((e) => e.id)
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
+  const someSelected = !allSelected && pageIds.some((id) => selected.has(id))
+  const selectAllRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected }, [someSelected])
+  const toggleOne = (id: string) => setSelected((prev) => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pageIds))
 
-  // Modale "Nouvelle exécution" — sélection d'un Scénario Spring possédant
-  // réellement des Steps (voir section 25 de l'énoncé) ; aucun champ VU/
-  // ramp-up/pause : le contrat backend n'accepte que { scenarioId }.
+  // ---------------------------------------------------------------- actions
+  const [deletion, setDeletion] = useState<string[] | null>(null)
+  const [retryConfirm, setRetryConfirm] = useState<BackendExecutionHistoryResponse | null>(null)
+  const [retrying, setRetrying] = useState(false)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
+
+  const reportBulk = (result: BackendBulkActionResponse) => {
+    if (result.failed === 0) {
+      showToast(`${plural(result.succeeded, 'exécution supprimée', 'exécutions supprimées')} définitivement.`, 'success')
+      return
+    }
+    const failures = result.results.filter((r) => !r.success).map((r) => `${r.name ? r.name.split(' (')[0] : 'Exécution'} : ${r.message}`).join(' ; ')
+    showToast(`${plural(result.succeeded, 'exécution supprimée', 'exécutions supprimées')}, ${result.failed} non supprimée(s) — ${failures}`,
+      result.succeeded > 0 ? 'warning' : 'danger')
+  }
+
+  const confirmDeletion = async () => {
+    if (!deletion) return
+    if (deletion.length === 1) {
+      await executionsBackendApi.remove(deletion[0])
+      showToast('Exécution supprimée définitivement.', 'success')
+    } else {
+      reportBulk(await executionsBackendApi.bulkDelete(deletion))
+    }
+    setDeletion(null)
+    setSelected(new Set())
+    await loadPage(true)
+  }
+
+  const confirmRetry = async () => {
+    if (!retryConfirm || retrying) return
+    setRetrying(true)
+    try {
+      const result = await executionsBackendApi.retry(retryConfirm.id)
+      monitor.track(result.id, result.scenarioName)
+      setRetryConfirm(null)
+      showToast(`Nouvelle exécution de « ${result.scenarioName} » lancée (${result.virtualUsers} utilisateur(s) virtuel(s)).`, 'success')
+      navigate(`/executions/live/${result.id}`)
+    } catch (err) {
+      showToast(describeApiError(err, 'Erreur lors de la relance.'), 'danger')
+    } finally {
+      setRetrying(false)
+    }
+  }
+
+  const handleCancel = async (exec: { id: string; scenarioName: string; status: BackendExecutionStatus }) => {
+    if (!canWrite || cancellingId || !isActive(exec.status)) return
+    setCancellingId(exec.id)
+    try {
+      await executionsBackendApi.cancel(exec.id)
+      await loadPage(true)
+      showToast(`Annulation de « ${exec.scenarioName} » demandée.`, 'success')
+    } catch (err) {
+      showToast(describeApiError(err, "Erreur lors de l'annulation."), 'danger')
+    } finally {
+      setCancellingId(null)
+    }
+  }
+
+  // ---------------------------------------------------------------- nouvelle exécution (inchangé)
   const [showLaunchModal, setShowLaunchModal] = useState(false)
   const [selectedScenarioId, setSelectedScenarioId] = useState('')
   const [launching, setLaunching] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
-
-  // Modale Détail (résultats réels de l'Execution Spring sélectionnée)
-  const [selectedExecutionDetail, setSelectedExecutionDetail] = useState<BackendExecutionDetailResponse | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-
-  const [retryingId, setRetryingId] = useState<string | null>(null)
-  const [cancellingId, setCancellingId] = useState<string | null>(null)
-
-  // P0-A — polling réel, jamais permanent : ne s'active que tant qu'au
-  // moins une Execution affichée est réellement QUEUED/RUNNING, s'arrête de
-  // lui-même sinon (voir note en tête de fichier — pas de WebSocket, un
-  // polling raisonnable suffit pour ce volume/cette fréquence).
-  const hasActiveExecution = executions.some((e) => e.status === 'QUEUED' || e.status === 'RUNNING')
-  useEffect(() => {
-    if (!hasActiveExecution) return
-    const interval = setInterval(() => { refetchExecutions() }, 2000)
-    return () => clearInterval(interval)
-  }, [hasActiveExecution, refetchExecutions])
-
-  // Rafraîchit aussi la modale Détail pendant qu'elle affiche une Execution
-  // encore active, pour que ses compteurs/son statut suivent la réalité en
-  // direct sans que l'utilisateur ait à la refermer/rouvrir.
-  useEffect(() => {
-    if (!selectedExecutionDetail || !isCancellable(selectedExecutionDetail.status)) return
-    const interval = setInterval(() => {
-      executionsBackendApi.getById(selectedExecutionDetail.id).then(setSelectedExecutionDetail).catch(() => {})
-    }, 2000)
-    return () => clearInterval(interval)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedExecutionDetail?.id, selectedExecutionDetail?.status])
-
-  const filteredExecutions = executions.filter((exec) => {
-    if (activeTab !== 'Tous' && exec.status !== activeTab) return false
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      const appName = scenarioById.get(exec.scenarioId)?.applicationName ?? ''
-      return exec.scenarioName.toLowerCase().includes(q) || appName.toLowerCase().includes(q)
-    }
-    return true
-  })
-
-  const { page, setPage, totalPages, pageItems, startIndex, endIndex, totalItems } = usePagination(filteredExecutions, 10)
+  const launchableScenarios = scenarios.filter((s) => s.status === 'ACTIVE' && (stepCountByScenario.get(s.id) ?? 0) > 0)
 
   const openLaunchModal = () => {
     if (!canWrite) return
@@ -203,16 +395,10 @@ function SpringExecutions() {
     setLaunchError(null)
     setShowLaunchModal(true)
   }
-  const closeLaunchModal = () => {
-    if (launching) return
-    setShowLaunchModal(false)
-  }
+  const closeLaunchModal = () => { if (!launching) setShowLaunchModal(false) }
 
   const handleLaunch = async () => {
     if (!canWrite || !selectedScenarioId || launching) return
-    // Vérifie réellement que le scénario a des Steps AVANT de créer une
-    // Execution — le backend refuserait de toute façon (409), mais on évite
-    // ici l'appel réseau inutile et on donne le message exact demandé.
     if ((stepCountByScenario.get(selectedScenarioId) ?? 0) === 0) {
       setLaunchError('Ce scénario ne contient aucune étape.')
       return
@@ -221,11 +407,9 @@ function SpringExecutions() {
     setLaunchError(null)
     try {
       const payload: BackendExecutionRequest = { scenarioId: selectedScenarioId }
-      // P0-A — asynchrone : répond 202 avec QUEUED/RUNNING, jamais le
-      // résultat final (voir note en tête de fichier). Le polling ci-dessus
-      // prendra le relais pour afficher la progression réelle.
       const result = await executionsBackendApi.execute(payload)
-      await refetchExecutions()
+      monitor.track(result.id, result.scenarioName)
+      await loadPage(true)
       setShowLaunchModal(false)
       showToast(`Exécution de « ${result.scenarioName} » lancée (${result.virtualUsers} utilisateur(s) virtuel(s)).`, 'success')
     } catch (err) {
@@ -237,82 +421,57 @@ function SpringExecutions() {
     }
   }
 
-  const handleRetry = async (exec: BackendExecutionResponse) => {
-    if (!canWrite || retryingId) return
-    setRetryingId(exec.id)
-    try {
-      const result = await executionsBackendApi.retry(exec.id)
-      await refetchExecutions()
-      showToast(`Nouvelle exécution de « ${result.scenarioName} » lancée (${result.virtualUsers} utilisateur(s) virtuel(s)).`, 'success')
-    } catch (err) {
-      showToast(describeApiError(err, 'Erreur lors de la relance.'), 'danger')
-    } finally {
-      setRetryingId(null)
-    }
-  }
-
-  const handleCancel = async (exec: BackendExecutionResponse) => {
-    if (!canWrite || cancellingId || !isCancellable(exec.status)) return
-    setCancellingId(exec.id)
-    try {
-      await executionsBackendApi.cancel(exec.id)
-      await refetchExecutions()
-      showToast(`Exécution de « ${exec.scenarioName} » annulée.`, 'success')
-    } catch (err) {
-      showToast(describeApiError(err, "Erreur lors de l'annulation."), 'danger')
-    } finally {
-      setCancellingId(null)
-    }
-  }
-
-  const openDetail = (exec: BackendExecutionResponse) => {
+  // ---------------------------------------------------------------- détail (modale, inchangée)
+  const [selectedExecutionDetail, setSelectedExecutionDetail] = useState<BackendExecutionDetailResponse | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  useEffect(() => {
+    if (!selectedExecutionDetail || !isActive(selectedExecutionDetail.status)) return
+    const interval = setInterval(() => {
+      executionsBackendApi.getById(selectedExecutionDetail.id).then(setSelectedExecutionDetail).catch(() => {})
+    }, 2000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedExecutionDetail?.id, selectedExecutionDetail?.status])
+  const openDetail = (id: string) => {
     setDetailLoading(true)
     setSelectedExecutionDetail(null)
-    executionsBackendApi.getById(exec.id)
+    executionsBackendApi.getById(id)
       .then(setSelectedExecutionDetail)
       .catch((err) => showToast(describeApiError(err, "Impossible de charger le détail de l'exécution."), 'danger'))
       .finally(() => setDetailLoading(false))
   }
 
-  // Scénarios proposés dans la modale de lancement : uniquement ceux qui ont
-  // réellement au moins une Step Spring — pas de "0 étape" présélectionnable.
-  const launchableScenarios = scenarios.filter((s) => (stepCountByScenario.get(s.id) ?? 0) > 0)
+  const counts = data?.counts
+  const totalItems = data?.totalElements ?? 0
+  const totalPages = Math.max(1, data?.totalPages ?? 1)
+  const startIndex = totalItems === 0 ? 0 : (urlPage - 1) * urlSize + 1
+  const endIndex = Math.min((urlPage - 1) * urlSize + rows.length, totalItems)
+  const colCount = canWrite ? 8 : 7
 
   return (
     <>
-      <div className="d-flex align-items-center justify-content-end mb-3">
-        {canWrite && (
-          <button className="pt-btn-primary" onClick={openLaunchModal}>
-            <i className="bi bi-play-fill fs-6"></i>
-            Nouvelle exécution
-          </button>
-        )}
-      </div>
-
-      {execError && (
+      {loadError && (
         <div className="pt-alert-banner danger mb-3">
           <i className="bi bi-exclamation-triangle-fill"></i>
-          Impossible de charger les exécutions : {execError}
-          <button className="pt-btn-outline ms-auto" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={() => refetchExecutions()}>
-            Réessayer
-          </button>
+          Impossible de charger les exécutions : {loadError}
+          <button className="pt-btn-outline ms-auto" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={() => loadPage()}>Réessayer</button>
         </div>
       )}
 
-      {/* Stat Cards */}
+      {/* Cartes : suivent les filtres appliqués. */}
       <div className="row g-3 mb-4">
         {[
-          { label: 'Total Exécutions', value: executions.length, icon: 'bi-play-circle', color: 'blue' },
-          { label: 'Réussies', value: executions.filter(e => e.status === 'SUCCESS').length, icon: 'bi-check-circle', color: 'green' },
-          { label: 'Échouées', value: executions.filter(e => e.status === 'FAILED').length, icon: 'bi-x-circle', color: 'red' },
-          { label: 'Annulées', value: executions.filter(e => e.status === 'CANCELLED').length, icon: 'bi-slash-circle', color: 'orange' },
-        ].map((c, i) => (
-          <div key={i} className="col-12 col-sm-6 col-xl-3">
+          { label: hasFilters ? 'Total (filtré)' : 'Total exécutions', value: counts?.total, icon: 'bi-play-circle', color: 'blue' },
+          { label: 'Réussies', value: counts?.success, icon: 'bi-check-circle', color: 'green' },
+          { label: 'Échouées', value: counts?.failed, icon: 'bi-x-circle', color: 'red' },
+          { label: 'Annulées', value: counts?.cancelled, icon: 'bi-slash-circle', color: 'orange' },
+        ].map((c) => (
+          <div key={c.label} className="col-6 col-xl-3">
             <div className="pt-stat-card">
               <div className="stat-header">
                 <div>
                   <div className="stat-label">{c.label}</div>
-                  <div className="stat-value">{execLoading ? '—' : c.value}</div>
+                  <div className="stat-value">{c.value ?? '—'}</div>
                 </div>
                 <div className={`stat-icon ${c.color}`}><i className={`bi ${c.icon}`}></i></div>
               </div>
@@ -321,135 +480,223 @@ function SpringExecutions() {
         ))}
       </div>
 
-      {/* Table */}
-      <div className="pt-card">
-        <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4 pb-3 border-bottom" style={{ borderColor: 'var(--pt-border)' }}>
-          <div className="d-flex gap-2 flex-wrap">
-            {STATUS_TABS.map(tab => (
-              <button
-                key={tab}
-                className={`btn btn-sm ${activeTab === tab ? 'btn-primary' : 'btn-outline-secondary'}`}
-                onClick={() => setActiveTab(tab)}
-                style={{ borderRadius: 'var(--pt-radius-sm)', fontWeight: 600, fontSize: '13px' }}
-              >
-                {tab === 'Tous' ? 'Toutes' : statusLabel[tab]}
+      {/* Filtres */}
+      <div className="d-flex align-items-center gap-2 flex-wrap mb-3">
+        <div className="pt-search" style={{ width: '240px', maxWidth: '100%' }}>
+          <i className="bi bi-search"></i>
+          <input type="text" placeholder="Rechercher (scénario, application, id)…" value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)} aria-label="Rechercher une exécution" />
+        </div>
+        <SearchSelect options={scenarioOptions} value={urlScenario} onChange={(v) => updateParams({ scenario: v || null })}
+          allLabel="Tous les scénarios" ariaLabel="Filtrer par scénario" />
+        <select className="pt-form-control" style={{ width: 'auto', maxWidth: '100%' }} value={urlApp} aria-label="Filtrer par application"
+          onChange={(e) => {
+            const app = e.target.value
+            // Le scénario choisi n'appartient plus à l'application : filtre scénario retiré.
+            const keepScenario = !app || !urlScenario || scenarioById.get(urlScenario)?.applicationId === app
+            updateParams({ app: app || null, ...(keepScenario ? {} : { scenario: null }) })
+          }}>
+          <option value="">Toutes les applications</option>
+          {applications.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+        {hasFilters && (
+          <button type="button" className="pt-btn-ghost" onClick={resetFilters}>
+            <i className="bi bi-x-circle"></i> Réinitialiser les filtres
+          </button>
+        )}
+        {canWrite && (
+          <button className="pt-btn-primary ms-auto" onClick={openLaunchModal}>
+            <i className="bi bi-play-fill fs-6"></i> Nouvelle exécution
+          </button>
+        )}
+      </div>
+
+      <div className="pt-card" style={{ padding: 0 }}>
+        <div className="d-flex gap-2 flex-wrap p-3" style={{ borderBottom: '1px solid var(--pt-border)' }} role="group" aria-label="Filtrer par statut">
+          {STATUS_TABS.map((tab) => {
+            const n = !counts ? null : tab === '' ? counts.total
+              : { QUEUED: counts.queued, RUNNING: counts.running, PAUSED: counts.paused, SUCCESS: counts.success, FAILED: counts.failed, CANCELLED: counts.cancelled }[tab]
+            return (
+              <button key={tab || 'all'} type="button" aria-pressed={urlStatus === tab}
+                className={`btn btn-sm ${urlStatus === tab ? 'btn-primary' : 'btn-outline-secondary'}`}
+                onClick={() => updateParams({ status: tab || null })}
+                style={{ borderRadius: 'var(--pt-radius-sm)', fontWeight: 600, fontSize: '13px' }}>
+                {tab === '' ? 'Toutes' : statusLabel[tab]}{n != null && !urlStatus ? ` (${n})` : ''}
               </button>
-            ))}
-          </div>
-          <div className="pt-search" style={{ width: '240px' }}>
-            <i className="bi bi-search"></i>
-            <input type="text" placeholder="Rechercher..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-          </div>
+            )
+          })}
         </div>
 
-        {execLoading ? (
+        {canWrite && selected.size > 0 && (
+          <div className="ap-bulk-bar" role="region" aria-label="Actions sur la sélection">
+            <strong>{selected.size} sélectionnée{selected.size > 1 ? 's' : ''}</strong>
+            <div className="d-flex gap-2 flex-wrap">
+              <button type="button" className="pt-btn-danger" onClick={() => setDeletion([...selected])}>
+                <i className="bi bi-trash3"></i> Supprimer
+              </button>
+              <button type="button" className="pt-btn-ghost" onClick={() => setSelected(new Set())}>Annuler la sélection</button>
+            </div>
+          </div>
+        )}
+
+        {loading && !data ? (
           <div className="pt-empty-state">
             <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }}></i>
             <p>Chargement des exécutions...</p>
           </div>
-        ) : filteredExecutions.length === 0 ? (
-          <div className="pt-empty-state">
-            <i className="bi bi-play-circle" style={{ fontSize: '28px', color: 'var(--pt-text-light)' }}></i>
-            <p>Aucune exécution Spring Boot pour l'instant. Lancez votre premier test !</p>
-          </div>
         ) : (
-        <div className="pt-table-wrapper">
-          <table className="pt-table">
-            <thead>
-              <tr>
-                <th>Scénario</th>
-                <th>Application</th>
-                <th>Statut</th>
-                <th>Étapes</th>
-                <th>Durée</th>
-                <th>Démarré le</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageItems.map(exec => {
-                const appName = scenarioById.get(exec.scenarioId)?.applicationName ?? '—'
-                return (
-                <tr key={exec.id}>
-                  <td>
-                    <button
-                      onClick={() => navigate(`/scenarios?q=${encodeURIComponent(exec.scenarioName)}`)}
-                      title="Voir ce scénario"
-                      style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: '13.5px', fontWeight: 500, color: 'var(--pt-text)', textDecoration: 'none' }}
-                    >
-                      {exec.scenarioName}
-                    </button>
-                  </td>
-                  <td><span style={{ fontSize: '13px', color: 'var(--pt-text-muted)' }}>{appName}</span></td>
-                  <td>
-                    <span className={`pt-pill ${statusPillClass[exec.status]}`}>
-                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', marginRight: '5px', background: 'currentColor' }}></span>
-                      {statusLabel[exec.status]}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ fontSize: '12.5px' }}>
-                      <span style={{ color: 'var(--pt-success)', fontWeight: 600 }}>{exec.successfulSteps}</span>
-                      {' / '}
-                      <span style={{ color: 'var(--pt-danger)', fontWeight: 600 }}>{exec.failedSteps}</span>
-                      {' / '}
-                      <span style={{ color: 'var(--pt-text-muted)' }}>{exec.totalSteps}</span>
-                    </span>
-                  </td>
-                  <td><span style={{ fontSize: '13px', fontFamily: 'monospace' }}>{formatDuration(exec.duration)}</span></td>
-                  <td><span style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>{formatDate(exec.startedAt)}</span></td>
-                  <td>
-                    <div className="d-flex justify-content-end gap-1">
-                      <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Voir les détails" onClick={() => openDetail(exec)}>
-                        <i className="bi bi-eye" style={{ fontSize: '14px' }}></i>
-                      </button>
-                      {/* Phase 23 : ExecutionDetail.tsx/ExecutionReport.tsx savent désormais
-                          afficher une Execution Spring (détectée via son UUID réel) — lien
-                          direct vers la page de rapport dédiée. */}
-                      <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Voir le rapport" onClick={() => navigate(`/executions/report/${exec.id}`)}>
-                        <i className="bi bi-file-text" style={{ fontSize: '14px' }}></i>
-                      </button>
-                      {canWrite && isCancellable(exec.status) && (
-                        <button
-                          className="topbar-icon"
-                          style={{ width: '32px', height: '32px', border: '1px solid var(--pt-danger)', color: 'var(--pt-danger)' }}
-                          title="Annuler cette exécution (interrompt réellement les utilisateurs virtuels en cours)"
-                          disabled={cancellingId === exec.id}
-                          onClick={() => handleCancel(exec)}
-                        >
-                          <i className={`bi ${cancellingId === exec.id ? 'bi-arrow-repeat pt-spin' : 'bi-slash-circle'}`} style={{ fontSize: '14px' }}></i>
-                        </button>
-                      )}
-                      {canWrite && (
-                        <button
-                          className="topbar-icon"
-                          style={{ width: '32px', height: '32px', border: '1px solid var(--pt-primary)', color: 'var(--pt-primary)' }}
-                          title="Relancer (crée une nouvelle exécution)"
-                          disabled={retryingId === exec.id}
-                          onClick={() => handleRetry(exec)}
-                        >
-                          <i className={`bi ${retryingId === exec.id ? 'bi-arrow-repeat pt-spin' : 'bi-arrow-repeat'}`} style={{ fontSize: '14px' }}></i>
-                        </button>
-                      )}
-                    </div>
-                  </td>
+          <div className="pt-table-wrapper">
+            <table className="pt-table">
+              <thead>
+                <tr>
+                  {canWrite && (
+                    <th style={{ width: '40px' }}>
+                      <input ref={selectAllRef} type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Sélectionner toutes les exécutions de la page" />
+                    </th>
+                  )}
+                  <th>Scénario</th>
+                  <th>Application</th>
+                  <th>Statut</th>
+                  <th>Requêtes</th>
+                  <th>Durée</th>
+                  <th>Démarré le</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
-              )})}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={colCount} style={{ textAlign: 'center', padding: '2rem', color: 'var(--pt-text-muted)' }}>
+                      <i className="bi bi-inbox" style={{ fontSize: '28px' }}></i>
+                      <p className="mb-0 mt-1">{hasFilters ? 'Aucune exécution ne correspond à ces filtres.' : 'Aucune exécution pour l’instant. Lancez votre premier test !'}</p>
+                    </td>
+                  </tr>
+                ) : rows.map((exec) => {
+                  const active = isActive(exec.status)
+                  const live = liveStatus[exec.id]
+                  const progress = active && live && !isTerminal(live) ? progressOf(live) : null
+                  return (
+                    <tr key={exec.id} style={{ background: selected.has(exec.id) ? 'var(--pt-sidebar-item-hover)' : undefined }}>
+                      {canWrite && (
+                        <td>
+                          <input type="checkbox" checked={selected.has(exec.id)} onChange={() => toggleOne(exec.id)}
+                            aria-label={`Sélectionner l’exécution de ${exec.scenarioName} du ${formatDate(exec.startedAt)}`} />
+                        </td>
+                      )}
+                      <td>
+                        <button onClick={() => updateParams({ scenario: exec.scenarioId })} title="Filtrer sur ce scénario"
+                          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: '13.5px', fontWeight: 500, color: 'var(--pt-text)', textAlign: 'left' }}>
+                          {exec.scenarioName}
+                        </button>
+                      </td>
+                      <td><span style={{ fontSize: '13px', color: 'var(--pt-text-muted)' }}>{exec.applicationName}</span></td>
+                      <td style={{ minWidth: '150px' }}>
+                        <span className={`pt-pill ${statusPillClass[exec.status]}`}>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', marginRight: '5px', background: 'currentColor' }}></span>
+                          {statusLabel[(live?.status ?? exec.status) as BackendExecutionStatus]}
+                        </span>
+                        {active && (
+                          <div className="mt-1" aria-label={progress ? `Progression : ${progress.label}` : 'Progression'}>
+                            <div className="em-progress" style={{ marginTop: '0.3rem', height: '6px' }}>
+                              <div className={`em-progress-bar ${progress?.percent == null ? 'indeterminate' : ''} ${(live?.status ?? exec.status) === 'PAUSED' ? 'paused' : ''}`}
+                                style={{ width: `${progress?.percent ?? 30}%` }}></div>
+                            </div>
+                            <div className="d-flex justify-content-between gap-2" style={{ fontSize: '11px', color: 'var(--pt-text-muted)' }}>
+                              <span>{progress ? `${progress.percent ?? '—'} %` : '…'}</span>
+                              <Link to={`/executions/live/${exec.id}`} onClick={() => monitor.track(exec.id, exec.scenarioName)}>Suivre</Link>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{ fontSize: '12.5px' }}>
+                          <span style={{ color: 'var(--pt-success)', fontWeight: 600 }} title="Réussies">{active && live ? live.successfulRequests : exec.successfulSteps}</span>
+                          {' / '}
+                          <span style={{ color: 'var(--pt-danger)', fontWeight: 600 }} title="En échec">{active && live ? live.failedRequests : exec.failedSteps}</span>
+                        </span>
+                      </td>
+                      <td><span style={{ fontSize: '13px', fontFamily: 'monospace' }}>{formatDuration(exec.duration)}</span></td>
+                      <td><span style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>{formatDate(exec.startedAt)}</span></td>
+                      <td>
+                        <div className="d-flex justify-content-end gap-1">
+                          <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Voir les détails" aria-label="Voir les détails" onClick={() => openDetail(exec.id)}>
+                            <i className="bi bi-eye" style={{ fontSize: '14px' }}></i>
+                          </button>
+                          <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Voir le rapport" aria-label="Voir le rapport" onClick={() => navigate(`/executions/report/${exec.id}`)}>
+                            <i className="bi bi-file-text" style={{ fontSize: '14px' }}></i>
+                          </button>
+                          {canWrite && active && (
+                            <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-danger)', color: 'var(--pt-danger)' }}
+                              title="Annuler cette exécution" aria-label="Annuler cette exécution" disabled={cancellingId === exec.id} onClick={() => handleCancel(exec)}>
+                              <i className={`bi ${cancellingId === exec.id ? 'bi-arrow-repeat pt-spin' : 'bi-slash-circle'}`} style={{ fontSize: '14px' }}></i>
+                            </button>
+                          )}
+                          {canWrite && (
+                            <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-primary)', color: 'var(--pt-primary)' }}
+                              title="Relancer (crée une nouvelle exécution)" aria-label="Relancer" onClick={() => setRetryConfirm(exec)}>
+                              <i className="bi bi-arrow-repeat" style={{ fontSize: '14px' }}></i>
+                            </button>
+                          )}
+                          {canWrite && (
+                            <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)', color: active ? 'var(--pt-text-light)' : 'var(--pt-danger)' }}
+                              title={active ? 'Impossible de supprimer une exécution en attente, en cours ou en pause : annulez-la d’abord.' : 'Supprimer définitivement'}
+                              aria-label="Supprimer" disabled={active} onClick={() => setDeletion([exec.id])}>
+                              <i className="bi bi-trash3" style={{ fontSize: '14px' }}></i>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
 
         <Pagination
-          page={page}
+          page={urlPage}
           totalPages={totalPages}
-          onPageChange={setPage}
+          onPageChange={(p) => updateParams({ page: p > 1 ? String(p) : null }, false)}
           startIndex={startIndex}
           endIndex={endIndex}
           totalItems={totalItems}
           itemLabel="exécutions"
+          pageSize={urlSize}
+          pageSizeOptions={PAGE_SIZES}
+          onPageSizeChange={(size) => updateParams({ size: size === 10 ? null : String(size) })}
         />
       </div>
+
+      {deletion && <ExecutionDeletionDialog ids={deletion} onConfirm={confirmDeletion} onClose={() => setDeletion(null)} />}
+
+      {/* Relance : confirmation, puis suivi en direct de la NOUVELLE exécution. */}
+      {retryConfirm && (
+        <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1060 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="ex-retry-title"
+              style={{ borderRadius: 'var(--pt-radius)', border: '1px solid var(--pt-border)', background: 'var(--pt-card-bg)' }}>
+              <div className="modal-body p-4">
+                <h5 id="ex-retry-title" style={{ fontWeight: 700 }}><i className="bi bi-arrow-repeat text-primary me-2"></i>Relancer « {retryConfirm.scenarioName} » ?</h5>
+                <p className="mb-2" style={{ fontSize: '13.5px' }}>
+                  Une <strong>nouvelle exécution</strong> démarre avec la configuration actuelle du scénario
+                  {(() => {
+                    const s = scenarioById.get(retryConfirm.scenarioId)
+                    return s ? ` (${s.virtualUsers} utilisateur(s), ramp-up ${s.rampUpSeconds} s${s.durationSeconds != null ? `, ${s.durationSeconds} s` : ''}${s.iterations != null ? `, ${s.iterations} itération(s)` : ''})` : ''
+                  })()}. L’exécution du {formatDate(retryConfirm.startedAt)} n’est pas modifiée.
+                </p>
+                <p className="mb-0" style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>Le suivi en direct s’ouvre juste après le lancement.</p>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="pt-btn-ghost" onClick={() => setRetryConfirm(null)} disabled={retrying}>Annuler</button>
+                <button type="button" className="pt-btn-primary" onClick={confirmRetry} disabled={retrying}>
+                  {retrying ? <span className="spinner-border spinner-border-sm me-1"></span> : <i className="bi bi-play-fill"></i>} Relancer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modale Nouvelle exécution */}
       {showLaunchModal && (
@@ -457,7 +704,7 @@ function SpringExecutions() {
           <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', padding: '2rem', width: '480px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
             <div className="d-flex justify-content-between align-items-center mb-4">
               <h5 style={{ fontWeight: 700, margin: 0 }}>Nouvelle exécution</h5>
-              <button onClick={closeLaunchModal} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}>
+              <button onClick={closeLaunchModal} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }} aria-label="Fermer">
                 <i className="bi bi-x"></i>
               </button>
             </div>
@@ -475,13 +722,7 @@ function SpringExecutions() {
             )}
 
             <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Scénario *</label>
-            <select
-              className="pt-form-control"
-              style={{ width: '100%' }}
-              value={selectedScenarioId}
-              disabled={launching}
-              onChange={e => setSelectedScenarioId(e.target.value)}
-            >
+            <select className="pt-form-control" style={{ width: '100%' }} value={selectedScenarioId} disabled={launching} onChange={e => setSelectedScenarioId(e.target.value)}>
               <option value="" disabled>Sélectionner un scénario…</option>
               {launchableScenarios.map(s => (
                 <option key={s.id} value={s.id}>{s.name} ({s.applicationName})</option>
@@ -532,25 +773,19 @@ function SpringExecutions() {
                   Détail de l'exécution {selectedExecutionDetail ? `— ${selectedExecutionDetail.scenarioName}` : ''}
                 </h5>
                 <div className="d-flex align-items-center gap-2">
-                  {selectedExecutionDetail && canWrite && isCancellable(selectedExecutionDetail.status) && (
-                    <button
-                      className="pt-btn-outline"
-                      style={{ fontSize: '12px', padding: '0.3rem 0.7rem', color: 'var(--pt-danger)', borderColor: 'var(--pt-danger)' }}
-                      disabled={cancellingId === selectedExecutionDetail.id}
-                      onClick={() => handleCancel(selectedExecutionDetail)}
-                    >
+                  {selectedExecutionDetail && canWrite && isActive(selectedExecutionDetail.status) && (
+                    <button className="pt-btn-outline" style={{ fontSize: '12px', padding: '0.3rem 0.7rem', color: 'var(--pt-danger)', borderColor: 'var(--pt-danger)' }}
+                      disabled={cancellingId === selectedExecutionDetail.id} onClick={() => handleCancel(selectedExecutionDetail)}>
                       <i className={`bi ${cancellingId === selectedExecutionDetail.id ? 'bi-arrow-repeat pt-spin' : 'bi-slash-circle'} me-1`}></i>
                       Annuler
                     </button>
                   )}
-                  <button type="button" className="btn-close" onClick={() => setSelectedExecutionDetail(null)}></button>
+                  <button type="button" className="btn-close" onClick={() => setSelectedExecutionDetail(null)} aria-label="Fermer"></button>
                 </div>
               </div>
               <div className="modal-body p-4">
                 {detailLoading ? (
-                  <div className="text-center text-muted py-4">
-                    <i className="bi bi-arrow-repeat pt-spin me-1"></i>Chargement...
-                  </div>
+                  <div className="text-center text-muted py-4"><i className="bi bi-arrow-repeat pt-spin me-1"></i>Chargement...</div>
                 ) : selectedExecutionDetail && (
                   <>
                     <div className="row g-3 mb-3">
@@ -596,13 +831,7 @@ function SpringExecutions() {
                     <div className="pt-table-wrapper" style={{ maxHeight: '320px', overflowY: 'auto' }}>
                       <table className="pt-table" style={{ fontSize: '12.5px' }}>
                         <thead>
-                          <tr>
-                            <th>#</th>
-                            <th>Étape</th>
-                            <th>HTTP</th>
-                            <th>Temps</th>
-                            <th>Résultat</th>
-                          </tr>
+                          <tr><th>#</th><th>Étape</th><th>HTTP</th><th>Temps</th><th>Résultat</th></tr>
                         </thead>
                         <tbody>
                           {selectedExecutionDetail.results.map((r, idx) => (
@@ -641,10 +870,9 @@ function SpringExecutions() {
   )
 }
 
-
 // ============================================================
-// Page hôte — P1-O : un seul chemin réel désormais (le moteur Legacy et
-// son onglet ont été retirés, voir note en tête de fichier).
+// Page hôte (recherche de la barre du haut retirée : seule la recherche
+// au-dessus du tableau filtre les exécutions).
 // ============================================================
 
 function Executions() {
@@ -655,7 +883,6 @@ function Executions() {
           <h1>Exécutions</h1>
           <p>Lancez et suivez vos exécutions de tests de charge</p>
         </div>
-        <TopBar searchPlaceholder="Rechercher une exécution..." />
       </div>
 
       <SpringExecutions />

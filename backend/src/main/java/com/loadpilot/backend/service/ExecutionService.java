@@ -60,6 +60,10 @@ public interface ExecutionService {
     /** Annulation reelle (P0-A) : voir l'implementation pour le detail par statut. */
     ExecutionResponse cancel(UUID id);
 
+    ExecutionResponse pause(UUID id);
+
+    ExecutionResponse resume(UUID id);
+
     /** Cree une NOUVELLE Execution QUEUED du meme scenario - ne modifie jamais l'ancienne. */
     ExecutionResponse retry(UUID id, UUID triggeredByAppUserId);
 
@@ -75,6 +79,9 @@ public interface ExecutionService {
 
     /** P1-A — rapport statistique complet (percentiles reels, agregation
      * par step, erreurs) - voir ExecutionReportResponse. */
+    com.loadpilot.backend.dto.response.ExecutionPageResponse getPage(
+            ExecutionHistoryFilterRequest filter, int page, int size, Sort sort);
+
     ExecutionReportResponse getReport(UUID id);
 
     /** P1-A — export CSV du meme rapport (memes autorisations que la
