@@ -120,6 +120,20 @@ public class GlobalExceptionHandler {
                 "Opération impossible : cet élément est encore utilisé par d'autres données (scénarios, étapes ou exécutions).", request);
     }
 
+    /**
+     * Meme filet de securite pour une violation remontee directement par Hibernate (requetes SQL
+     * natives des suppressions en cascade, non traduites par Spring) : jamais une erreur 500.
+     * Cas typique : donnees liees encore en cours d'enregistrement.
+     */
+    @ExceptionHandler(org.hibernate.exception.ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleHibernateConstraintViolation(org.hibernate.exception.ConstraintViolationException ex,
+            HttpServletRequest request) {
+        log.warn("Contrainte d'integrite violee (Hibernate) sur {} : {}", request.getRequestURI(), ex.getConstraintName());
+        return build(HttpStatus.CONFLICT,
+                "Opération impossible pour le moment : des données liées sont encore en cours d'enregistrement. Réessayez dans quelques secondes.",
+                request);
+    }
+
     private ResponseEntity<ErrorResponse> build(HttpStatus status, String message, HttpServletRequest request) {
         return ResponseEntity.status(status).body(ErrorResponse.of(status, message, request.getRequestURI()));
     }

@@ -127,6 +127,12 @@ public class RunningExecutionRegistry {
         }
     }
 
+    /** Executions encore suivies par ce processus : en cours, OU terminees mais encore en train
+     * d'enregistrer leurs resultats / metriques (la tache asynchrone n'est pas finie). */
+    public java.util.Set<UUID> activeExecutionIds() {
+        return java.util.Set.copyOf(active.keySet());
+    }
+
     /** Nombre reel d'executions actives dans ce processus (jamais un
      * comptage approximatif) - utile pour l'observabilite/les tests. */
     public int activeExecutionCount() {

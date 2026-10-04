@@ -40,11 +40,28 @@ import org.springframework.transaction.annotation.Transactional;
 public class DeletionServiceImpl {
 
     public static final String RUNNING_MESSAGE = "Une exécution est en cours, arrêtez-la avant de supprimer.";
+    public static final String FINALIZING_MESSAGE =
+            "Une exécution vient de se terminer et enregistre encore ses résultats : réessayez dans quelques secondes.";
     private static final String RUNNING_ARCHIVE_MESSAGE = "Une exécution est en cours, arrêtez-la avant d'archiver.";
 
     private final ApplicationRepository applicationRepository;
     private final ScenarioRepository scenarioRepository;
     private final AuditLogService auditLogService;
+    private final com.loadpilot.backend.service.execution.RunningExecutionRegistry registry;
+
+    /**
+     * Refus clair (409) si une execution concernee est terminee en base mais enregistre encore ses
+     * resultats / metriques (tache asynchrone pas finie) : la supprimer maintenant provoquerait une
+     * violation de cle etrangere (metriques inserees pendant la suppression).
+     */
+    private void checkNotFinalizing(String executionCondition, UUID id) {
+        java.util.Set<UUID> active = registry.activeExecutionIds();
+        if (active.isEmpty()) return;
+        long finalizing = entityManager.createQuery("SELECT COUNT(e) FROM Execution e WHERE " + executionCondition
+                        + " AND e.id IN :active", Long.class)
+                .setParameter("id", id).setParameter("active", active).getSingleResult();
+        if (finalizing > 0) throw new ConflictException(FINALIZING_MESSAGE);
+    }
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -152,6 +169,7 @@ public class DeletionServiceImpl {
         try {
             DeletionImpactResponse impact = applicationsImpact(List.of(id));
             if (impact.hasRunningExecution()) throw new ConflictException(RUNNING_MESSAGE);
+            checkNotFinalizing("e.scenario.application.id = :id", id);
             entityManager.flush();
             String scenarios = "SELECT s.id FROM scenario s WHERE s.application_id = :id";
             String executions = "SELECT e.id FROM execution e WHERE e.scenario_id IN (" + scenarios + ")";
@@ -217,6 +235,7 @@ public class DeletionServiceImpl {
         try {
             DeletionImpactResponse impact = scenarioImpact(id);
             if (impact.hasRunningExecution()) throw new ConflictException(RUNNING_MESSAGE);
+            checkNotFinalizing("e.scenario.id = :id", id);
             entityManager.flush();
             String executions = "SELECT e.id FROM execution e WHERE e.scenario_id = :id";
             String steps = "SELECT st.id FROM step st WHERE st.scenario_id = :id";
