@@ -3,6 +3,7 @@ package com.loadpilot.backend.service.execution;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.loadpilot.backend.enums.ExecutionStatus;
+import com.loadpilot.backend.service.auth.ApplicationAuthSpec;
 import com.sun.net.httpserver.HttpServer;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
@@ -62,6 +63,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
     private final long timeoutSeconds;
     private final ObjectMapper objectMapper;
     private final ExecutorService vuExecutor;
+    private final ApplicationAuthenticator authenticator;
 
     public HttpClientExecutionEngine(
             @Value("${app.execution.timeout-seconds:10}") long timeoutSeconds,
@@ -70,6 +72,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         this.timeoutSeconds = timeoutSeconds;
         this.objectMapper = objectMapper;
         this.vuExecutor = loadTestExecutor;
+        this.authenticator = new ApplicationAuthenticator(objectMapper);
     }
 
     /**
@@ -146,35 +149,54 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
 
     @Override
     public ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl,
-            LoadTestSpec loadSpec, RunningExecutionHandle handle, List<Map<String, String>> vuVariableRows) {
+            ApplicationAuthSpec auth, LoadTestSpec loadSpec, RunningExecutionHandle handle,
+            List<Map<String, String>> vuVariableRows) {
+        return execute(steps, applicationBaseUrl, auth, loadSpec, handle, VariableSources.of(vuVariableRows).withSteps(steps));
+    }
+
+    @Override
+    public ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl,
+            ApplicationAuthSpec auth, LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableSources sources) {
+        // Authentification de l'Application resolue UNE fois pour toute
+        // l'Execution (une seule connexion pour LOGIN_TOKEN, jeton partage
+        // par les VUs). Echec -> aucune etape jouee, cause explicite.
+        ResolvedAuth resolvedAuth;
+        try {
+            resolvedAuth = authenticator.authenticate(auth, applicationBaseUrl, timeoutSeconds);
+        } catch (ApplicationAuthenticationException e) {
+            return new ScenarioExecutionOutcome(List.of(), ExecutionStatus.FAILED, "Authentification : " + e.getMessage());
+        }
+
         int virtualUsers = Math.max(1, loadSpec.virtualUsers());
         // Etalement reel du ramp-up : chaque VU demarre staggerMs apres le
         // precedent, jamais tous instantanement (voir rapport P0-A section 8).
         long staggerMs = (virtualUsers > 1 && loadSpec.rampUpSeconds() > 0)
                 ? (loadSpec.rampUpSeconds() * 1000L) / virtualUsers
                 : 0L;
-        Instant deadline = loadSpec.durationSeconds() != null
-                ? Instant.now().plusSeconds(loadSpec.durationSeconds())
+        // Duree en temps ACTIF : le temps passe en pause (voir RunningExecutionHandle) n'est pas
+        // decompte - un test de 20 s travaille vraiment 20 s, meme avec une pause au milieu.
+        ActiveDeadline deadline = loadSpec.durationSeconds() != null
+                ? new ActiveDeadline(System.nanoTime(), loadSpec.durationSeconds() * 1_000_000_000L, handle)
                 : null;
         // Master prompt final (Lot A) - UN SEUL PacingGate partage par tous
         // les VUs de cette Execution (jamais un par VU, sinon le debit reel
         // serait targetRps * virtualUsers) ; null = aucun pacing configure,
         // comportement historique inchange.
         PacingGate pacingGate = loadSpec.targetRps() != null ? new PacingGate(loadSpec.targetRps()) : null;
+        handle.startLiveStats(steps);
 
         List<Future<List<StepOutcome>>> futures = new ArrayList<>();
         for (int vu = 0; vu < virtualUsers; vu++) {
             long startDelayMs = vu * staggerMs;
-            // Distribution CYCLIQUE reelle d'une ligne CSV par VU (voir
-            // ExecutionEngine#execute) - jamais un echec si moins de lignes
-            // que de VUs. Copie MUTABLE et propre a ce VU (jamais la meme
-            // instance Map partagee entre deux VUs, meme quand vuVariableRows
-            // est vide) : les variables capturees dynamiquement (Lot B)
-            // restent ainsi strictement isolees par VU.
-            Map<String, String> variables = new java.util.HashMap<>(
-                    vuVariableRows.isEmpty() ? Map.of() : vuVariableRows.get(vu % vuVariableRows.size()));
+            // Contexte de variables PROPRE a ce VU (jamais partage entre threads) : captures
+            // videes a chaque iteration, ligne CSV attribuee selon la distribution du scenario
+            // (une ligne par VU, ou une nouvelle ligne par iteration via le compteur partage
+            // thread-safe de VariableSources), variables du scenario, ${authToken}.
+            VariableContext variables = new VariableContext(sources.scenarioVariables(), resolvedAuth.token());
+            int virtualUser = vu;
             Future<List<StepOutcome>> future = vuExecutor.submit(
-                    () -> runVirtualUser(steps, applicationBaseUrl, startDelayMs, deadline, loadSpec, handle, variables, pacingGate));
+                    () -> runVirtualUser(steps, applicationBaseUrl, resolvedAuth, startDelayMs, deadline, loadSpec, handle,
+                            variables, sources, virtualUser, pacingGate));
             handle.registerFuture(future);
             futures.add(future);
         }
@@ -214,10 +236,10 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
      * exactement le comportement historique a une seule passe.
      */
     private List<StepOutcome> runVirtualUser(List<StepExecutionSpec> steps, String applicationBaseUrl,
-            long startDelayMs, Instant deadline, LoadTestSpec loadSpec, RunningExecutionHandle handle,
-            Map<String, String> variables, PacingGate pacingGate) {
+            ResolvedAuth resolvedAuth, long startDelayMs, ActiveDeadline deadline, LoadTestSpec loadSpec, RunningExecutionHandle handle,
+            VariableContext variables, VariableSources sources, int virtualUser, PacingGate pacingGate) {
         List<StepOutcome> results = new ArrayList<>();
-        if (!sleep(startDelayMs) || handle.isCancelled()) {
+        if (!handle.sleepActive(startDelayMs) || handle.isCancelled()) {
             return results;
         }
 
@@ -247,10 +269,28 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
 
+        // Suivi en direct (compteurs en memoire, aucune ecriture en base) : VU actif jusqu'a sa sortie.
+        LiveStats live = handle.liveStats();
+        if (live != null) live.virtualUserStarted();
+        try {
+            runIterations(steps, applicationBaseUrl, resolvedAuth, deadline, loadSpec, handle, variables, sources,
+                    virtualUser, pacingGate, clientFollowing, clientNotFollowing, results, live);
+        } finally {
+            if (live != null) live.virtualUserFinished();
+        }
+        return results;
+    }
+
+    private void runIterations(List<StepExecutionSpec> steps, String applicationBaseUrl, ResolvedAuth resolvedAuth,
+            ActiveDeadline deadline, LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableContext variables,
+            VariableSources sources, int virtualUser, PacingGate pacingGate, HttpClient clientFollowing,
+            HttpClient clientNotFollowing, List<StepOutcome> results, LiveStats live) {
         int iteration = 0;
         while (true) {
             if (handle.isCancelled()) break;
-            if (deadline != null && Instant.now().isAfter(deadline)) break;
+            // Une pause en cours bloque ici avant toute nouvelle iteration.
+            if (!handle.awaitIfPaused()) break;
+            if (deadline != null && deadline.reached()) break;
             if (loadSpec.iterations() != null && iteration >= loadSpec.iterations()) break;
             if (deadline == null && loadSpec.iterations() == null && iteration >= 1) break;
 
@@ -259,7 +299,11 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             // via ce break) - voir politique de statut global en tete de
             // classe. La garde de sortie de boucle du haut se charge deja du
             // mode "1 passe" par defaut au tour suivant.
-            for (StepExecutionSpec step : steps) {
+            // Nouvelle iteration : captures de l'iteration precedente oubliees, ligne CSV de
+            // cette iteration (meme ligne a chaque iteration en distribution "par VU").
+            variables.startIteration(sources.rowFor(virtualUser));
+            for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
+                StepExecutionSpec step = steps.get(stepIndex);
                 if (handle.isCancelled()) break;
                 // Master prompt final (Lot A) - un seul debit cible pour
                 // TOUTE l'Execution (voir execute()) : chaque requete HTTP,
@@ -268,14 +312,19 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 // une annulation reelle (jamais un blocage infini : la duree
                 // d'attente est toujours finie, voir PacingGate).
                 if (pacingGate != null && !pacingGate.acquire()) break;
+                // Pause : aucune nouvelle requete n'est envoyee tant qu'elle dure (les requetes
+                // deja en vol recoivent leur reponse normalement).
+                if (!handle.awaitIfPaused()) break;
                 HttpClient client = Boolean.FALSE.equals(step.followRedirects()) ? clientNotFollowing : clientFollowing;
-                StepOutcome outcome = executeStep(client, step, applicationBaseUrl, variables);
+                StepOutcome outcome = executeStep(client, step, stepIndex + 1, applicationBaseUrl, resolvedAuth, variables,
+                        sources, virtualUser, iteration);
                 results.add(outcome);
+                if (live != null) live.record(stepIndex, outcome);
                 // P1-Q Etape B - pause specifique a CETTE etape, en plus du
                 // think time de Scenario ci-dessous (jamais a la place) -
                 // jamais appliquee apres une annulation ni si non configuree.
                 if (!handle.isCancelled() && step.thinkTimeMs() != null && step.thinkTimeMs() > 0
-                        && !sleep(step.thinkTimeMs())) {
+                        && !handle.sleepActive(step.thinkTimeMs())) {
                     break;
                 }
                 if (!outcome.success()) {
@@ -283,37 +332,36 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 }
             }
             iteration++;
+            if (live != null) live.iterationCompleted();
             // Think time uniquement APRES une iteration, jamais apres une
             // annulation, jamais applique si nul.
-            if (!handle.isCancelled() && loadSpec.thinkTimeMs() > 0 && !sleep(loadSpec.thinkTimeMs())) {
+            if (!handle.isCancelled() && loadSpec.thinkTimeMs() > 0 && !handle.sleepActive(loadSpec.thinkTimeMs())) {
                 break;
             }
         }
-        return results;
     }
 
-    /** Sommeil reel interruptible - renvoie false si interrompu (annulation),
-     * pour que l'appelant arrete immediatement plutot que de continuer. */
-    private boolean sleep(long millis) {
-        if (millis <= 0) return true;
-        try {
-            Thread.sleep(millis);
-            return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
+    /** Fin de la duree configuree, mesuree en temps actif (pauses exclues). */
+    private record ActiveDeadline(long startNanos, long durationNanos, RunningExecutionHandle handle) {
+        boolean reached() {
+            return System.nanoTime() - startNanos - handle.pausedNanos() >= durationNanos;
         }
     }
 
-    private StepOutcome executeStep(HttpClient client, StepExecutionSpec step, String applicationBaseUrl,
-            Map<String, String> variables) {
-        // P1-Q Etape B - substitution reelle des variables ${nom} (CSV data
-        // source, voir VariableResolver) AVANT resolution de l'URL de base -
-        // "${baseUrl}" n'a besoin d'aucune variable dediee, deja resolu par
-        // UrlResolver.resolve() ci-dessous.
-        String rawUrl = VariableResolver.substitute(step.url(), variables);
-        String url = UrlResolver.resolve(applicationBaseUrl, rawUrl);
+    private StepOutcome executeStep(HttpClient client, StepExecutionSpec step, int stepNumber, String applicationBaseUrl,
+            ResolvedAuth resolvedAuth, VariableContext variables, VariableSources sources, int virtualUser, int iteration) {
+        // Requete reelle construite depuis les gabarits de l'etape (voir RequestBuilder) :
+        // variables de chemin / query encodees, priorite capture > CSV > scenario > authToken.
+        RequestBuilder.BuiltRequest built = RequestBuilder.build(step, applicationBaseUrl, variables::get, objectMapper);
+        String requestUrl = traceableUrl(built.url());
         long effectiveTimeoutSeconds = step.timeoutSeconds() != null ? step.timeoutSeconds() : timeoutSeconds;
+        if (!built.missing().isEmpty()) {
+            // Jamais de requete envoyee avec un ${...} brut : echec explicite avant l'envoi.
+            return new StepOutcome(step.stepId(), null, 0, false,
+                    RequestBuilder.missingMessage(built.missing(), stepNumber, sources.captureStepByVariable()),
+                    Instant.now(), virtualUser, iteration, requestUrl);
+        }
+        String url = resolvedAuth.applyToUrl(built.url());
         long startedAt = System.nanoTime();
 
         boolean captureConfigured = step.captureVariableName() != null && !step.captureVariableName().isBlank()
@@ -321,22 +369,10 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         boolean hasAssertion = step.assertionBodyContains() != null && !step.assertionBodyContains().isBlank();
 
         try {
-            HttpRequest request = buildRequest(step, url, variables, effectiveTimeoutSeconds);
+            HttpRequest request = buildRequest(step, url, built, resolvedAuth, effectiveTimeoutSeconds);
             boolean readBody = hasAssertion || captureConfigured;
-            // P0-B (protection des ressources, section 8) : par defaut, le
-            // corps de la reponse n'est JAMAIS lu ni stocke - le bufferiser
-            // integralement en memoire via BodyHandlers.ofString() etait un
-            // vrai risque reel identifie (une cible renvoyant une reponse
-            // enorme, multipliee par le nombre d'utilisateurs virtuels
-            // concurrents, pouvait epuiser le tas de la JVM pour un contenu
-            // jamais utilise). discarding() ne bufferise rien.
-            //
-            // P1-Q Etape B / Lot B - EXCEPTION assumee et explicite :
-            // uniquement quand ce Step configure reellement une assertion de
-            // contenu OU une capture de variable (readBody=true), le corps
-            // est lu (ofString()) - un choix opt-in par etape, jamais impose
-            // aux Steps existants/non configures (comportement historique
-            // inchange pour eux).
+            // P0-B : corps jamais lu ni stocke par defaut (discarding) ; lu uniquement si l'etape
+            // configure une assertion de contenu ou une capture de variable.
             HttpResponse<String> response = client.send(request,
                     readBody ? HttpResponse.BodyHandlers.ofString() : discardingAsString());
             long elapsed = elapsedMs(startedAt);
@@ -348,35 +384,38 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                     : !assertionOk
                     ? "Assertion echouee : la reponse ne contient pas le contenu attendu."
                     : null;
-            // Master prompt final (Lot B) - capture APRES evaluation du
-            // succes/echec (jamais avant), mais QUEL QUE SOIT le resultat de
-            // l'assertion : un jeton d'authentification reste utile aux
-            // etapes suivantes meme si une assertion sans rapport a echoue.
-            // Isolation stricte par VU deja garantie par execute() (chaque
-            // VU recoit sa PROPRE instance mutable de "variables", jamais
-            // partagee - voir HashMap cree dans execute()). Reponse non-JSON/
-            // chemin introuvable -> JsonPathExtractor renvoie null, jamais
-            // d'exception, aucune variable produite dans ce cas.
+            // Capture apres evaluation, quel que soit le resultat de l'assertion ; propre a ce VU
+            // et a l'iteration en cours (VariableContext, videe au debut de chaque iteration).
             if (captureConfigured) {
                 String captured = JsonPathExtractor.extract(objectMapper, response.body(), step.captureJsonPath());
                 if (captured != null) {
-                    variables.put(step.captureVariableName(), captured);
+                    variables.capture(step.captureVariableName().trim(), captured);
                 }
             }
-            return new StepOutcome(step.stepId(), response.statusCode(), elapsed, success, error, Instant.now());
+            return new StepOutcome(step.stepId(), response.statusCode(), elapsed, success, error, Instant.now(),
+                    virtualUser, iteration, requestUrl);
         } catch (HttpTimeoutException e) {
             return new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false,
-                    "Delai d'attente depasse (" + effectiveTimeoutSeconds + "s)", Instant.now());
+                    "Delai d'attente depasse (" + effectiveTimeoutSeconds + "s)", Instant.now(), virtualUser, iteration, requestUrl);
         } catch (IOException e) {
             String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.debug("Etape '{}' echouee (technique) : {}", step.name(), e.getClass().getSimpleName());
-            return new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false, message, Instant.now());
+            return new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false, message, Instant.now(),
+                    virtualUser, iteration, requestUrl);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false, "Execution interrompue.", Instant.now());
+            return new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false, "Execution interrompue.", Instant.now(),
+                    virtualUser, iteration, requestUrl);
         } catch (IllegalArgumentException e) {
-            return new StepOutcome(step.stepId(), null, 0, false, "URL invalide : " + e.getClass().getSimpleName(), Instant.now());
+            return new StepOutcome(step.stepId(), null, 0, false, "URL invalide : " + e.getClass().getSimpleName(), Instant.now(),
+                    virtualUser, iteration, requestUrl);
         }
+    }
+
+    /** URL finale conservee dans les resultats : parametres sensibles masques, 2048 caracteres max. */
+    private static String traceableUrl(String url) {
+        String masked = TestRunMasking.maskUrl(url, java.util.Set.of(), java.util.Set.of());
+        return masked != null && masked.length() > 2048 ? masked.substring(0, 2048) : masked;
     }
 
     /** Meme garantie que BodyHandlers.discarding() (rien bufferise) mais
@@ -387,11 +426,11 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         return responseInfo -> HttpResponse.BodySubscribers.replacing(null);
     }
 
-    private HttpRequest buildRequest(StepExecutionSpec step, String url, Map<String, String> variables,
-            long effectiveTimeoutSeconds) {
-        String substitutedBody = VariableResolver.substitute(step.body(), variables);
-        HttpRequest.BodyPublisher bodyPublisher = (substitutedBody != null && !substitutedBody.isBlank())
-                ? HttpRequest.BodyPublishers.ofString(substitutedBody)
+    private HttpRequest buildRequest(StepExecutionSpec step, String url, RequestBuilder.BuiltRequest built,
+            ResolvedAuth resolvedAuth, long effectiveTimeoutSeconds) {
+        String body = built.body();
+        HttpRequest.BodyPublisher bodyPublisher = (body != null && !body.isBlank())
+                ? HttpRequest.BodyPublishers.ofString(body)
                 : HttpRequest.BodyPublishers.noBody();
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
@@ -405,8 +444,8 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             case DELETE -> builder.method("DELETE", bodyPublisher);
         }
 
-        String substitutedHeaders = VariableResolver.substitute(step.headers(), variables);
-        parseHeaders(substitutedHeaders).forEach(builder::header);
+        built.headers().forEach(builder::header);
+        resolvedAuth.applyHeaders(builder, built.headers().keySet());
         return builder.build();
     }
 

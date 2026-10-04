@@ -19,6 +19,8 @@ import { BackendExecutionReportResponse } from '../types/backendContracts'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { useToast } from '../context/ToastContext'
+import { NoFailedSteps, OnlyFailedToggle, StepPagerFooter, useStepPaging } from '../components/StepTablePager'
+import { formatPause } from './ExecutionLive'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler)
 
@@ -73,6 +75,8 @@ function SpringExecutionReport({ id }: { id: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  // Hook appelé avant les retours anticipés (chargement / erreur) : ordre des hooks stable.
+  const paging = useStepPaging(report?.steps ?? [], (s) => s.failed > 0)
 
   useEffect(() => {
     let cancelled = false
@@ -136,6 +140,7 @@ function SpringExecutionReport({ id }: { id: string }) {
     SUCCESS: { cls: 'success', color: 'var(--pt-success)', text: 'Réussie' },
     FAILED: { cls: 'danger', color: 'var(--pt-danger)', text: 'Échouée' },
     RUNNING: { cls: 'info', color: 'var(--pt-info)', text: 'En cours' },
+    PAUSED: { cls: 'warning', color: 'var(--pt-warning)', text: 'En pause' },
     CANCELLED: { cls: 'neutral', color: 'var(--pt-neutral)', text: 'Annulée' },
   }
   const meta = statusMeta[report.status]
@@ -258,11 +263,14 @@ function SpringExecutionReport({ id }: { id: string }) {
         {report.triggeredByUsername && (
           <span className="pt-pill info" style={{ fontSize: '11.5px' }}><i className="bi bi-person-fill me-1"></i>Lancée par {report.triggeredByUsername}</span>
         )}
+        {report.pausedDurationMs > 0 && (
+          <span className="pt-pill warning" style={{ fontSize: '11.5px' }}><i className="bi bi-pause-circle me-1"></i>En pause pendant {formatPause(report.pausedDurationMs)}</span>
+        )}
       </div>
 
       {/* Summary cards — champs REELS uniquement, issus de PerformanceStatisticsService */}
       <div className="row g-3 mb-4">
-        <div className="col-12 col-sm-6 col-lg">
+        <div className="col" style={{ flex: '1 1 180px' }}>
           <div className="pt-stat-card">
             <div className="stat-header">
               <div><div className="stat-label">Statut</div><div className="stat-value" style={{ fontSize: '18px', marginTop: '4px', color: meta.color }}>{meta.text}</div></div>
@@ -270,15 +278,19 @@ function SpringExecutionReport({ id }: { id: string }) {
             </div>
           </div>
         </div>
-        <div className="col-12 col-sm-6 col-lg">
+        <div className="col" style={{ flex: '1 1 180px' }}>
           <div className="pt-stat-card">
             <div className="stat-header">
-              <div><div className="stat-label">Durée réelle</div><div className="stat-value">{formatDurationMs(report.duration)}</div></div>
+              <div>
+                <div className="stat-label">Durée réelle</div>
+                <div className="stat-value">{formatDurationMs(report.duration)}</div>
+                {report.pausedDurationMs > 0 && <div className="stat-trend" style={{ color: 'var(--pt-warning)' }}>dont {formatPause(report.pausedDurationMs)} en pause</div>}
+              </div>
               <div className="stat-icon purple"><i className="bi bi-stopwatch"></i></div>
             </div>
           </div>
         </div>
-        <div className="col-12 col-sm-6 col-lg">
+        <div className="col" style={{ flex: '1 1 180px' }}>
           <div className="pt-stat-card">
             <div className="stat-header">
               <div>
@@ -290,15 +302,15 @@ function SpringExecutionReport({ id }: { id: string }) {
             </div>
           </div>
         </div>
-        <div className="col-12 col-sm-6 col-lg">
+        <div className="col" style={{ flex: '1 1 180px' }}>
           <div className="pt-stat-card">
             <div className="stat-header">
-              <div><div className="stat-label">Débit</div><div className="stat-value">{fmt(stats.throughput)}</div><div className="stat-trend positive">req / s</div></div>
+              <div><div className="stat-label">Débit</div><div className="stat-value">{fmt(stats.throughput)}</div><div className="stat-trend positive">{report.pausedDurationMs > 0 ? 'req / s (hors pause)' : 'req / s'}</div></div>
               <div className="stat-icon blue"><i className="bi bi-speedometer"></i></div>
             </div>
           </div>
         </div>
-        <div className="col-12 col-sm-6 col-lg">
+        <div className="col" style={{ flex: '1 1 180px' }}>
           <div className="pt-stat-card">
             <div className="stat-header">
               <div><div className="stat-label">Taux d'erreur</div><div className="stat-value">{fmt(stats.errorRate, '%')}</div></div>
@@ -320,9 +332,9 @@ function SpringExecutionReport({ id }: { id: string }) {
           { label: 'Maximum', value: fmtMs(stats.maxResponseTime), icon: 'bi-arrow-up-circle', color: 'red' },
           { label: 'p95', value: fmtMs(stats.p95), icon: 'bi-graph-up', color: 'orange' },
           { label: 'p99', value: fmtMs(stats.p99), icon: 'bi-graph-up', color: 'purple' },
-          { label: 'Écart-type', value: fmtMs(stats.stdDevResponseTime), icon: 'bi-distribute-vertical', color: 'blue' },
         ].map((kpi, idx) => (
-          <div className="col-6 col-md-4 col-lg" key={idx}>
+          // Colonnes qui s'élargissent pour remplir chaque ligne : jamais de trou, quelle que soit la largeur.
+          <div className="col" style={{ flex: '1 1 150px' }} key={idx}>
             <div className="pt-stat-card">
               <div className="stat-header">
                 <span className="stat-label">{kpi.label}</span>
@@ -362,8 +374,43 @@ function SpringExecutionReport({ id }: { id: string }) {
         </div>
       </div>
 
+      {/* Résultat par étape : pleine largeur, 10 étapes par page au-delà de 10. */}
+      <div className="pt-card mb-4" style={{ padding: 0 }}>
+        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 p-3 border-bottom" style={{ borderColor: 'var(--pt-border)' }}>
+          <h5 className="m-0 fw-bold" style={{ fontSize: '15px', color: 'var(--pt-text)' }}><i className="bi bi-table text-primary me-2"></i>Résultat par étape</h5>
+          {steps.length > 0 && <OnlyFailedToggle paging={paging} id="report-only-failed" />}
+        </div>
+        <div className="pt-table-wrapper">
+          <table className="pt-table">
+            <thead>
+              <tr>
+                <th>Étape</th><th className="text-end">Total</th><th className="text-end">Minimum</th><th className="text-end">Moyenne</th>
+                <th className="text-end">Maximum</th><th className="text-end">p95</th><th className="text-end">p99</th><th className="text-end">Erreurs</th>
+              </tr>
+            </thead>
+            <tbody style={{ fontSize: '12.5px' }}>
+              {steps.length === 0 ? (
+                <tr><td colSpan={8} className="text-center text-muted py-3">Aucun résultat</td></tr>
+              ) : paging.pageItems.length === 0 ? <NoFailedSteps colSpan={8} /> : paging.pageItems.map(({ item: s, number }) => (
+                <tr key={s.stepId ?? `${number}-${s.stepName}`}>
+                  <td><span className="fw-semibold text-dark">{number}. {s.stepName}</span></td>
+                  <td className="text-end">{s.total}</td>
+                  <td className="text-end">{fmtMs(s.minResponseTime)}</td>
+                  <td className="text-end">{fmtMs(s.avgResponseTime)}</td>
+                  <td className="text-end">{fmtMs(s.maxResponseTime)}</td>
+                  <td className="text-end">{fmtMs(s.p95)}</td>
+                  <td className="text-end">{fmtMs(s.p99)}</td>
+                  <td className="text-end"><span className={s.failed > 0 ? 'text-danger fw-semibold' : 'text-success'}>{s.failed}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <StepPagerFooter paging={paging} />
+      </div>
+
       <div className="row g-4 mb-4">
-        <div className="col-12 col-xl-4">
+        <div className="col-12 col-xl-6">
           <div className="pt-card h-100 d-flex flex-column justify-content-between">
             <div>
               <div className="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2" style={{ borderColor: 'var(--pt-border)' }}>
@@ -383,34 +430,7 @@ function SpringExecutionReport({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="col-12 col-xl-4">
-          <div className="pt-card h-100">
-            <div className="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2" style={{ borderColor: 'var(--pt-border)' }}>
-              <h5 className="m-0 fw-bold" style={{ fontSize: '15px', color: 'var(--pt-text)' }}><i className="bi bi-table text-primary me-2"></i>Résultat par étape</h5>
-            </div>
-            <div className="pt-table-wrapper">
-              <table className="pt-table">
-                <thead><tr><th>Étape</th><th>Total</th><th>Moyenne</th><th>p95</th><th>Écart-type</th><th>Erreurs</th></tr></thead>
-                <tbody style={{ fontSize: '12.5px' }}>
-                  {steps.length === 0 ? (
-                    <tr><td colSpan={6} className="text-center text-muted py-3">Aucun résultat</td></tr>
-                  ) : steps.map((s) => (
-                    <tr key={s.stepId}>
-                      <td><span className="fw-semibold text-dark">{s.stepName}</span></td>
-                      <td>{s.total}</td>
-                      <td>{fmtMs(s.avgResponseTime)}</td>
-                      <td>{fmtMs(s.p95)}</td>
-                      <td>{fmtMs(s.stdDevResponseTime)}</td>
-                      <td><span className={s.failed > 0 ? 'text-danger fw-semibold' : 'text-success'}>{s.failed}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-12 col-xl-4">
+        <div className="col-12 col-xl-6">
           <div className="pt-card h-100">
             <div className="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2" style={{ borderColor: 'var(--pt-border)' }}>
               <h5 className="m-0 fw-bold" style={{ fontSize: '15px', color: 'var(--pt-text)' }}><i className="bi bi-exclamation-triangle-fill text-warning me-2"></i>Erreurs</h5>

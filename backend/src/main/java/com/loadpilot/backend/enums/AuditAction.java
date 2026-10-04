@@ -34,5 +34,11 @@ public enum AuditAction {
     // volume d'AuditLog que cela peut generer.
     VIEW_HISTORY,
     EXPORT_REPORT,
-    EXPORT_CSV
+    EXPORT_CSV,
+    // Suppression coherente (migration 017) : archivage logique et restauration.
+    ARCHIVE,
+    RESTORE,
+    // Pause / reprise d'une execution en cours (module EXECUTION).
+    PAUSE,
+    RESUME
 }

@@ -71,6 +71,8 @@ app:
     max-global-virtual-users: ${LOADPILOT_MAX_GLOBAL_VUS:200}
     # Limite du nombre d'executions QUEUED/RUNNING simultanees.
     max-concurrent-executions: ${LOADPILOT_MAX_CONCURRENT_EXECUTIONS:10}
+    # Une execution restee en pause plus longtemps est annulee automatiquement.
+    max-pause-minutes: ${LOADPILOT_MAX_PAUSE_MINUTES:15}
   keycloak:
     admin:
       # Phase 25 - compte de service DEDIE a l'administration des

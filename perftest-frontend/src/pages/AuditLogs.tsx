@@ -35,7 +35,7 @@ import { useToast } from '../context/ToastContext'
 // profondeur, même politique que toutes les pages migrées précédentes).
 // ============================================================
 
-const ACTIONS: BackendAuditAction[] = ['CREATE', 'READ', 'UPDATE', 'DELETE', 'TEST', 'EXECUTE', 'RETRY', 'CANCEL', 'LOGIN', 'LOGOUT']
+const ACTIONS: BackendAuditAction[] = ['CREATE', 'READ', 'UPDATE', 'DELETE', 'ARCHIVE', 'RESTORE', 'TEST', 'EXECUTE', 'RETRY', 'CANCEL', 'PAUSE', 'RESUME', 'LOGIN', 'LOGOUT']
 const MODULES: BackendAuditModule[] = ['AUTH', 'USER', 'APPLICATION', 'SCENARIO', 'STEP', 'EXECUTION', 'METRIC', 'DASHBOARD', 'ADMIN', 'SCHEDULING']
 const PAGE_SIZE = 20
 
@@ -70,6 +70,10 @@ const actionPillClass: Record<BackendAuditAction, string> = {
   ENABLE: 'success', DISABLE: 'neutral', TRIGGER: 'info',
   // P1-C — traçabilité de la consultation de l'historique/des rapports.
   VIEW_HISTORY: 'neutral', EXPORT_REPORT: 'info', EXPORT_CSV: 'info',
+  // Suppression cohérente : archivage logique et restauration.
+  ARCHIVE: 'warning', RESTORE: 'success',
+  // Pause / reprise d'une exécution en cours.
+  PAUSE: 'warning', RESUME: 'info',
 }
 
 function AuditLogs() {

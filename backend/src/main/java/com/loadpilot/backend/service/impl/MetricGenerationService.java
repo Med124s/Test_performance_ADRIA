@@ -53,7 +53,8 @@ public class MetricGenerationService {
         Scenario scenario = execution.getScenario();
         Application application = scenario.getApplication();
 
-        BigDecimal throughput = computeThroughput(results.size(), execution.getDuration());
+        // Temps passe en pause exclu (voir Execution#activeDurationMs).
+        BigDecimal throughput = computeThroughput(results.size(), execution.activeDurationMs());
         BigDecimal errorRate = computeErrorRate(execution.getFailedSteps(), results.size());
 
         for (ExecutionStepResult result : results) {

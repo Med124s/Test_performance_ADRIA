@@ -69,36 +69,6 @@ public final class PercentileCalculator {
         return Math.round(sum / sorted.size());
     }
 
-    /**
-     * P1-C — ecart-type de POPULATION (division par n, jamais n-1) : les
-     * temps de reponse dont on dispose ICI sont la population COMPLETE de
-     * cette Execution/ce Step (jamais un echantillon d'un ensemble plus
-     * grand), donc jamais de correction de Bessel. Arrondi a l'entier le
-     * plus proche (meme unite ms que les autres statistiques) - null si
-     * population vide OU a une seule valeur (ecart-type d'un singleton =
-     * 0, valeur reelle et non ambigue, mais deliberement retournee comme 0
-     * plutot que null : contrairement a une moyenne sur ensemble vide, 0
-     * est ici la vraie valeur mathematique, pas une absence de donnee).
-     */
-    public static Long stdDev(List<Long> responseTimesMs) {
-        List<Long> sorted = sortedNonNull(responseTimesMs);
-        if (sorted.isEmpty()) {
-            return null;
-        }
-        double mean = 0;
-        for (long v : sorted) {
-            mean += v;
-        }
-        mean /= sorted.size();
-        double variance = 0;
-        for (long v : sorted) {
-            double diff = v - mean;
-            variance += diff * diff;
-        }
-        variance /= sorted.size();
-        return Math.round(Math.sqrt(variance));
-    }
-
     private static List<Long> sortedNonNull(List<Long> values) {
         return values.stream().filter(v -> v != null).sorted().toList();
     }

@@ -89,43 +89,4 @@ class PercentileCalculatorTest {
         assertThat(PercentileCalculator.percentile(shuffled, 50)).isEqualTo(50L);
         assertThat(PercentileCalculator.percentile(shuffled, 95)).isEqualTo(100L);
     }
-
-    // ------------------------------------------------------------
-    // P1-C — stdDev (ecart-type de POPULATION, jamais d'echantillon).
-    // ------------------------------------------------------------
-
-    @Test
-    void stdDev_onTenEvenlySpacedValues_matchesHandComputedPopulationVariance() {
-        // mean=55, variance=sum((x-55)^2)/10=8250/10=825, sqrt(825)=28.7228... -> 29.
-        assertThat(PercentileCalculator.stdDev(TEN_VALUES)).isEqualTo(29L);
-    }
-
-    @Test
-    void stdDev_twoValues_matchesHandComputedPopulationVariance() {
-        // mean=15, variance=((5^2)+(5^2))/2=25, sqrt(25)=5.
-        assertThat(PercentileCalculator.stdDev(List.of(10L, 20L))).isEqualTo(5L);
-    }
-
-    @Test
-    void stdDev_emptyPopulation_returnsNull() {
-        assertThat(PercentileCalculator.stdDev(List.of())).isNull();
-    }
-
-    @Test
-    void stdDev_singleValue_isZero_neverNull() {
-        // L'ecart-type d'un singleton est reellement 0 (pas une absence de donnee).
-        assertThat(PercentileCalculator.stdDev(List.of(42L))).isEqualTo(0L);
-    }
-
-    @Test
-    void stdDev_identicalValues_isZero() {
-        assertThat(PercentileCalculator.stdDev(List.of(10L, 10L, 10L, 10L))).isEqualTo(0L);
-    }
-
-    @Test
-    void stdDev_nullValues_areExcludedFromThePopulation() {
-        List<Long> withNulls = Arrays.asList(10L, null, 20L, null, 30L);
-        // Meme population effective que {10,20,30} : mean=20, variance=(100+0+100)/3=66.67, sqrt=8.165 -> 8.
-        assertThat(PercentileCalculator.stdDev(withNulls)).isEqualTo(8L);
-    }
 }

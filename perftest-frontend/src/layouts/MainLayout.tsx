@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBarIcons from '../components/TopBarIcons'
 import { useDarkMode } from '../utils/useDarkMode'
+import { ExecutionMonitorProvider } from '../context/ExecutionMonitorContext'
 
 // P1-B — useScheduledExecutions() (100% frontend : setInterval + JSON
 // Server, ne survit pas à la fermeture de l'onglet, voir son ancienne
@@ -18,8 +19,9 @@ function MainLayout() {
   // de la TopBar, fermé au clic sur le fond ou après une navigation.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
+  // Suivi en direct des exécutions : monté ici pour survivre aux changements de page.
   return (
-    <>
+    <ExecutionMonitorProvider>
       <Sidebar
         darkMode={darkMode}
         toggleDarkMode={toggleDarkMode}
@@ -30,7 +32,7 @@ function MainLayout() {
         <TopBarIcons onOpenMobileMenu={() => setIsMobileMenuOpen(true)} />
         <Outlet />
       </div>
-    </>
+    </ExecutionMonitorProvider>
   )
 }
 

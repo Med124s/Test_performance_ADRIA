@@ -88,7 +88,7 @@ public class ExecutionRecoveryRunner implements ApplicationRunner {
     @Transactional
     public void run(ApplicationArguments args) {
         List<Execution> orphaned = executionRepository.findByStatusIn(
-                List.of(ExecutionStatus.QUEUED, ExecutionStatus.RUNNING));
+                List.of(ExecutionStatus.QUEUED, ExecutionStatus.RUNNING, ExecutionStatus.PAUSED));
 
         if (orphaned.isEmpty()) {
             log.info("Recuperation au demarrage : aucune execution orpheline (QUEUED/RUNNING) trouvee.");

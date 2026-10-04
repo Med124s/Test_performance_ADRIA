@@ -391,17 +391,16 @@ class ExecutionHistoryAndReportTest {
                 .andExpect(jsonPath("$.statistics.p50").exists())
                 .andExpect(jsonPath("$.statistics.p95").exists())
                 .andExpect(jsonPath("$.statistics.p99").exists())
-                // P1-C — ecart-type de population reel (0 pour une seule
-                // requete, une vraie valeur, jamais null) et utilisateur
-                // ayant reellement lance cette execution (voir P1-B).
-                .andExpect(jsonPath("$.statistics.stdDevResponseTime").value(0))
+                // Ecart-type retire du rapport ; utilisateur ayant
+                // reellement lance cette execution (voir P1-B).
+                .andExpect(jsonPath("$.statistics.stdDevResponseTime").doesNotExist())
                 .andExpect(jsonPath("$.triggeredByUsername").exists())
                 .andReturn().getResponse().getContentAsString();
 
         JsonNode json = objectMapper.readTree(response);
         assertThat(json.get("steps")).hasSize(1);
         assertThat(json.get("steps").get(0).get("stepName").asText()).isEqualTo("ok-step");
-        assertThat(json.get("steps").get(0).get("stdDevResponseTime").asInt()).isEqualTo(0);
+        assertThat(json.get("steps").get(0).has("stdDevResponseTime")).isFalse();
         assertThat(json.get("errors")).hasSize(0);
 
         // P1-C (prompt section 11) — chaque consultation du rapport est
@@ -462,9 +461,10 @@ class ExecutionHistoryAndReportTest {
         assertThat(csv).contains("STEPS");
         assertThat(csv).contains("ERRORS");
         assertThat(csv).contains(executionId);
-        // P1-C — nouvelles colonnes reelles (ecart-type, utilisateur).
-        assertThat(csv).contains("stdDev");
+        // Plus d'ecart-type ; utilisateur et temps de pause presents.
+        assertThat(csv).doesNotContain("stdDev");
         assertThat(csv).contains("triggeredBy");
+        assertThat(csv).contains("paused_ms");
 
         // Jamais de donnee sensible dans l'export (prompt section 25).
         String lower = csv.toLowerCase();

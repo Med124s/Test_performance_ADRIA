@@ -95,6 +95,15 @@ public class Execution {
     @Column(name = "error_message", length = 2000)
     private String errorMessage;
 
+    /** Debut de la pause en cours (statut PAUSED), null sinon. */
+    @Column(name = "paused_at")
+    private Instant pausedAt;
+
+    /** Temps total des pauses terminees (ms) - exclu de la duree de travail et du debit. */
+    @Builder.Default
+    @Column(name = "paused_duration_ms", nullable = false)
+    private Long pausedDurationMs = 0L;
+
     /**
      * P1-B — utilisateur reellement a l'origine de cette Execution (celui
      * qui a clique "Lancer", ou le proprietaire de la ScheduledExecution qui
@@ -111,4 +120,11 @@ public class Execution {
     @Builder.Default
     @OneToMany(mappedBy = "execution", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ExecutionStepResult> results = new ArrayList<>();
+
+    /** Duree de travail reelle (ms) : duree totale moins le temps passe en pause ; null si non terminee. */
+    public Long activeDurationMs() {
+        if (duration == null) return null;
+        long paused = pausedDurationMs == null ? 0L : pausedDurationMs;
+        return Math.max(0L, duration - paused);
+    }
 }

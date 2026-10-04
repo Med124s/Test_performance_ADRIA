@@ -46,6 +46,8 @@ public record ExecutionReportResponse(
         /** P1-C — voir ExecutionHistoryResponse.triggeredByUsername : meme
          * champ, meme absence pour toute Execution anterieure a P1-B. */
         String triggeredByUsername,
+        /** Temps total passe en pause (ms) ; le debit est calcule sans ce temps. */
+        long pausedDurationMs,
         ExecutionStatistics statistics,
         List<StepReportEntry> steps,
         List<ReportErrorEntry> errors

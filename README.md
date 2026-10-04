@@ -1,6 +1,6 @@
 # LoadPilot (Cadence) — Documentation de déploiement client
 
-LoadPilot est une plateforme de test de charge (performance testing) : on y déclare des **Applications** cibles, on y crée des **Scénarios** (suites d'étapes HTTP), on les **exécute** réellement (plusieurs utilisateurs virtuels, vraies requêtes HTTP, threads virtuels Java 21) et on en consulte les **résultats** (historique, rapports avec percentiles/écart-type/débit, métriques, audit).
+LoadPilot est une plateforme de test de charge (performance testing) : on y déclare des **Applications** cibles, on y crée des **Scénarios** (suites d'étapes HTTP), on les **exécute** réellement (plusieurs utilisateurs virtuels, vraies requêtes HTTP, threads virtuels Java 21) et on en consulte les **résultats** (historique, rapports avec percentiles/débit, métriques, audit).
 
 Ce document est destiné à l'équipe technique d'une société cliente chargée d'installer et d'exploiter LoadPilot. Toute information non vérifiable dans le dépôt au moment de la rédaction est explicitement signalée comme **NON DOCUMENTÉ / À FOURNIR PAR LE CLIENT** ou **À VALIDER LORS DU DÉPLOIEMENT** — rien n'est supposé ou inventé.
 
@@ -37,7 +37,7 @@ Application(s) cible(s) du client
 | `backend/` | API Spring Boot — source de vérité unique | 8080 | Oui |
 | PostgreSQL (externe, non fourni dans ce dépôt) | Base de données réelle | 5432 | Oui |
 | Keycloak (externe, non fourni dans ce dépôt) | Authentification/rôles (OIDC/JWT) | 8081 | Oui |
-| `banking-test-api/` | Serveur HTTP fictif, cible de démonstration pour créer des scénarios de test | 8000 | **Non — démonstration/test uniquement** |
+| `banking-test-api/` | Serveur HTTP fictif, cible de démonstration pour créer des scénarios de test | 8888 | **Non — démonstration/test uniquement** |
 
 ## 3. Prérequis
 

@@ -129,7 +129,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
   // P0-A — polling réel, uniquement tant que l'exécution est réellement
   // QUEUED/RUNNING (jamais permanent) : voir Executions.tsx pour le même
   // principe sur la liste.
-  const isActive = execution?.status === 'QUEUED' || execution?.status === 'RUNNING'
+  const isActive = execution?.status === 'QUEUED' || execution?.status === 'RUNNING' || execution?.status === 'PAUSED'
   useEffect(() => {
     if (!isActive) return
     const interval = setInterval(() => {
@@ -194,6 +194,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
     SUCCESS: { cls: 'success', icon: 'bi-check-circle-fill', text: 'Terminée avec succès' },
     FAILED: { cls: 'danger', icon: 'bi-x-circle-fill', text: 'Échouée' },
     RUNNING: { cls: 'info', icon: 'bi-play-circle-fill', text: 'En cours' },
+    PAUSED: { cls: 'warning', icon: 'bi-pause-circle-fill', text: 'En pause' },
     CANCELLED: { cls: 'neutral', icon: 'bi-slash-circle-fill', text: 'Annulée' },
   }
   const meta = statusMeta[execution.status]

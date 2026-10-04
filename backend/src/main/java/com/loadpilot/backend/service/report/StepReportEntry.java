@@ -23,8 +23,6 @@ public record StepReportEntry(
         Long maxResponseTime,
         Long p95,
         Long p99,
-        /** P1-C — ecart-type de population (voir PercentileCalculator#stdDev). */
-        Long stdDevResponseTime,
         BigDecimal errorRate
 ) {
 }

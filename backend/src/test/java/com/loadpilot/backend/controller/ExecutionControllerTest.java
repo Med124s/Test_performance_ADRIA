@@ -644,7 +644,7 @@ class ExecutionControllerTest {
      * changer les parametres deja figes sur cette Execution en cours (voir
      * ExecutionTransactionHelper.prepareAndStart, copie au lancement). */
     @Test
-    void modifyingScenario_whileExecutionIsRunning_neverChangesTheRunningExecutionsFrozenParameters() throws Exception {
+    void modifyingScenario_whileExecutionIsRunning_isRefused_andFrozenParametersStayUnchanged() throws Exception {
         String appId = createApplicationAndGetId("immutability-app-" + UUID.randomUUID());
         String scenarioId = createScenarioAndGetId(appId, "immutability-scenario");
         createStep(scenarioId, "slow-step", 1, "/slow", 200);
@@ -653,14 +653,21 @@ class ExecutionControllerTest {
         String executionId = submitExecutionWithoutWaiting(scenarioId);
         waitForStatus(executionId, "RUNNING");
 
-        // Modifie le Scenario PENDANT que l'execution tourne encore.
+        // Modification PENDANT l'execution : refusee avec un message clair.
         String updateBody = objectMapper.writeValueAsString(
                 new ScenarioRequest(UUID.fromString(appId), "immutability-scenario-renamed", "Description", 99, 5, null, null, 0, null, null));
         mockMvc.perform(put("/api/scenarios/" + scenarioId)
                         .with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON).content(updateBody))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(
+                        "Une exécution de ce scénario est en cours : attendez sa fin ou annulez-la avant de le modifier."));
 
         waitForTerminalStatus(executionId);
+
+        // Une fois l'execution terminee, la modification est acceptee.
+        mockMvc.perform(put("/api/scenarios/" + scenarioId)
+                        .with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON).content(updateBody))
+                .andExpect(status().isOk());
 
         // L'execution deja en cours au moment de la modification garde ses
         // PROPRES parametres figes au lancement, jamais ceux du Scenario

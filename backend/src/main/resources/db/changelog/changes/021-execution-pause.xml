@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Pause / reprise d'une execution (statut PAUSED, colonne status deja VARCHAR(20)).
+
+        execution.paused_at          : debut de la pause en cours (null hors pause).
+        execution.paused_duration_ms : temps total passe en pause (pauses terminees) ; exclu de la
+                                       duree de travail du test et du calcul du debit.
+        Colonnes ADDITIONNELLES uniquement ; aucune donnee existante modifiee.
+    -->
+    <changeSet id="021-execution-pause" author="loadpilot">
+        <addColumn tableName="execution">
+            <column name="paused_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="paused_duration_ms" type="BIGINT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

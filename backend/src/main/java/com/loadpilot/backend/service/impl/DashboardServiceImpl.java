@@ -79,7 +79,7 @@ public class DashboardServiceImpl implements DashboardService {
         ScenariosSummaryResponse scenarios = new ScenariosSummaryResponse(
                 scenarioRepository.count(),
                 scenarioRepository.countByStatus(ScenarioStatus.ACTIVE),
-                scenarioRepository.countByStatus(ScenarioStatus.INACTIVE));
+                scenarioRepository.countByStatus(ScenarioStatus.DRAFT));
 
         boolean rangeApplied = from != null || to != null;
         Instant effectiveFrom = from != null ? from : Instant.EPOCH;
@@ -90,7 +90,8 @@ public class DashboardServiceImpl implements DashboardService {
                         executionRepository.countByStartedAtBetween(effectiveFrom, effectiveTo),
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.SUCCESS, effectiveFrom, effectiveTo),
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.FAILED, effectiveFrom, effectiveTo),
-                        executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.RUNNING, effectiveFrom, effectiveTo),
+                        executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.RUNNING, effectiveFrom, effectiveTo)
+                                + executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.PAUSED, effectiveFrom, effectiveTo),
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.CANCELLED, effectiveFrom, effectiveTo),
                         executionStepResultRepository.countByTimestampBetween(effectiveFrom, effectiveTo),
                         executionStepResultRepository.countBySuccessAndTimestampBetween(true, effectiveFrom, effectiveTo),
@@ -99,7 +100,7 @@ public class DashboardServiceImpl implements DashboardService {
                         executionRepository.count(),
                         executionRepository.countByStatus(ExecutionStatus.SUCCESS),
                         executionRepository.countByStatus(ExecutionStatus.FAILED),
-                        executionRepository.countByStatus(ExecutionStatus.RUNNING),
+                        executionRepository.countByStatus(ExecutionStatus.RUNNING) + executionRepository.countByStatus(ExecutionStatus.PAUSED),
                         executionRepository.countByStatus(ExecutionStatus.CANCELLED),
                         executionStepResultRepository.count(),
                         executionStepResultRepository.countBySuccess(true),
@@ -164,13 +165,14 @@ public class DashboardServiceImpl implements DashboardService {
         ScenariosSummaryResponse scenarios = new ScenariosSummaryResponse(
                 scenarioRepository.countByApplicationId(applicationId),
                 scenarioRepository.countByApplicationIdAndStatus(applicationId, ScenarioStatus.ACTIVE),
-                scenarioRepository.countByApplicationIdAndStatus(applicationId, ScenarioStatus.INACTIVE));
+                scenarioRepository.countByApplicationIdAndStatus(applicationId, ScenarioStatus.DRAFT));
 
         ExecutionsSummaryResponse executions = buildExecutionsSummary(
                 executionRepository.countByApplicationId(applicationId),
                 executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.SUCCESS),
                 executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.FAILED),
-                executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.RUNNING),
+                executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.RUNNING)
+                        + executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.PAUSED),
                 executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.CANCELLED),
                 executionStepResultRepository.countByApplicationId(applicationId),
                 executionStepResultRepository.countByApplicationIdAndSuccess(applicationId, true),

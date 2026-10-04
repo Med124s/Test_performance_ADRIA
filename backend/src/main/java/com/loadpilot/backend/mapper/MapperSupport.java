@@ -43,6 +43,7 @@ public final class MapperSupport {
     @Named("executionThroughput")
     public static BigDecimal executionThroughput(Execution execution) {
         int executed = execution.getSuccessfulSteps() + execution.getFailedSteps();
-        return ThroughputCalculator.compute(executed, execution.getDuration());
+        // Temps passe en pause exclu (voir Execution#activeDurationMs).
+        return ThroughputCalculator.compute(executed, execution.activeDurationMs());
     }
 }

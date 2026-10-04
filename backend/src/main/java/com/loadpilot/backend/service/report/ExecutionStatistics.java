@@ -9,7 +9,7 @@ import java.math.BigDecimal;
  * suivent EXACTEMENT les memes formules que MetricGenerationService (voir
  * sa Javadoc) pour rester cohérentes partout dans LoadPilot (prompt P1-A,
  * section 18) :
- *   throughput = totalRequests / dureeExecution(secondes)
+ *   throughput = totalRequests / dureeExecution(secondes, temps de pause exclu)
  *   errorRate  = failedRequests / totalRequests * 100
  *
  * Tous les champs numeriques sont null quand non calculables (population
@@ -29,10 +29,6 @@ public record ExecutionStatistics(
         Long p90,
         Long p95,
         Long p99,
-        /** P1-C — ecart-type de population des temps de reponse (voir
-         * PercentileCalculator#stdDev) - null si population vide, 0 si une
-         * seule valeur (valeur reelle, pas une absence de donnee). */
-        Long stdDevResponseTime,
         BigDecimal throughput
 ) {
 }

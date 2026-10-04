@@ -6,12 +6,16 @@ import com.loadpilot.backend.entity.ExecutionStepResult;
 import com.loadpilot.backend.entity.Scenario;
 import com.loadpilot.backend.entity.Step;
 import com.loadpilot.backend.enums.ExecutionStatus;
+import com.loadpilot.backend.enums.ScenarioStatus;
+import com.loadpilot.backend.exception.BadRequestException;
 import com.loadpilot.backend.exception.ConflictException;
 import com.loadpilot.backend.exception.ResourceNotFoundException;
 import com.loadpilot.backend.repository.ExecutionRepository;
 import com.loadpilot.backend.repository.ExecutionStepResultRepository;
 import com.loadpilot.backend.repository.ScenarioRepository;
 import com.loadpilot.backend.repository.StepRepository;
+import com.loadpilot.backend.service.auth.ApplicationAuthSpec;
+import com.loadpilot.backend.service.auth.ApplicationAuthSupport;
 import com.loadpilot.backend.service.execution.CancellationAttempt;
 import com.loadpilot.backend.service.execution.CancellationOutcome;
 import com.loadpilot.backend.service.execution.CsvDataSource;
@@ -20,6 +24,8 @@ import com.loadpilot.backend.service.execution.PreparedExecution;
 import com.loadpilot.backend.service.execution.ScenarioExecutionOutcome;
 import com.loadpilot.backend.service.execution.StepExecutionSpec;
 import com.loadpilot.backend.service.execution.StepOutcome;
+import com.loadpilot.backend.service.execution.VariableSources;
+import com.loadpilot.backend.service.validation.ScenarioVariables;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -49,11 +55,17 @@ public class ExecutionTransactionHelper {
 
     private static final Sort STEP_ORDER = Sort.by(Sort.Direction.ASC, "order").and(Sort.by(Sort.Direction.ASC, "id"));
 
+    public static final String INACTIVE_NOT_RUNNABLE = "Le scénario est inactif, activez-le pour l'exécuter.";
+
+    public static final String DRAFT_NOT_RUNNABLE =
+            "Ce scénario est un brouillon : terminez-le dans l'assistant (« Reprendre ») avant de l'exécuter.";
+
     private final ScenarioRepository scenarioRepository;
     private final StepRepository stepRepository;
     private final ExecutionRepository executionRepository;
     private final ExecutionStepResultRepository executionStepResultRepository;
     private final com.loadpilot.backend.repository.AppUserRepository appUserRepository;
+    private final ApplicationAuthSupport authSupport;
 
     /**
      * Cree reellement l'Execution en base avec le statut QUEUED (P0-A) -
@@ -74,6 +86,18 @@ public class ExecutionTransactionHelper {
         Scenario scenario = scenarioRepository.findById(scenarioId)
                 .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + scenarioId));
 
+        if (scenario.getStatus() == ScenarioStatus.DRAFT) {
+            throw new BadRequestException(DRAFT_NOT_RUNNABLE);
+        }
+        if (scenario.getStatus() == ScenarioStatus.INACTIVE) {
+            throw new BadRequestException(INACTIVE_NOT_RUNNABLE);
+        }
+        if (scenario.isArchived() || scenario.getApplication().isArchived()) {
+            throw new ConflictException(scenario.isArchived()
+                    ? "Ce scénario est archivé : restaurez-le avant de l'exécuter."
+                    : "L'application de ce scénario est archivée : restaurez-la avant de l'exécuter.");
+        }
+
         List<Step> steps = stepRepository.findByScenarioId(scenarioId, STEP_ORDER);
         if (steps.isEmpty()) {
             throw new ConflictException("Le scenario ne possede aucune etape a executer.");
@@ -82,6 +106,8 @@ public class ExecutionTransactionHelper {
         // Acces a l'Application au sein de cette meme transaction courte -
         // jamais transporte tel quel hors de cette methode (voir StepExecutionSpec).
         String applicationBaseUrl = scenario.getApplication().getUrl();
+        // Copie figee de l'authentification de l'Application au lancement.
+        ApplicationAuthSpec auth = authSupport.toSpec(scenario.getApplication());
 
         AppUser triggeredByRef = triggeredByAppUserId != null
                 ? appUserRepository.getReferenceById(triggeredByAppUserId) : null;
@@ -105,7 +131,7 @@ public class ExecutionTransactionHelper {
                 .map(s -> new StepExecutionSpec(s.getId(), s.getName(), s.getMethod(), s.getUrl(),
                         s.getHeaders(), s.getBody(), s.getExpectedStatus(), s.getThinkTimeMs(),
                         s.getTimeoutSeconds(), s.getFollowRedirects(), s.getAssertionBodyContains(),
-                        s.getCaptureVariableName(), s.getCaptureJsonPath()))
+                        s.getCaptureVariableName(), s.getCaptureJsonPath(), s.getPathParams(), s.getQueryParams()))
                 .toList();
 
         LoadTestSpec loadSpec = new LoadTestSpec(scenario.getVirtualUsers(), scenario.getRampUpSeconds(),
@@ -117,7 +143,10 @@ public class ExecutionTransactionHelper {
         // chaque VU/iteration (cout constant, une seule fois par lancement).
         List<Map<String, String>> vuVariableRows = CsvDataSource.parse(scenario.getCsvData());
 
-        return new PreparedExecution(saved.getId(), specs, applicationBaseUrl, loadSpec, vuVariableRows,
+        VariableSources variableSources = new VariableSources(vuVariableRows, scenario.getCsvDistribution(),
+                ScenarioVariables.parse(scenario.getVariables()), specs);
+
+        return new PreparedExecution(saved.getId(), specs, applicationBaseUrl, auth, loadSpec, vuVariableRows, variableSources,
                 scenario.getName(), triggeredByAppUserId, scheduleId);
     }
 
@@ -163,25 +192,44 @@ public class ExecutionTransactionHelper {
      */
     @Transactional
     public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled) {
+        return finalizeExecution(executionId, outcome, wasCancelled, null);
+    }
+
+    /** "cancellationReason" : message d'annulation (ex. pause trop longue) ; null = annulation par l'utilisateur. */
+    @Transactional
+    public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
+            String cancellationReason) {
         Execution execution = executionRepository.findByIdForUpdate(executionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + executionId));
 
-        if (execution.getStatus() != ExecutionStatus.RUNNING && execution.getStatus() != ExecutionStatus.QUEUED) {
+        if (!execution.getStatus().isActive()) {
             return execution;
         }
 
+        // Etapes du scenario chargees en UNE requete : chaque resultat garde
+        // une copie (nom, methode, URL) pour que l'historique survive a la
+        // suppression ulterieure de l'etape (voir migration 017). Une etape
+        // ne peut pas etre supprimee pendant une execution (StepServiceImpl).
+        Map<UUID, Step> stepsById = new java.util.HashMap<>();
+        for (Step s : stepRepository.findByScenarioId(execution.getScenario().getId(), Sort.unsorted())) {
+            stepsById.put(s.getId(), s);
+        }
         for (StepOutcome stepOutcome : outcome.stepOutcomes()) {
-            // getReferenceById : proxy non initialise, suffisant pour renseigner
-            // la FK sans requete supplementaire (aucun getter du Step appele ici).
-            Step stepRef = stepRepository.getReferenceById(stepOutcome.stepId());
+            Step step = stepsById.get(stepOutcome.stepId());
             ExecutionStepResult result = ExecutionStepResult.builder()
                     .execution(execution)
-                    .step(stepRef)
+                    .step(step)
+                    .stepName(step != null ? step.getName() : null)
+                    .stepMethod(step != null ? step.getMethod() : null)
+                    .stepUrl(step != null ? step.getUrl() : null)
                     .httpStatus(stepOutcome.httpStatus())
                     .responseTime(stepOutcome.responseTimeMs())
                     .success(stepOutcome.success())
                     .error(stepOutcome.error())
                     .timestamp(stepOutcome.timestamp())
+                    .virtualUser(stepOutcome.virtualUser())
+                    .iteration(stepOutcome.iteration())
+                    .requestUrl(stepOutcome.requestUrl())
                     .build();
             executionStepResultRepository.save(result);
         }
@@ -190,10 +238,13 @@ public class ExecutionTransactionHelper {
         long failCount = outcome.stepOutcomes().size() - successCount;
 
         Instant finishedAt = Instant.now();
+        closePause(execution, finishedAt);
         execution.setSuccessfulSteps((int) successCount);
         execution.setFailedSteps((int) failCount);
         execution.setStatus(wasCancelled ? ExecutionStatus.CANCELLED : outcome.finalStatus());
-        execution.setErrorMessage(wasCancelled ? "Execution annulee par l'utilisateur." : outcome.errorMessage());
+        execution.setErrorMessage(wasCancelled
+                ? (cancellationReason != null ? cancellationReason : "Execution annulee par l'utilisateur.")
+                : outcome.errorMessage());
         execution.setFinishedAt(finishedAt);
         execution.setDuration(Duration.between(execution.getStartedAt(), finishedAt).toMillis());
 
@@ -244,7 +295,7 @@ public class ExecutionTransactionHelper {
             return new CancellationAttempt(CancellationOutcome.CANCELLED_WHILE_QUEUED, saved);
         }
 
-        if (execution.getStatus() == ExecutionStatus.RUNNING) {
+        if (execution.getStatus() == ExecutionStatus.RUNNING || execution.getStatus() == ExecutionStatus.PAUSED) {
             // Jamais d'ecriture ici : finalizeExecution reste l'UNIQUE
             // ecrivain du statut final d'une execution reellement demarree
             // (voir sa doc) - deux ecrivains concurrents sur la meme
@@ -253,5 +304,79 @@ public class ExecutionTransactionHelper {
         }
 
         return new CancellationAttempt(CancellationOutcome.ALREADY_TERMINAL, execution);
+    }
+
+    // ------------------------------------------------------------ pause / reprise
+
+    public static final String PAUSE_NOT_RUNNING = "Seule une exécution en cours peut être mise en pause.";
+    public static final String RESUME_NOT_PAUSED = "Cette exécution n'est pas en pause.";
+    public static final String PAUSE_FINISHED = "Cette exécution est déjà terminée, elle ne peut plus être mise en pause.";
+    public static final String RESUME_FINISHED = "Cette exécution est déjà terminée, elle ne peut plus être reprise.";
+    public static final String PAUSE_QUEUED = "Cette exécution n'a pas encore démarré : la pause sera possible dès qu'elle sera en cours.";
+    public static final String ALREADY_PAUSED = "Cette exécution est déjà en pause.";
+    public static final String NOT_ACTIVE_IN_MEMORY =
+            "Cette exécution n'est plus suivie par le serveur (redémarrage du backend depuis son lancement) : "
+                    + "elle ne peut être ni mise en pause ni reprise.";
+
+    /** Message clair expliquant pourquoi une pause est refusee, selon le statut reel. */
+    public static String pauseRefusal(ExecutionStatus status) {
+        return switch (status) {
+            case SUCCESS, FAILED, CANCELLED -> PAUSE_FINISHED;
+            case QUEUED -> PAUSE_QUEUED;
+            case PAUSED -> ALREADY_PAUSED;
+            case RUNNING -> PAUSE_NOT_RUNNING;
+        };
+    }
+
+    /** Message clair expliquant pourquoi une reprise est refusee, selon le statut reel. */
+    public static String resumeRefusal(ExecutionStatus status) {
+        return status.isActive() ? RESUME_NOT_PAUSED : RESUME_FINISHED;
+    }
+
+    /** Statut actuel (404 clair si l'execution n'existe pas). */
+    @Transactional(readOnly = true)
+    public ExecutionStatus currentStatus(UUID executionId) {
+        return executionRepository.findById(executionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Exécution introuvable (elle a peut-être été supprimée)."))
+                .getStatus();
+    }
+
+    /**
+     * RUNNING -> PAUSED sous verrou (meme verrou que markRunning/finalizeExecution/
+     * attemptCancellation : jamais deux transitions concurrentes sur la meme ligne).
+     * 409 si l'execution n'est pas en cours (en attente, deja en pause, terminee).
+     */
+    @Transactional
+    public Execution markPaused(UUID executionId) {
+        Execution execution = executionRepository.findByIdWithScenarioAndApplicationForUpdate(executionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + executionId));
+        if (execution.getStatus() != ExecutionStatus.RUNNING) {
+            throw new ConflictException(pauseRefusal(execution.getStatus()));
+        }
+        execution.setStatus(ExecutionStatus.PAUSED);
+        execution.setPausedAt(Instant.now());
+        return executionRepository.saveAndFlush(execution);
+    }
+
+    /** PAUSED -> RUNNING sous verrou ; la duree de la pause s'ajoute a pausedDurationMs. */
+    @Transactional
+    public Execution markResumed(UUID executionId) {
+        Execution execution = executionRepository.findByIdWithScenarioAndApplicationForUpdate(executionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + executionId));
+        if (execution.getStatus() != ExecutionStatus.PAUSED) {
+            throw new ConflictException(resumeRefusal(execution.getStatus()));
+        }
+        closePause(execution, Instant.now());
+        execution.setStatus(ExecutionStatus.RUNNING);
+        return executionRepository.saveAndFlush(execution);
+    }
+
+    /** Termine la pause en cours (s'il y en a une) en cumulant sa duree. */
+    private static void closePause(Execution execution, Instant now) {
+        if (execution.getPausedAt() != null) {
+            long total = execution.getPausedDurationMs() == null ? 0L : execution.getPausedDurationMs();
+            execution.setPausedDurationMs(total + Math.max(0L, Duration.between(execution.getPausedAt(), now).toMillis()));
+            execution.setPausedAt(null);
+        }
     }
 }

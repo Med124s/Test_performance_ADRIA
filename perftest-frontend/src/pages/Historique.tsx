@@ -28,12 +28,13 @@ import { useApiList } from '../hooks/useApiResource'
 // dupliquant le meme contenu.
 // ============================================================
 
-const STATUS_OPTIONS: BackendExecutionStatus[] = ['QUEUED', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLED']
+const STATUS_OPTIONS: BackendExecutionStatus[] = ['QUEUED', 'RUNNING', 'PAUSED', 'SUCCESS', 'FAILED', 'CANCELLED']
 const PAGE_SIZE = 20
 
 const statusLabel: Record<BackendExecutionStatus, string> = {
   QUEUED: 'En attente',
   RUNNING: 'En cours',
+  PAUSED: 'En pause',
   SUCCESS: 'Réussie',
   FAILED: 'Échouée',
   CANCELLED: 'Annulée',
@@ -41,6 +42,7 @@ const statusLabel: Record<BackendExecutionStatus, string> = {
 const statusPillClass: Record<BackendExecutionStatus, string> = {
   QUEUED: 'neutral',
   RUNNING: 'info',
+  PAUSED: 'warning',
   SUCCESS: 'success',
   FAILED: 'danger',
   CANCELLED: 'neutral',

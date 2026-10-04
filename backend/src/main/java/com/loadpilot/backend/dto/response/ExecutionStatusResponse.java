@@ -1,6 +1,7 @@
 package com.loadpilot.backend.dto.response;
 
 import com.loadpilot.backend.enums.ExecutionStatus;
+import com.loadpilot.backend.service.execution.LiveStats;
 import java.time.Instant;
 
 /**
@@ -9,9 +10,12 @@ import java.time.Instant;
  * liste de resultats par etape, potentiellement tres volumineuse avec
  * plusieurs utilisateurs virtuels).
  *
- * "progressPercent" n'est JAMAIS invente : calcule uniquement quand
- * reellement possible (duree ou iterations configurees), sinon null -
- * voir ExecutionServiceImpl.buildStatusResponse.
+ * Pendant RUNNING, les totaux et "live" viennent des compteurs EN MEMOIRE du moteur (aucune
+ * lecture des resultats en base) ; une fois terminee, les totaux viennent de l'Execution
+ * finalisee et "live" vaut null (le rapport donne alors les statistiques completes).
+ *
+ * "progressPercent" n'est JAMAIS invente : temps ecoule / duree, sinon iterations faites /
+ * prevues, plafonne a 99 % avant la finalisation reelle.
  */
 public record ExecutionStatusResponse(
         String id,
@@ -23,6 +27,21 @@ public record ExecutionStatusResponse(
         Integer totalRequests,
         Integer successfulRequests,
         Integer failedRequests,
-        Integer progressPercent
+        Integer progressPercent,
+        String scenarioId,
+        String scenarioName,
+        Integer rampUpSeconds,
+        Integer durationSeconds,
+        Integer iterations,
+        /** Iterations prevues au total (VU x iterations, ou VU sans duree ni iterations) ; null avec une duree seule. */
+        Long plannedIterations,
+        String errorMessage,
+        LiveStats.Snapshot live,
+        /** Debut de la pause en cours (statut PAUSED), sinon null. */
+        Instant pausedAt,
+        /** Temps total passe en pause (ms), pause en cours comprise. */
+        long pausedDurationMs,
+        /** Temps de travail reel (ms) : ecoule depuis le demarrage, pauses exclues ; null tant que non demarre. */
+        Long activeElapsedMs
 ) {
 }

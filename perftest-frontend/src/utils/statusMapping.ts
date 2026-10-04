@@ -26,7 +26,7 @@ import type {
 // (retiré) : ce sont de simples chaînes françaises affichées à l'écran,
 // jamais des formes de données legacy — conservées ici telles quelles, seul
 // endroit qui en a encore besoin après le retrait du legacy.
-export type ExecutionStatus = 'Réussie' | 'Avec erreurs' | 'Échouée' | 'En cours' | 'Suspendue' | 'Annulée'
+export type ExecutionStatus = 'Réussie' | 'Avec erreurs' | 'Échouée' | 'En cours' | 'En pause' | 'Suspendue' | 'Annulée'
 export type ApplicationConnectionStatus = 'Connectée' | 'Non connectée'
 
 // ------------------------------------------------------------
@@ -34,10 +34,9 @@ export type ApplicationConnectionStatus = 'Connectée' | 'Non connectée'
 // ------------------------------------------------------------
 
 /**
- * Backend -> Frontend : correspondance directe et sans perte pour les 4
- * statuts backend historiques (le backend n'a pas de notion de pause :
- * `RUNNING` couvre aussi bien "en cours" que le frontend actuel appellerait
- * "en cours").
+ * Backend -> Frontend : correspondance directe et sans perte pour les
+ * statuts backend (`PAUSED` : exécution mise en pause, reprise possible ->
+ * `'En pause'`).
  *
  * P0-A — `QUEUED` (moteur de charge asynchrone, voir ExecutionStatus.java)
  * est mappé sur `'En cours'` : le type `ExecutionStatus` partagé avec le
@@ -50,6 +49,8 @@ export function backendToFrontendExecutionStatus(status: BackendExecutionStatus)
     case 'QUEUED':
     case 'RUNNING':
       return 'En cours'
+    case 'PAUSED':
+      return 'En pause'
     case 'SUCCESS':
       return 'Réussie'
     case 'FAILED':
@@ -76,6 +77,8 @@ export function frontendToBackendExecutionStatus(status: ExecutionStatus): Backe
   switch (status) {
     case 'En cours':
       return 'RUNNING'
+    case 'En pause':
+      return 'PAUSED'
     case 'Réussie':
       return 'SUCCESS'
     case 'Échouée':

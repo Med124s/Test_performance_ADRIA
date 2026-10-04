@@ -25,10 +25,10 @@ import { ApiError } from '../services/api/httpClient'
 const RECENT_COUNT = 10
 
 const statusLabel: Record<BackendExecutionStatus, string> = {
-  QUEUED: 'En attente', RUNNING: 'En cours', SUCCESS: 'Réussie', FAILED: 'Échouée', CANCELLED: 'Annulée',
+  QUEUED: 'En attente', RUNNING: 'En cours', PAUSED: 'En pause', SUCCESS: 'Réussie', FAILED: 'Échouée', CANCELLED: 'Annulée',
 }
 const statusPillClass: Record<BackendExecutionStatus, string> = {
-  QUEUED: 'neutral', RUNNING: 'info', SUCCESS: 'success', FAILED: 'danger', CANCELLED: 'neutral',
+  QUEUED: 'neutral', RUNNING: 'info', PAUSED: 'warning', SUCCESS: 'success', FAILED: 'danger', CANCELLED: 'neutral',
 }
 
 function describeApiError(err: unknown, fallback: string): string {

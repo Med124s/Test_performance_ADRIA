@@ -175,8 +175,10 @@ function Dashboard() {
               ? { label: 'Réussie', color: 'success', icon: 'bi-check-circle-fill' }
               : e.status === 'FAILED'
               ? { label: 'Échouée', color: 'danger', icon: 'bi-x-circle-fill' }
-              : e.status === 'RUNNING'
+              : e.status === 'RUNNING' || e.status === 'QUEUED'
               ? { label: 'En cours', color: 'info', icon: 'bi-play-circle-fill' }
+              : e.status === 'PAUSED'
+              ? { label: 'En pause', color: 'warning', icon: 'bi-pause-circle-fill' }
               : { label: 'Annulée', color: 'neutral', icon: 'bi-slash-circle-fill' }
           const time = new Date(e.startedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
           return { name: e.scenarioName, ...meta, time }

@@ -18,6 +18,11 @@ describe('backendToFrontendExecutionStatus', () => {
     expect(backendToFrontendExecutionStatus('FAILED')).toBe('Échouée')
     expect(backendToFrontendExecutionStatus('CANCELLED')).toBe('Annulée')
   })
+
+  it('mappe PAUSED sur "En pause" (et inversement)', () => {
+    expect(backendToFrontendExecutionStatus('PAUSED')).toBe('En pause')
+    expect(frontendToBackendExecutionStatus('En pause')).toBe('PAUSED')
+  })
 })
 
 describe('frontendToBackendExecutionStatus', () => {

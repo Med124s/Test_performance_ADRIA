@@ -51,7 +51,6 @@ class PerformanceStatisticsServiceTest {
         assertThat(stats.maxResponseTime()).isNull();
         assertThat(stats.avgResponseTime()).isNull();
         assertThat(stats.p95()).isNull();
-        assertThat(stats.stdDevResponseTime()).isNull();
         assertThat(stats.throughput()).isNull();
     }
 
@@ -73,8 +72,6 @@ class PerformanceStatisticsServiceTest {
         assertThat(stats.p50()).isEqualTo(42L);
         assertThat(stats.p95()).isEqualTo(42L);
         assertThat(stats.p99()).isEqualTo(42L);
-        // Ecart-type d'un singleton = 0, une vraie valeur (jamais null).
-        assertThat(stats.stdDevResponseTime()).isEqualTo(0L);
         // throughput = 1 requete / 1s = 1.000
         assertThat(stats.throughput()).isEqualByComparingTo("1.000");
     }
@@ -95,8 +92,6 @@ class PerformanceStatisticsServiceTest {
         assertThat(stats.errorRate()).isEqualByComparingTo("0.00");
         assertThat(stats.successRate()).isEqualByComparingTo("100.00");
         assertThat(stats.avgResponseTime()).isEqualTo(20L);
-        // mean=20, variance=((10)^2+0+(10)^2)/3=66.67, sqrt=8.165 -> 8.
-        assertThat(stats.stdDevResponseTime()).isEqualTo(8L);
     }
 
     @Test
@@ -160,8 +155,6 @@ class PerformanceStatisticsServiceTest {
         assertThat(entryA.total()).isEqualTo(2);
         assertThat(entryA.success()).isEqualTo(2);
         assertThat(entryA.failed()).isZero();
-        // P1-C : mean=15, variance=((5)^2+(5)^2)/2=25, sqrt=5.
-        assertThat(entryA.stdDevResponseTime()).isEqualTo(5L);
         assertThat(entryB.total()).isEqualTo(1);
         assertThat(entryB.failed()).isEqualTo(1);
         assertThat(entryB.errorRate()).isEqualByComparingTo("100.00");

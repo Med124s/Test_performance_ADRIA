@@ -58,7 +58,6 @@ public class PerformanceStatisticsService {
                 PercentileCalculator.percentile(responseTimes, 90),
                 PercentileCalculator.percentile(responseTimes, 95),
                 PercentileCalculator.percentile(responseTimes, 99),
-                PercentileCalculator.stdDev(responseTimes),
                 throughput(total, executionDurationMs));
     }
 
@@ -74,27 +73,31 @@ public class PerformanceStatisticsService {
         // Regroupement par ID (jamais par l'entite Step elle-meme comme cle
         // de Map - eviterait de dependre implicitement de l'identity-map
         // Hibernate pour l'egalite, un detail d'implementation fragile).
-        Map<UUID, Step> stepById = new LinkedHashMap<>();
-        Map<UUID, List<ExecutionStepResult>> resultsByStepId = new LinkedHashMap<>();
+        // Etape supprimee depuis (step = null) : regroupement par sa copie
+        // (nom + methode + URL), l'historique reste lisible.
+        Map<String, ExecutionStepResult> firstByKey = new LinkedHashMap<>();
+        Map<String, List<ExecutionStepResult>> resultsByKey = new LinkedHashMap<>();
         for (ExecutionStepResult result : results) {
-            UUID stepId = result.getStep().getId();
-            stepById.putIfAbsent(stepId, result.getStep());
-            resultsByStepId.computeIfAbsent(stepId, k -> new ArrayList<>()).add(result);
+            UUID stepId = result.stepIdOrNull();
+            String key = stepId != null ? stepId.toString()
+                    : "deleted:" + result.displayStepName() + "|" + result.displayStepMethod() + "|" + result.displayStepUrl();
+            firstByKey.putIfAbsent(key, result);
+            resultsByKey.computeIfAbsent(key, k -> new ArrayList<>()).add(result);
         }
 
         List<StepReportEntry> entries = new ArrayList<>();
-        for (Map.Entry<UUID, List<ExecutionStepResult>> entry : resultsByStepId.entrySet()) {
-            Step step = stepById.get(entry.getKey());
+        for (Map.Entry<String, List<ExecutionStepResult>> entry : resultsByKey.entrySet()) {
+            ExecutionStepResult first = firstByKey.get(entry.getKey());
             List<ExecutionStepResult> stepResults = entry.getValue();
             int total = stepResults.size();
             int successCount = (int) stepResults.stream().filter(r -> Boolean.TRUE.equals(r.getSuccess())).count();
             List<Long> responseTimes = stepResults.stream().map(ExecutionStepResult::getResponseTime).toList();
 
             entries.add(new StepReportEntry(
-                    step.getId().toString(),
-                    step.getName(),
-                    step.getMethod(),
-                    step.getUrl(),
+                    first.stepIdOrNull() != null ? first.stepIdOrNull().toString() : null,
+                    first.displayStepName(),
+                    first.displayStepMethod(),
+                    first.displayStepUrl(),
                     total,
                     successCount,
                     total - successCount,
@@ -103,7 +106,6 @@ public class PerformanceStatisticsService {
                     PercentileCalculator.max(responseTimes),
                     PercentileCalculator.percentile(responseTimes, 95),
                     PercentileCalculator.percentile(responseTimes, 99),
-                    PercentileCalculator.stdDev(responseTimes),
                     rate(total - successCount, total)));
         }
         return entries;
@@ -113,9 +115,9 @@ public class PerformanceStatisticsService {
         return results.stream()
                 .filter(r -> !Boolean.TRUE.equals(r.getSuccess()))
                 .map(r -> new ReportErrorEntry(
-                        r.getStep().getName(),
-                        r.getStep().getMethod(),
-                        r.getStep().getUrl(),
+                        r.displayStepName(),
+                        r.displayStepMethod(),
+                        r.displayStepUrl(),
                         r.getHttpStatus(),
                         r.getError(),
                         r.getTimestamp()))
