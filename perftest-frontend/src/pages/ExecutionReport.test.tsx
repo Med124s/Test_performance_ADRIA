@@ -7,7 +7,7 @@ import { BackendExecutionReportResponse, BackendStepReportEntry } from '../types
 // Graphiques (canvas absent de jsdom) et barre du haut hors du périmètre de ces tests.
 vi.mock('react-chartjs-2', () => ({ Bar: () => <div />, Line: () => <div />, Doughnut: () => <div /> }))
 vi.mock('../components/TopBar', () => ({ default: () => <div /> }))
-const api = vi.hoisted(() => ({ getReport: vi.fn(), exportReportCsv: vi.fn() }))
+const api = vi.hoisted(() => ({ getReport: vi.fn(), exportReportCsv: vi.fn(), getTimeline: vi.fn() }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: api }))
 
 import ExecutionReport from './ExecutionReport'
@@ -36,7 +36,10 @@ const renderReport = () => render(
   </MemoryRouter>,
 )
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  api.getTimeline.mockResolvedValue({ source: 'NONE', message: 'Aucune requête enregistrée pour cette exécution : analyse dans le temps impossible.' })
+})
 
 describe('Rapport d’exécution', () => {
   it('plus d’écart-type : minimum, moyenne, maximum, P95 et P99 seulement', async () => {
@@ -72,6 +75,26 @@ describe('Rapport d’exécution', () => {
     expect(screen.getByText('12. Étape 12')).toBeTruthy()
     expect(screen.queryByText('1. Étape 1')).toBeNull()
     expect(screen.queryByText(/Étapes .* sur/)).toBeNull()
+  })
+
+  it('exécution échouée : pas de bandeau d’erreur, croix rouge sur le statut, erreurs regroupées, plus de « Percentiles réels », analyse dans le temps', async () => {
+    api.getReport.mockResolvedValue(report({
+      status: 'FAILED', errorMessage: 'Reponse HTTP 409 (attendu 201)', errors: [],
+      errorGroups: [
+        { httpStatus: 409, stepName: 'Virement national', method: 'POST', error: 'Reponse HTTP 409 (attendu 201)', count: 12, firstAt: '2026-10-02T10:00:18Z' },
+        { httpStatus: null, stepName: 'Dépôt', method: 'POST', error: 'Delai d\'attente depasse (10s) - message complet tres long', count: 1, firstAt: '2026-10-02T10:00:40Z' },
+      ],
+    }))
+    renderReport()
+    expect(await screen.findByText('13 au total · 2 type(s)')).toBeTruthy()
+    expect(screen.queryByText('Reponse HTTP 409 (attendu 201)', { selector: '.pt-alert-banner' })).toBeNull()
+    expect(document.querySelector('.stat-icon.red .bi-x-circle')).toBeTruthy()
+    expect(document.querySelector('.stat-icon.green .bi-check-circle')).toBeNull()
+    expect(screen.getByText('12')).toBeTruthy()
+    const longMessage = screen.getByTitle(/message complet tres long/)
+    expect(longMessage).toBeTruthy()
+    expect(screen.queryByText('Percentiles réels')).toBeNull()
+    expect(await screen.findByText(/Aucune requête enregistrée pour cette exécution : analyse dans le temps impossible/)).toBeTruthy()
   })
 
   it('10 étapes ou moins : pas de pagination', async () => {

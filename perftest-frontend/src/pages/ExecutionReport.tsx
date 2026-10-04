@@ -21,6 +21,7 @@ import { ApiError } from '../services/api/httpClient'
 import { useToast } from '../context/ToastContext'
 import { NoFailedSteps, OnlyFailedToggle, StepPagerFooter, useStepPaging } from '../components/StepTablePager'
 import { formatPause } from './ExecutionLive'
+import TimelineAnalysis from './execution-report/TimelineAnalysis'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler)
 
@@ -135,18 +136,21 @@ function SpringExecutionReport({ id }: { id: string }) {
     )
   }
 
-  const statusMeta: Record<string, { cls: string; color: string; text: string }> = {
-    QUEUED: { cls: 'neutral', color: 'var(--pt-neutral)', text: 'En attente' },
-    SUCCESS: { cls: 'success', color: 'var(--pt-success)', text: 'Réussie' },
-    FAILED: { cls: 'danger', color: 'var(--pt-danger)', text: 'Échouée' },
-    RUNNING: { cls: 'info', color: 'var(--pt-info)', text: 'En cours' },
-    PAUSED: { cls: 'warning', color: 'var(--pt-warning)', text: 'En pause' },
-    CANCELLED: { cls: 'neutral', color: 'var(--pt-neutral)', text: 'Annulée' },
+  // Icône de la carte « Statut » : croix rouge si échouée, coche verte si réussie…
+  const statusMeta: Record<string, { cls: string; color: string; text: string; icon: string; iconColor: string }> = {
+    QUEUED: { cls: 'neutral', color: 'var(--pt-neutral)', text: 'En attente', icon: 'bi-hourglass-split', iconColor: 'blue' },
+    SUCCESS: { cls: 'success', color: 'var(--pt-success)', text: 'Réussie', icon: 'bi-check-circle', iconColor: 'green' },
+    FAILED: { cls: 'danger', color: 'var(--pt-danger)', text: 'Échouée', icon: 'bi-x-circle', iconColor: 'red' },
+    RUNNING: { cls: 'info', color: 'var(--pt-info)', text: 'En cours', icon: 'bi-play-circle', iconColor: 'blue' },
+    PAUSED: { cls: 'warning', color: 'var(--pt-warning)', text: 'En pause', icon: 'bi-pause-circle', iconColor: 'orange' },
+    CANCELLED: { cls: 'neutral', color: 'var(--pt-neutral)', text: 'Annulée', icon: 'bi-slash-circle', iconColor: 'blue' },
   }
   const meta = statusMeta[report.status]
   const stats = report.statistics
   const steps = report.steps
-  const errors = report.errors
+  // Erreurs regroupées (code + étape + message) ; repli sur la liste brute pour un ancien serveur.
+  const errorGroups = report.errorGroups ?? report.errors.map((e) => ({ httpStatus: e.httpStatus, stepName: e.stepName, method: e.method, error: e.error, count: 1, firstAt: e.timestamp }))
+  const errorTotal = errorGroups.reduce((n, g) => n + g.count, 0)
   const fmt = (v: number | null | undefined, unit = ''): string => (v == null ? 'N/D' : `${Math.round(v * 100) / 100}${unit}`)
   const fmtMs = (v: number | null | undefined): string => (v == null ? 'N/D' : `${v} ms`)
 
@@ -169,23 +173,6 @@ function SpringExecutionReport({ id }: { id: string }) {
     scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }, x: { grid: { display: false } } },
   }
 
-  // Chart 2 : percentiles reels de l'execution entiere (p50/p75/p90/p95/p99)
-  // — premiere fois que ces valeurs existent reellement dans LoadPilot
-  // (voir PercentileCalculator cote backend, P1-A).
-  const percentileData = {
-    labels: ['p50', 'p75', 'p90', 'p95', 'p99'],
-    datasets: [{
-      label: 'Temps de réponse (ms)',
-      data: [stats.p50 ?? 0, stats.p75 ?? 0, stats.p90 ?? 0, stats.p95 ?? 0, stats.p99 ?? 0],
-      backgroundColor: ['#22C55E', '#22C55E', '#F59E0B', '#F59E0B', '#EF4444'],
-      borderRadius: 6,
-    }],
-  }
-  const percentileOptions = {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }, x: { grid: { display: false } } },
-  }
 
   // Chart 3 : repartition reelle succes / erreurs (statistiques globales).
   const statusDistributionData = {
@@ -225,13 +212,6 @@ function SpringExecutionReport({ id }: { id: string }) {
           <TopBar searchPlaceholder="" />
         </div>
       </div>
-
-      {report.errorMessage && (
-        <div className="pt-alert-banner danger mb-4">
-          <i className="bi bi-exclamation-triangle-fill"></i>
-          {report.errorMessage}
-        </div>
-      )}
 
       <div className="pt-card mb-3 py-2 px-3">
         <div className="row g-2 align-items-center text-muted" style={{ fontSize: '13px' }}>
@@ -274,7 +254,7 @@ function SpringExecutionReport({ id }: { id: string }) {
           <div className="pt-stat-card">
             <div className="stat-header">
               <div><div className="stat-label">Statut</div><div className="stat-value" style={{ fontSize: '18px', marginTop: '4px', color: meta.color }}>{meta.text}</div></div>
-              <div className="stat-icon green"><i className="bi bi-check-circle"></i></div>
+              <div className={`stat-icon ${meta.iconColor}`}><i className={`bi ${meta.icon}`} aria-hidden="true"></i></div>
             </div>
           </div>
         </div>
@@ -320,6 +300,9 @@ function SpringExecutionReport({ id }: { id: string }) {
         </div>
       </div>
 
+      {/* Analyse dans le temps : points clés, utilisateurs / débit / P95, par étape, erreurs. */}
+      <TimelineAnalysis executionId={id} />
+
       {/* Statistiques de temps de reponse — min/max/moyenne (jamais de
           valeur inventee : "N/D" si aucune requete n'a de temps mesurable). */}
       <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)' }}>
@@ -347,7 +330,7 @@ function SpringExecutionReport({ id }: { id: string }) {
       </div>
 
       <div className="row g-4 mb-4">
-        <div className="col-12 col-xl-6">
+        <div className="col-12">
           <div className="pt-card h-100">
             <div className="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2" style={{ borderColor: 'var(--pt-border)' }}>
               <h5 className="m-0 fw-bold" style={{ fontSize: '15px', color: 'var(--pt-text)' }}><i className="bi bi-bar-chart-steps text-primary me-2"></i>Comparaison des étapes</h5>
@@ -357,18 +340,6 @@ function SpringExecutionReport({ id }: { id: string }) {
               <div className="text-center text-muted py-5" style={{ fontSize: '13px' }}>Aucune donnée suffisante pour ce graphique.</div>
             ) : (
               <div style={{ height: '280px' }}><Bar data={stepComparisonData} options={stepComparisonOptions} /></div>
-            )}
-          </div>
-        </div>
-        <div className="col-12 col-xl-6">
-          <div className="pt-card h-100">
-            <div className="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2" style={{ borderColor: 'var(--pt-border)' }}>
-              <h5 className="m-0 fw-bold" style={{ fontSize: '15px', color: 'var(--pt-text)' }}><i className="bi bi-graph-up text-primary me-2"></i>Percentiles réels</h5>
-            </div>
-            {stats.totalRequests === 0 ? (
-              <div className="text-center text-muted py-5" style={{ fontSize: '13px' }}>Aucune requête exécutée — percentiles non calculables.</div>
-            ) : (
-              <div style={{ height: '280px' }}><Bar data={percentileData} options={percentileOptions} /></div>
             )}
           </div>
         </div>
@@ -434,19 +405,22 @@ function SpringExecutionReport({ id }: { id: string }) {
           <div className="pt-card h-100">
             <div className="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2" style={{ borderColor: 'var(--pt-border)' }}>
               <h5 className="m-0 fw-bold" style={{ fontSize: '15px', color: 'var(--pt-text)' }}><i className="bi bi-exclamation-triangle-fill text-warning me-2"></i>Erreurs</h5>
-              <span className="pt-pill warning">{errors.length} total</span>
+              <span className="pt-pill warning">{errorTotal} au total · {errorGroups.length} type(s)</span>
             </div>
+            {/* Récapitulatif des erreurs : une ligne par code + étape + message, avec occurrences et première apparition. */}
             <div className="pt-table-wrapper">
               <table className="pt-table">
-                <thead><tr><th>Code</th><th>Étape</th><th>Message</th></tr></thead>
+                <thead><tr><th>Code</th><th>Étape</th><th>Message</th><th className="text-end">Occurrences</th><th>Première</th></tr></thead>
                 <tbody style={{ fontSize: '12.5px' }}>
-                  {errors.length === 0 ? (
-                    <tr><td colSpan={3} className="text-center text-muted py-3">Aucune erreur</td></tr>
-                  ) : errors.map((e, i) => (
+                  {errorGroups.length === 0 ? (
+                    <tr><td colSpan={5} className="text-center text-muted py-3">Aucune erreur</td></tr>
+                  ) : errorGroups.map((e, i) => (
                     <tr key={i}>
-                      <td><span className="pt-pill danger py-0 px-2" style={{ fontSize: '11px', backgroundColor: '#FEE2E2', color: '#DC2626' }}>{e.httpStatus ?? '—'}</span></td>
+                      <td><span className="pt-pill danger py-0 px-2" style={{ fontSize: '11px' }}>{e.httpStatus ?? '—'}</span></td>
                       <td>{e.stepName}</td>
-                      <td><span className="text-truncate d-inline-block" style={{ maxWidth: '140px' }} title={e.error ?? undefined}>{e.error}</span></td>
+                      <td><span className="text-truncate d-inline-block" style={{ maxWidth: '220px' }} title={e.error ?? undefined}>{e.error}</span></td>
+                      <td className="text-end fw-semibold">{e.count}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{e.firstAt ? new Date(e.firstAt).toLocaleTimeString('fr-FR') : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

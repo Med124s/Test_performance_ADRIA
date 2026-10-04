@@ -577,6 +577,8 @@ export interface BackendExecutionReportResponse {
   statistics: BackendExecutionStatistics
   steps: BackendStepReportEntry[]
   errors: BackendReportErrorEntry[]
+  /** Erreurs regroupées par code + étape + message (occurrences, première apparition). */
+  errorGroups?: BackendReportErrorGroup[]
 }
 
 export interface BackendExecutionStepResultResponse {
@@ -604,6 +606,37 @@ export interface BackendExecutionDetailResponse extends BackendExecutionResponse
   detailSampleCapReached?: boolean
   detailedFailures?: number
   detailedSamples?: number
+}
+
+export interface BackendReportErrorGroup {
+  httpStatus: number | null
+  stepName: string
+  method: BackendHttpMethod | null
+  error: string | null
+  count: number
+  firstAt: string | null
+}
+
+/** GET /api/executions/{id}/timeline : analyse dans le temps (séries alignées sur `t`, null = pas de donnée). */
+export interface BackendExecutionTimeline {
+  source: 'RECORDED' | 'DERIVED' | 'NONE'
+  virtualUsersAvailable: boolean
+  bucketSeconds: number
+  durationMs: number
+  t: number[]
+  activeVirtualUsers: (number | null)[]
+  requests: number[]
+  throughput: (number | null)[]
+  avgMs: (number | null)[]
+  p95Ms: (number | null)[]
+  errors: number[]
+  pausedRatio: number[]
+  steps: { key: string; name: string; method: string | null; requests: number[]; throughput: (number | null)[]; p95Ms: (number | null)[]; overallP95Ms: number | null }[]
+  errorTypes: string[]
+  errorPoints: { bucket: number; step: number; type: number; count: number }[]
+  pauses: { fromSeconds: number; toSeconds: number }[]
+  insights: { kind: 'PLATEAU' | 'NO_PLATEAU' | 'DEGRADATION' | 'ERRORS' | 'INFO'; text: string }[]
+  message: string | null
 }
 
 /** GET /api/executions/{id}/results : une requête (ligne de résumé, toujours présente). */

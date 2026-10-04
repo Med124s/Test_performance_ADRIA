@@ -35,6 +35,7 @@ import {
   BackendExecutionDeletionImpact,
   BackendBulkActionResponse,
   BackendExecutionRequestDetail,
+  BackendExecutionTimeline,
   BackendExecutionRequestRow,
   ExecutionResultsQuery,
   ExecutionHistoryFilters,
@@ -101,6 +102,8 @@ export const executionsBackendApi = {
     if (q.failedOnly) params.set('failedOnly', 'true')
     return springHttp.get<BackendPagedResponse<BackendExecutionRequestRow>>(`${RESOURCE}/${id}/results?${params}`)
   },
+  /** Analyse dans le temps (calculée côté serveur, en cache pour une exécution terminée). */
+  getTimeline: (id: string) => springHttp.get<BackendExecutionTimeline>(`${RESOURCE}/${id}/timeline`),
   /** Détail complet d'une requête (404 si non conservé). */
   getResultDetail: (id: string, resultId: string) =>
     springHttp.get<BackendExecutionRequestDetail>(`${RESOURCE}/${id}/results/${resultId}/detail`),
