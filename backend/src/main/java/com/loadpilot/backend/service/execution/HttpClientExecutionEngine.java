@@ -280,11 +280,13 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         // Suivi en direct (compteurs en memoire, aucune ecriture en base) : VU actif jusqu'a sa sortie.
         LiveStats live = handle.liveStats();
         if (live != null) live.virtualUserStarted();
+        handle.virtualUserStarted(virtualUser);
         try {
             runIterations(steps, applicationBaseUrl, resolvedAuth, deadline, loadSpec, handle, variables, sources,
                     virtualUser, pacingGate, clientFollowing, clientNotFollowing, results, live);
         } finally {
             if (live != null) live.virtualUserFinished();
+            handle.virtualUserFinished(virtualUser);
         }
         return results;
     }

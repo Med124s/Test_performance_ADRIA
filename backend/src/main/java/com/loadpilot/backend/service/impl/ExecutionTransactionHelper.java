@@ -387,6 +387,17 @@ public class ExecutionTransactionHelper {
         return executionRepository.saveAndFlush(execution);
     }
 
+    /** Chronologie (VU actifs, pauses) enregistree apres la finalisation ; trop volumineuse = ignoree. */
+    @Transactional
+    public void saveTimeline(UUID executionId, com.loadpilot.backend.service.execution.RunningExecutionHandle.Timeline timeline) {
+        String json = writeJson(Map.of("vus", timeline.virtualUsers(), "pauses", timeline.pauses()));
+        if (json == null || json.length() > 100000) return;
+        executionRepository.findById(executionId).ifPresent(execution -> {
+            execution.setTimelineJson(json);
+            executionRepository.saveAndFlush(execution);
+        });
+    }
+
     // ------------------------------------------------------------ detail des requetes
 
     private static final int HEADERS_MAX = 16000;

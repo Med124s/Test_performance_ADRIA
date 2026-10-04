@@ -50,6 +50,8 @@ public record ExecutionReportResponse(
         long pausedDurationMs,
         ExecutionStatistics statistics,
         List<StepReportEntry> steps,
-        List<ReportErrorEntry> errors
+        List<ReportErrorEntry> errors,
+        /** Erreurs regroupees (code + etape + message) : occurrences et premiere apparition. */
+        List<com.loadpilot.backend.service.report.ReportErrorGroup> errorGroups
 ) {
 }

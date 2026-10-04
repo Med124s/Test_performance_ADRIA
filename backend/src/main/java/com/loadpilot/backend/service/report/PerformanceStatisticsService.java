@@ -124,6 +124,31 @@ public class PerformanceStatisticsService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Erreurs regroupees par code HTTP + etape + message : une ligne par groupe, nombre d'occurrences
+     * et premiere apparition ; groupes les plus frequents d'abord (a egalite, le plus ancien d'abord).
+     */
+    public List<ReportErrorGroup> groupErrors(List<ExecutionStepResult> results) {
+        Map<String, ReportErrorGroup> groups = new LinkedHashMap<>();
+        for (ExecutionStepResult r : results) {
+            if (Boolean.TRUE.equals(r.getSuccess())) continue;
+            String key = r.getHttpStatus() + "|" + r.displayStepName() + "|" + r.displayStepMethod() + "|" + r.getError();
+            ReportErrorGroup g = groups.get(key);
+            if (g == null) {
+                groups.put(key, new ReportErrorGroup(r.getHttpStatus(), r.displayStepName(), r.displayStepMethod(), r.getError(), 1,
+                        r.getTimestamp()));
+            } else {
+                java.time.Instant first = g.firstAt() == null || (r.getTimestamp() != null && r.getTimestamp().isBefore(g.firstAt()))
+                        ? r.getTimestamp() : g.firstAt();
+                groups.put(key, new ReportErrorGroup(g.httpStatus(), g.stepName(), g.method(), g.error(), g.count() + 1, first));
+            }
+        }
+        List<ReportErrorGroup> out = new ArrayList<>(groups.values());
+        out.sort((a, b) -> a.count() != b.count() ? Integer.compare(b.count(), a.count())
+                : a.firstAt() == null || b.firstAt() == null ? 0 : a.firstAt().compareTo(b.firstAt()));
+        return out;
+    }
+
     /** Meme formule que MetricGenerationService.computeErrorRate (voir sa
      * Javadoc) : count/total * 100, null si total == 0 (jamais de division
      * par zero, jamais un taux invente sur une execution vide). */

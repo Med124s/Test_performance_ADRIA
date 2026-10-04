@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Chronologie d'une execution pour l'analyse dans le temps :
+        {"vus": [[debutMs, finMs], ...], "pauses": [[debutMs, finMs], ...]} (heure murale, epoch ms).
+        Null pour les executions anterieures : utilisateurs actifs alors deduits des requetes.
+    -->
+    <changeSet id="024-execution-timeline" author="loadpilot">
+        <addColumn tableName="execution">
+            <column name="timeline_json" type="VARCHAR(100000)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

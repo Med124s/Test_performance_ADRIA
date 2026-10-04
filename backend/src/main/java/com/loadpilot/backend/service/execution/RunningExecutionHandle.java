@@ -40,6 +40,32 @@ public final class RunningExecutionHandle {
     private volatile LiveStats liveStats;
     private volatile RequestDetailRecorder detailRecorder;
 
+    // Chronologie (heure murale, ms) : activite de chaque VU et pauses - enregistree a la fin de
+    // l'execution pour l'analyse dans le temps (utilisateurs actifs a chaque instant, pauses grisees).
+    private final java.util.Map<Integer, long[]> virtualUserIntervals = new java.util.concurrent.ConcurrentHashMap<>();
+    private final List<long[]> pauseIntervals = new CopyOnWriteArrayList<>();
+
+    /** Chronologie de l'execution ; un intervalle encore ouvert est ferme a "nowMs". */
+    public record Timeline(List<long[]> virtualUsers, List<long[]> pauses) {
+    }
+
+    public void virtualUserStarted(int virtualUser) {
+        virtualUserIntervals.put(virtualUser, new long[] {System.currentTimeMillis(), 0L});
+    }
+
+    public void virtualUserFinished(int virtualUser) {
+        long[] interval = virtualUserIntervals.get(virtualUser);
+        if (interval != null) interval[1] = System.currentTimeMillis();
+    }
+
+    public Timeline timeline(long nowMs) {
+        List<long[]> vus = new java.util.ArrayList<>();
+        virtualUserIntervals.values().forEach(v -> vus.add(new long[] {v[0], v[1] == 0 ? nowMs : v[1]}));
+        List<long[]> pauses = new java.util.ArrayList<>();
+        pauseIntervals.forEach(p -> pauses.add(new long[] {p[0], p[1] == 0 ? nowMs : p[1]}));
+        return new Timeline(vus, pauses);
+    }
+
     /** Politique de detail des requetes de cette execution (null = aucun detail). */
     public RequestDetailRecorder detailRecorder() {
         return detailRecorder;
@@ -105,6 +131,7 @@ public final class RunningExecutionHandle {
             if (paused || cancelled) return false;
             paused = true;
             pausedSinceNanos = System.nanoTime();
+            pauseIntervals.add(new long[] {System.currentTimeMillis(), 0L});
             return true;
         }
     }
@@ -115,6 +142,7 @@ public final class RunningExecutionHandle {
             if (!paused) return false;
             completedPauseNanos += System.nanoTime() - pausedSinceNanos;
             paused = false;
+            if (!pauseIntervals.isEmpty()) pauseIntervals.get(pauseIntervals.size() - 1)[1] = System.currentTimeMillis();
             pauseLock.notifyAll();
             return true;
         }

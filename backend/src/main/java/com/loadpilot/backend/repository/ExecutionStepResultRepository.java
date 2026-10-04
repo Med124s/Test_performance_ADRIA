@@ -17,6 +17,15 @@ public interface ExecutionStepResultRepository extends JpaRepository<ExecutionSt
      * FETCH) pour construire les reponses sans requete supplementaire ni
      * risque de LazyInitializationException.
      */
+    /**
+     * Colonnes utiles a l'analyse dans le temps uniquement (pas d'entites) :
+     * [captured_at, response_time_ms, success, http_status, error, step.id, step_name, step.name,
+     * step_method, step.method, virtual_user] - rapide meme avec plusieurs dizaines de milliers de lignes.
+     */
+    @Query("SELECT r.timestamp, r.responseTime, r.success, r.httpStatus, r.error, s.id, r.stepName, s.name, r.stepMethod, s.method, "
+            + "r.virtualUser FROM ExecutionStepResult r LEFT JOIN r.step s WHERE r.execution.id = :executionId")
+    List<Object[]> findTimelineRows(@Param("executionId") UUID executionId);
+
     @Query("SELECT r FROM ExecutionStepResult r LEFT JOIN FETCH r.step WHERE r.execution.id = :executionId ORDER BY r.timestamp ASC")
     List<ExecutionStepResult> findByExecutionIdOrderByTimestampAsc(@Param("executionId") UUID executionId);
 

@@ -188,6 +188,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                         prepared.loadSpec(), handle, prepared.variableSources());
             }
 
+            RunningExecutionHandle.Timeline timeline = handle.timeline(System.currentTimeMillis());
             Execution finalized = transactionHelper.finalizeExecution(prepared.executionId(), outcome, handle.isCancelled(),
                     handle.cancellationReason(), handle.detailRecorder() != null && handle.detailRecorder().sampleCapReached());
 
@@ -206,6 +207,14 @@ public class ExecutionServiceImpl implements ExecutionService {
             auditLogService.record(AuditAction.EXECUTE, AuditModule.EXECUTION, auditResult,
                     "Execution " + finalized.getId() + " finished with status " + finalized.getStatus());
             notifyTerminalStatus(prepared, finalized.getStatus());
+
+            // Chronologie pour l'analyse dans le temps (best-effort, apres la notification : jamais bloquant ;
+            // la chronologie est capturee a la fin de l'execution, pas au moment de cette ecriture).
+            try {
+                transactionHelper.saveTimeline(finalized.getId(), timeline);
+            } catch (Exception e) {
+                log.warn("Chronologie non enregistree pour l'execution {} : {}", finalized.getId(), e.getClass().getSimpleName());
+            }
         } catch (RuntimeException e) {
             log.error("Echec inattendu de l'execution asynchrone {} : {}", prepared.executionId(), e.getClass().getSimpleName());
             auditLogService.record(AuditAction.EXECUTE, AuditModule.EXECUTION, AuditResult.FAILURE,
@@ -629,7 +638,8 @@ public class ExecutionServiceImpl implements ExecutionService {
                 pausedMs,
                 statistics,
                 steps,
-                errors);
+                errors,
+                performanceStatisticsService.groupErrors(results));
     }
 
     @Override

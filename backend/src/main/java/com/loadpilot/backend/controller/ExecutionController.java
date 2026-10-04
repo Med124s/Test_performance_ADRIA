@@ -76,6 +76,7 @@ public class ExecutionController {
     private final AuditLogService auditLogService;
     private final ExecutionDeletionService deletionService;
     private final com.loadpilot.backend.service.impl.ExecutionRequestDetailService requestDetailService;
+    private final com.loadpilot.backend.service.impl.ExecutionTimelineService timelineService;
 
     /** ?scenarioId= filtre par scenario (meme convention que Scenarios/Steps). */
     @GetMapping
@@ -224,6 +225,16 @@ public class ExecutionController {
             @RequestParam(defaultValue = "20") int size) {
         return requestDetailService.list(id, stepId, stepName, virtualUser, iteration, failedOnly,
                 Math.max(0, page), Math.min(100, Math.max(5, size)));
+    }
+
+    @GetMapping("/{id}/timeline")
+    @Operation(summary = "Analyse dans le temps d'une execution",
+            description = "Utilisateurs virtuels actifs, debit, temps de reponse moyen et P95, par etape, erreurs par type, "
+                    + "pauses, et Points cles - calcules cote serveur (pas de temps adapte a la duree, 300 points au plus). "
+                    + "Mis en cache pour une execution terminee.")
+    @ApiResponse(responseCode = "404", description = "Execution introuvable")
+    public com.loadpilot.backend.dto.response.ExecutionTimelineResponse timeline(@PathVariable UUID id) {
+        return timelineService.timeline(id);
     }
 
     @GetMapping("/{id}/results/{resultId}/detail")

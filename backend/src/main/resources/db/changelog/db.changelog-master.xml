@@ -126,5 +126,9 @@
         Detail des requetes d'une execution (echecs + echantillon) - voir changes/023-execution-request-detail.xml.
     -->
     <include file="db/changelog/changes/023-execution-request-detail.xml"/>
+    <!--
+        Chronologie d'une execution (VU actifs, pauses) - voir changes/024-execution-timeline.xml.
+    -->
+    <include file="db/changelog/changes/024-execution-timeline.xml"/>
 
 </databaseChangeLog>

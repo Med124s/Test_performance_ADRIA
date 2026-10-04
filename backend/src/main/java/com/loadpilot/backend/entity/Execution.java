@@ -114,6 +114,10 @@ public class Execution {
     @Column(name = "detail_sample_cap_reached", nullable = false)
     private boolean detailSampleCapReached = false;
 
+    /** Chronologie {"vus":[[debut,fin]...],"pauses":[[debut,fin]...]} (epoch ms) ; null = execution anterieure. */
+    @Column(name = "timeline_json", length = 100000)
+    private String timelineJson;
+
     /**
      * P1-B — utilisateur reellement a l'origine de cette Execution (celui
      * qui a clique "Lancer", ou le proprietaire de la ScheduledExecution qui
