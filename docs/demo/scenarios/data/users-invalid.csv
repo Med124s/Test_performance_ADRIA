@@ -1,0 +1,4 @@
+username,password,cas
+agent001,mauvais,mot de passe faux
+inconnu,test123,utilisateur inexistant
+AGENT001,test123,casse differente

@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Rapport technique — Module Scénario (LoadPilot)</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 15mm 18mm 15mm;
+    @top-left { content: "LoadPilot — Rapport technique · Module Scénario"; font: 600 8pt "Segoe UI", Arial, sans-serif; color: #6b7280; }
+    @top-right { content: "Version du code au 01/10/2026"; font: 8pt "Segoe UI", Arial, sans-serif; color: #9ca3af; }
+    @bottom-left { content: "Projet Test_performance_ADRIA"; font: 8pt "Segoe UI", Arial, sans-serif; color: #9ca3af; }
+    @bottom-right { content: "Page " counter(page) " / " counter(pages); font: 600 8pt "Segoe UI", Arial, sans-serif; color: #4F46E5; }
+  }
+  @page :first {
+    @top-left { content: none; } @top-right { content: none; } @bottom-left { content: none; } @bottom-right { content: none; }
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Inter, Arial, sans-serif; color: #111827; font-size: 10pt; line-height: 1.5; margin: 0; }
+  h1, h2, h3 { color: #1e1b4b; line-height: 1.25; }
+  h2 { font-size: 15pt; margin: 0 0 9px; padding-bottom: 5px; border-bottom: 2px solid #4F46E5; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 15px 0 7px; break-after: avoid; }
+  p { margin: 5px 0; }
+  code, .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 8.6pt; }
+  code { background: #EEF2FF; color: #3730A3; padding: 0 3px; border-radius: 3px; word-break: break-word; }
+  pre { font-family: Consolas, "Cascadia Mono", monospace; font-size: 8.3pt; background: #0f172a; color: #e2e8f0; padding: 9px 11px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; break-inside: avoid; line-height: 1.42; margin: 7px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 7px 0 11px; font-size: 8.8pt; table-layout: fixed; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  th { background: #4F46E5; color: #fff; text-align: left; padding: 5px 7px; font-weight: 600; }
+  td { padding: 4px 7px; border-bottom: 1px solid #E5E7EB; vertical-align: top; overflow-wrap: anywhere; }
+  tbody tr:nth-child(even) td { background: #F9FAFB; }
+  td code { font-size: 8.2pt; }
+  .section { break-before: page; }
+  table.compact { font-size: 8.3pt; margin: 5px 0 8px; }
+  table.compact td { padding: 2.5px 6px; line-height: 1.38; }
+  table.compact th { padding: 4px 6px; }
+  .note { border-left: 4px solid #F59E0B; background: #FFFBEB; padding: 7px 11px; border-radius: 4px; margin: 9px 0; break-inside: avoid; }
+  .info { border-left: 4px solid #4F46E5; background: #EEF2FF; padding: 7px 11px; border-radius: 4px; margin: 9px 0; break-inside: avoid; }
+  .ok { color: #15803d; font-weight: 700; }
+  .ko { color: #b91c1c; font-weight: 700; }
+  .muted { color: #6b7280; }
+  ol, ul { margin: 5px 0 5px 18px; padding: 0; }
+  li { margin: 2px 0; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 9px 0; break-inside: avoid; }
+  .kpi { border: 1px solid #E5E7EB; border-radius: 7px; padding: 7px 9px; }
+  .kpi b { display: block; font-size: 15pt; color: #4F46E5; }
+  .kpi span { font-size: 8.5pt; color: #6b7280; }
+
+  /* Page de garde */
+  .cover { height: 255mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover-top { margin-top: 24mm; }
+  .kicker { color: #4F46E5; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: 10pt; }
+  .cover h1 { font-size: 29pt; margin: 8px 0 6px; }
+  .cover .sub { font-size: 12.5pt; color: #4b5563; }
+  .cover .bar { height: 6px; width: 90px; background: #4F46E5; border-radius: 3px; margin: 16px 0; }
+  .badges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 14mm; }
+  .badge { border: 1px solid #E5E7EB; border-radius: 8px; padding: 9px 11px; }
+  .badge b { display: block; color: #4F46E5; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .06em; }
+  .badge span { font-size: 10pt; }
+  .toc { columns: 2; column-gap: 24px; margin: 0; padding-left: 18px; }
+  .toc li { margin: 3px 0; break-inside: avoid; }
+  .cover-foot { color: #6b7280; font-size: 9pt; border-top: 1px solid #E5E7EB; padding-top: 7px; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<!-- ============================ PAGE DE GARDE ============================ -->
+<div class="cover">
+  <div class="cover-top">
+    <div class="kicker">LoadPilot — Plateforme de test de charge</div>
+    <h1>Rapport technique<br>Module Scénario</h1>
+    <div class="sub">Gestion des scénarios, des étapes HTTP et de leur exécution en charge : architecture, moteur, base de données, sécurité, suppression/archivage et tests</div>
+    <div class="bar"></div>
+    <div class="badges">
+      <div class="badge"><b>Backend</b><span>Java 21 · Spring Boot 3.3.4</span></div>
+      <div class="badge"><b>Frontend</b><span>React 18.3 · TypeScript 5.9 · Vite 5.4</span></div>
+      <div class="badge"><b>Données</b><span>PostgreSQL 17.5 · Liquibase 4.27</span></div>
+      <div class="badge"><b>Sécurité</b><span>Keycloak 26.7 · OAuth2 / JWT</span></div>
+      <div class="badge"><b>Moteur</b><span>java.net.http · threads virtuels</span></div>
+      <div class="badge"><b>Tests</b><span>605 backend · 51 frontend · 0 échec</span></div>
+    </div>
+  </div>
+  <div>
+    <h3 style="margin-top:0">Sommaire</h3>
+    <ol class="toc">
+      <li>Vue d’ensemble</li>
+      <li>Backend</li>
+      <li>Moteur d’exécution</li>
+      <li>Frontend</li>
+      <li>Base de données</li>
+      <li>Sécurité</li>
+      <li>Suppression et archivage</li>
+      <li>Flux complets</li>
+      <li>Exemple concret sur banking-test-api</li>
+      <li>Tests</li>
+      <li>Limites et améliorations possibles</li>
+    </ol>
+    <div class="cover-foot"><span>Projet : Test_performance_ADRIA</span><span>Date : 01/10/2026</span></div>
+  </div>
+</div>
+
+<!-- ============================ 1. VUE D'ENSEMBLE ============================ -->
+<div class="section">
+  <h2>1. Vue d’ensemble</h2>
+  <p>Module Scénario howa l’qalb dyal LoadPilot : fih kat3erref <b>chno ghadi ttesti</b> (scénario = suite d’étapes HTTP 3la wa7ed l’application), <b>b ch7al men charge</b> (utilisateurs virtuels, ramp-up, durée wla itérations, débit cible), w kat<b>lanci l’exécution</b> li katsift vraies requêtes HTTP w katsjel kol résultat bach t3ti rapport statistique.</p>
+<pre>Navigateur (React + TypeScript)
+     │  HTTPS + JWT Keycloak  (/api/scenarios, /api/steps, /api/executions, …)
+     ▼
+Backend Spring Boot 3.3.4 (Java 21)
+     │  controller → service → mapper → repository → entity
+     │                     │
+     │                     └─ ExecutionServiceImpl → HttpClientExecutionEngine
+     │                                    │  1 thread virtuel par utilisateur virtuel
+     │                                    ▼
+     │                         Application cible (ex : banking-test-api :8888)
+     ▼
+PostgreSQL 17.5 : scenario · step · execution · execution_step_result · metric · scheduled_execution</pre>
+
+  <h3>Fonctionnalités présentes dans le code</h3>
+  <table>
+    <thead><tr><th style="width:30%">Fonctionnalité</th><th>Ce qui existe réellement</th></tr></thead>
+    <tbody>
+      <tr><td>Scénario</td><td>CRUD, paramètres de charge (VU, ramp-up, durée/itérations, think time, débit cible <code>targetRps</code>), données CSV par VU, archivage/restauration, suppression définitive en cascade, impact avant suppression.</td></tr>
+      <tr><td>Étapes HTTP</td><td>GET/POST/PUT/PATCH/DELETE, URL relative ou absolue, en-têtes JSON, corps, code attendu, assertion « contient », timeout et think time par étape, redirections, capture de variable (JSONPath simple), ordre renuméroté après suppression.</td></tr>
+      <tr><td>Exécution</td><td>Asynchrone (202), suivi du statut, annulation réelle, relance, limites de capacité, récupération au redémarrage, planification (unique ou CRON).</td></tr>
+      <tr><td>Authentification</td><td>Celle de l’application (Bearer, clé API, Basic, connexion auto) ajoutée à chaque requête ; jeton disponible via <code>${authToken}</code>.</td></tr>
+      <tr><td>Résultats</td><td>Détail par requête, rapport (min/max/moyenne, P50/P75/P90/P95/P99, écart-type, débit, taux d’erreur, par étape), export CSV, historique paginé, métriques.</td></tr>
+      <tr><td>Interface</td><td>Page Scénarios (liste, détail, étapes, édition, exécution, suppression), assistant « Nouveau scénario » en 4 étapes avec test réel, pages Exécutions, Détail, Rapport, Historique, Planification.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================ 2. BACKEND ============================ -->
+<div class="section">
+  <h2>2. Backend</h2>
+  <h3 style="margin-top:4px">Technologies (versions résolues par Maven)</h3>
+  <table>
+    <thead><tr><th style="width:27%">Technologie</th><th style="width:14%">Version</th><th>Rôle dans le module</th></tr></thead>
+    <tbody>
+      <tr><td>Java</td><td>21.0.6</td><td>Records (DTO, <code>StepExecutionSpec</code>, <code>LoadTestSpec</code>), <b>threads virtuels</b> pour les utilisateurs virtuels.</td></tr>
+      <tr><td>Spring Boot</td><td>3.3.4</td><td>Démarrage, configuration (<code>application.yml</code> : timeouts, limites), injection.</td></tr>
+      <tr><td>Spring Web MVC</td><td>6.1.13</td><td>Contrôleurs REST <code>/api/scenarios</code>, <code>/api/steps</code>, <code>/api/executions</code>, <code>/api/scheduled-executions</code>, <code>/api/metrics</code>.</td></tr>
+      <tr><td>Spring Data JPA / Hibernate</td><td>3.3.4 / 6.5.3.Final</td><td>Persistance des entités, requêtes JPQL, <code>Specification</code> pour l’historique filtré.</td></tr>
+      <tr><td>Liquibase</td><td>4.27.0</td><td>Migrations 003 à 017 du module (voir section 5).</td></tr>
+      <tr><td>Driver PostgreSQL</td><td>42.7.4</td><td>Connexion JDBC à PostgreSQL 17.5.</td></tr>
+      <tr><td>MapStruct</td><td>1.6.2</td><td><code>ScenarioMapper</code>, <code>StepMapper</code>, <code>ExecutionMapper</code>, <code>ExecutionStepResultMapper</code>, <code>MetricMapper</code>.</td></tr>
+      <tr><td>Lombok</td><td>1.18.34</td><td>Getters/setters/builders des entités.</td></tr>
+      <tr><td>Jackson</td><td>2.17.2</td><td>Lecture des en-têtes JSON des étapes, extraction JSONPath, réponses REST.</td></tr>
+      <tr><td>Spring Security</td><td>6.3.3</td><td>JWT Keycloak, <code>@PreAuthorize</code> par endpoint.</td></tr>
+      <tr><td>java.net.http.HttpClient</td><td>JDK 21</td><td>Envoi des vraies requêtes HTTP (HTTP/1.1, timeouts, redirections).</td></tr>
+      <tr><td>springdoc-openapi</td><td>2.6.0</td><td>Documentation Swagger des endpoints.</td></tr>
+      <tr><td>Tomcat embarqué</td><td>10.1.30</td><td>Serveur HTTP de l’API.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Architecture en couches</h3>
+<pre>ScenarioController · StepController · ExecutionController · ScheduledExecutionController · MetricController
+        ↓ DTO (ScenarioRequest, StepRequest, ExecutionRequest…) + Bean Validation
+ScenarioServiceImpl · StepServiceImpl · ExecutionServiceImpl · DeletionServiceImpl · ScheduledExecutionServiceImpl
+        ↓                    ↘ ExecutionTransactionHelper (transactions courtes) → HttpClientExecutionEngine
+ScenarioMapper · StepMapper · ExecutionMapper · ExecutionStepResultMapper (MapStruct)
+        ↓
+ScenarioRepository · StepRepository · ExecutionRepository · ExecutionStepResultRepository · MetricRepository
+        ↓
+Scenario · Step · Execution · ExecutionStepResult · Metric · ScheduledExecution (entités JPA)</pre>
+
+  <h3>Classes principales</h3>
+  <table>
+    <thead><tr><th style="width:34%">Classe</th><th>Rôle</th></tr></thead>
+    <tbody>
+      <tr><td><code>entity/Scenario</code>, <code>Step</code></td><td>Scénario (paramètres de charge, CSV, archivage) et étape HTTP (ordre, options moteur, capture).</td></tr>
+      <tr><td><code>entity/Execution</code>, <code>ExecutionStepResult</code></td><td>Exécution (copie figée des paramètres de charge, statut, compteurs) et résultat par requête (avec copie nom/méthode/URL de l’étape).</td></tr>
+      <tr><td><code>entity/Metric</code>, <code>ScheduledExecution</code></td><td>Métrique par résultat (temps, code, débit, taux d’erreur) ; planification unique ou CRON.</td></tr>
+      <tr><td><code>ScenarioServiceImpl</code>, <code>StepServiceImpl</code></td><td>CRUD ; listes sans archivés ; suppression d’étape (refus si exécution en cours, renumérotation).</td></tr>
+      <tr><td><code>ExecutionServiceImpl</code> (515 l.)</td><td>Lancement asynchrone, annulation, relance, détail, rapport, historique, export CSV.</td></tr>
+      <tr><td><code>ExecutionTransactionHelper</code></td><td>Transactions courtes : préparation (refus si archivé ou sans étape), QUEUED→RUNNING, finalisation des résultats.</td></tr>
+      <tr><td><code>HttpClientExecutionEngine</code> (430 l.)</td><td>Moteur de charge réel (section 3).</td></tr>
+      <tr><td><code>RunningExecutionRegistry</code></td><td>Limites de capacité (VU globaux, exécutions simultanées) et annulation.</td></tr>
+      <tr><td><code>ExecutionRecoveryRunner</code></td><td>Au démarrage, passe en FAILED les exécutions restées QUEUED/RUNNING.</td></tr>
+      <tr><td><code>DeletionServiceImpl</code></td><td>Impact, archivage, restauration, suppression définitive en cascade (section 7).</td></tr>
+      <tr><td><code>PerformanceStatisticsService</code>, <code>PercentileCalculator</code></td><td>Statistiques du rapport calculées à la demande.</td></tr>
+      <tr><td><code>MetricGenerationService</code></td><td>Génère une métrique par résultat à la fin de l’exécution.</td></tr>
+      <tr><td><code>ScheduledExecutionPoller</code> / <code>Trigger</code></td><td>Déclenchement des planifications (intervalle 5 s par défaut).</td></tr>
+      <tr><td><code>CsvDataSource</code>, <code>VariableResolver</code>, <code>JsonPathExtractor</code>, <code>PacingGate</code>, <code>UrlResolver</code></td><td>Données CSV par VU, substitution <code>${nom}</code>, capture JSON, débit cible partagé, résolution des URL.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h3 style="margin-top:0">Endpoints REST du module</h3>
+  <p class="muted">« Authentifié » = tout utilisateur connecté (VIEWER inclus). SA = SUPER_ADMIN, PE = PERFORMANCE_ENGINEER.</p>
+  <table>
+    <thead><tr><th style="width:9%">Méthode</th><th style="width:38%">URL</th><th style="width:15%">Rôle</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/api/scenarios[?applicationId&amp;archived]</code></td><td>Authentifié</td><td>Lister (archivés masqués par défaut)</td></tr>
+      <tr><td>GET</td><td><code>/api/scenarios/{id}</code></td><td>Authentifié</td><td>Détail d’un scénario</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios</code></td><td>SA, PE</td><td>Créer</td></tr>
+      <tr><td>PUT</td><td><code>/api/scenarios/{id}</code></td><td>SA, PE</td><td>Modifier</td></tr>
+      <tr><td>GET</td><td><code>/api/scenarios/{id}/deletion-impact</code></td><td>SA, PE</td><td>Impact (étapes, exécutions, planifications, en cours)</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/archive</code> · <code>/restore</code></td><td>SA, PE</td><td>Archiver / restaurer</td></tr>
+      <tr><td>DELETE</td><td><code>/api/scenarios/{id}</code></td><td>SA</td><td>Suppression définitive en cascade</td></tr>
+      <tr><td>GET</td><td><code>/api/steps[?scenarioId]</code> · <code>/api/steps/{id}</code></td><td>Authentifié</td><td>Lister / détail des étapes</td></tr>
+      <tr><td>POST · PUT</td><td><code>/api/steps</code> · <code>/api/steps/{id}</code></td><td>SA, PE</td><td>Créer / modifier une étape</td></tr>
+      <tr><td>DELETE</td><td><code>/api/steps/{id}</code></td><td>SA, PE</td><td>Supprimer (refus si exécution en cours)</td></tr>
+      <tr><td>POST</td><td><code>/api/executions</code></td><td>SA, PE</td><td>Lancer (réponse 202, QUEUED/RUNNING)</td></tr>
+      <tr><td>GET</td><td><code>/api/executions</code> · <code>/{id}</code> · <code>/{id}/status</code></td><td>Authentifié</td><td>Liste, détail avec résultats, statut léger</td></tr>
+      <tr><td>GET</td><td><code>/api/executions/history</code></td><td>Authentifié</td><td>Historique paginé, filtré, trié côté serveur</td></tr>
+      <tr><td>GET</td><td><code>/api/executions/{id}/report</code> · <code>/report/export</code></td><td>Authentifié</td><td>Rapport statistique / export CSV</td></tr>
+      <tr><td>POST</td><td><code>/api/executions/{id}/cancel</code> · <code>/retry</code></td><td>SA, PE</td><td>Annuler / relancer</td></tr>
+      <tr><td>GET · POST · PUT · DELETE</td><td><code>/api/scheduled-executions[/{id}]</code></td><td>Lecture : authentifié ; écriture : SA, PE</td><td>Planifications</td></tr>
+      <tr><td>PATCH · POST</td><td><code>/{id}/enable</code> · <code>/{id}/disable</code> · <code>/{id}/run-now</code></td><td>SA, PE</td><td>Activer, désactiver, déclencher</td></tr>
+      <tr><td>GET</td><td><code>/api/metrics</code> · <code>/api/metrics/{id}</code></td><td>Authentifié</td><td>Métriques filtrables</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Règles de validation (DTO)</h3>
+  <table>
+    <thead><tr><th style="width:30%">Champ</th><th>Règle réelle</th></tr></thead>
+    <tbody>
+      <tr><td>Scénario : nom / description</td><td>Obligatoire, 255 car. max / 1000 car. max.</td></tr>
+      <tr><td>virtualUsers · rampUpSeconds</td><td>DTO : 1 à 10 000 · ≥ 0. Puis le service refuse (400) au-delà de la limite du déploiement, 500 par défaut (<code>LOADPILOT_MAX_VUS_PER_EXECUTION</code>).</td></tr>
+      <tr><td>durationSeconds · iterations · targetRps</td><td>Optionnels, ≥ 1 si fournis.</td></tr>
+      <tr><td>csvData</td><td>50 000 car. max.</td></tr>
+      <tr><td>Étape : nom, URL, ordre</td><td>Obligatoires ; code attendu entre 100 et 599 ; assertion 500 car. ; capture : nom 255, chemin 500.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================ 3. MOTEUR ============================ -->
+<div class="section">
+  <h2>3. Moteur d’exécution</h2>
+  <p>Moteur kaykhdem <b>dakhel nfs JVM dyal backend</b> : ma kaynch outil externe (JMeter/Gatling). Kol utilisateur virtuel (VU) kaykhdem f <b>thread virtuel</b> dyal Java 21 (<code>Executors.newVirtualThreadPerTaskExecutor()</code> f <code>ExecutorConfig</code>).</p>
+<pre>POST /api/executions {scenarioId}
+  │ ExecutionTransactionHelper.prepareAndStart   (transaction courte)
+  │   • refus si scénario/application archivé, ou 0 étape
+  │   • Execution QUEUED + copie des paramètres de charge
+  │   • copie de l'authentification de l'application
+  ▼ réponse 202 immédiate ; la suite est asynchrone
+HttpClientExecutionEngine.execute(steps, baseUrl, auth, loadSpec, handle, csvRows)
+  │ 1. authentification résolue UNE fois (login réel si « connexion auto »)
+  │ 2. VU 1..N démarrés avec un décalage = rampUp / N
+  │ 3. chaque VU : itérations jusqu'à durée / nombre d'itérations / annulation
+  │      étape → requête HTTP → StepOutcome (code, temps, succès, erreur)
+  │      une étape en échec arrête l'itération en cours de ce VU
+  ▼
+finalizeExecution : ExecutionStepResult (+ copie de l'étape), statut SUCCESS/FAILED/CANCELLED
+MetricGenerationService : une Metric par résultat (temps, code, débit, taux d'erreur)</pre>
+
+  <table>
+    <thead><tr><th style="width:30%">Aspect</th><th>Comportement réel</th></tr></thead>
+    <tbody>
+      <tr><td>Utilisateurs virtuels</td><td>N threads virtuels ; décalage de démarrage <code>rampUpSeconds × 1000 / N</code> ms ; variables CSV distribuées de façon <b>cyclique</b> (une ligne par VU).</td></tr>
+      <tr><td>Fin du test</td><td>Durée (<code>durationSeconds</code>), nombre d’itérations, annulation, ou 1 seul passage si aucun des deux.</td></tr>
+      <tr><td>Débit cible</td><td><code>PacingGate</code> partagé par <b>tous</b> les VU (pas un par VU).</td></tr>
+      <tr><td>Succès d’une étape</td><td>Code = code attendu, sinon 200–399 ; plus l’assertion « la réponse contient » si configurée.</td></tr>
+      <tr><td>Timeouts</td><td>10 s par défaut (<code>EXECUTION_TIMEOUT_SECONDS</code>), surchargeable par étape. Client HTTP/1.1.</td></tr>
+      <tr><td>Authentification</td><td>Bearer / clé API (en-tête ou paramètre d’URL) / Basic / connexion auto ; ajoutée à <b>chaque</b> requête. Login refusé → exécution FAILED « Authentification : … », aucune étape jouée.</td></tr>
+      <tr><td><code>${authToken}</code></td><td>Jeton obtenu par la connexion auto, injecté dans les variables de chaque VU (utilisable dans URL, en-têtes, corps).</td></tr>
+      <tr><td>Priorité des en-têtes</td><td>Un en-tête défini par l’étape (comparaison insensible à la casse) remplace celui de l’application.</td></tr>
+      <tr><td>Capture de variable</td><td><code>JsonPathExtractor</code> : chemins à points (<code>$.token</code>, <code>$.data.id</code>), pas de tableaux ; variable propre à chaque VU.</td></tr>
+      <tr><td>Corps de réponse</td><td>Lu <b>seulement</b> si une assertion ou une capture est configurée (sinon ignoré pour économiser la mémoire).</td></tr>
+      <tr><td>Données collectées</td><td>Par requête : code HTTP, temps de réponse (ms), succès, erreur, horodatage ; puis métriques et statistiques.</td></tr>
+      <tr><td>Limites</td><td>500 VU max par scénario (refus 400 à l’enregistrement) ; au lancement, 200 VU simultanés au total et 10 exécutions simultanées (refus HTTP 429). Valeurs configurables.</td></tr>
+      <tr><td>Robustesse</td><td>Annulation réelle (interruption des threads) ; au redémarrage, les exécutions orphelines passent en FAILED avec une raison.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================ 4. FRONTEND ============================ -->
+<div class="section">
+  <h2>4. Frontend</h2>
+  <table>
+    <thead><tr><th style="width:27%">Technologie</th><th style="width:14%">Version installée</th><th>Rôle</th></tr></thead>
+    <tbody>
+      <tr><td>React / React DOM</td><td>18.3.1</td><td>Pages et composants du module.</td></tr>
+      <tr><td>TypeScript</td><td>5.9.3</td><td>Types <code>BackendScenarioResponse</code>, <code>BackendStepRequest</code>, <code>BackendExecutionReportResponse</code>… alignés sur les DTO Java.</td></tr>
+      <tr><td>Vite</td><td>5.4.21</td><td>Serveur de dev (port 3000) et build.</td></tr>
+      <tr><td>React Router</td><td>6.30.4</td><td>Routes <code>/scenarios</code>, <code>/scenarios/new</code>, <code>/executions</code>, <code>/executions/detail/:id</code>, <code>/executions/report/:id</code>, <code>/historique</code>, <code>/planification</code>.</td></tr>
+      <tr><td>Chart.js + react-chartjs-2</td><td>4.5.1</td><td>Graphiques du rapport (barres, anneau).</td></tr>
+      <tr><td>Bootstrap / Bootstrap Icons</td><td>5.3.8 / 1.13.1</td><td>Grille et icônes.</td></tr>
+      <tr><td>Vitest + Testing Library</td><td>2.1.9 / 16.3.3</td><td>Tests frontend.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Organisation des fichiers</h3>
+<pre>pages/Scenarios.tsx (1483 l.)            liste, détail + étapes, édition, exécution, suppression
+pages/scenario-wizard/
+   ScenarioWizard.tsx (619 l.)           assistant « Nouveau scénario » (4 étapes)
+   StepEditor.tsx · TestRunPanel.tsx · LoadSummaryPanel.tsx · wizardModel.ts · scenarioWizard.css
+pages/Executions.tsx · ExecutionDetail.tsx · ExecutionReport.tsx · Historique.tsx · ScheduledExecutions.tsx
+components/Pagination.tsx                pagination commune (taille de page optionnelle)
+components/deletion/DeletionDialog.tsx   modale d'impact (archiver / supprimer définitivement)
+services/api/scenariosBackend.ts · stepsBackend.ts · executionsBackend.ts · scheduledExecutionsBackend.ts
+types/backendContracts.ts                contrats TypeScript = DTO Java</pre>
+
+  <h3>Pages et composants</h3>
+  <table>
+    <thead><tr><th style="width:24%">Écran</th><th>Ce qui existe réellement</th></tr></thead>
+    <tbody>
+      <tr><td>Liste des scénarios</td><td>Recherche (nom, application), filtre de statut, case « Afficher les archivés », pagination 5/10/25/50 avec page et taille dans l’URL, aperçu des étapes et dernière exécution par ligne.</td></tr>
+      <tr><td>Création</td><td>Assistant en 4 étapes : Informations (select d’application) → Étapes (éditeur à onglets En-têtes, Corps, Validation, Variables ; glisser-déposer) → Tester (exécution réelle 1 VU × 1 passage, résultat par étape) → Charge &amp; résumé (presets Smoke/Charge/Stress/Personnalisé).</td></tr>
+      <tr><td>Modification</td><td>Modale d’édition du scénario (paramètres de charge, CSV, débit cible) ; modale d’étape (création, modification, suppression) dans le détail.</td></tr>
+      <tr><td>Lancement</td><td>Bouton Exécuter par ligne, « Enregistrer et lancer » dans l’assistant ; pages Exécutions et Détail avec suivi (polling), Annuler, Relancer.</td></tr>
+      <tr><td>Résultats</td><td>Détail par requête ; Rapport (statistiques, percentiles, par étape, erreurs, graphiques, export CSV) ; Historique paginé côté serveur.</td></tr>
+      <tr><td>Suppression</td><td><code>DeletionDialog</code> : impact, Archiver (par défaut), Supprimer définitivement (SA, saisie du nom) ; Restaurer dans la vue archivée.</td></tr>
+      <tr><td>Tri</td><td>Liste des scénarios triée côté backend du plus récent au plus ancien ; <b>pas de sélecteur de tri</b> sur cette page.</td></tr>
+      <tr><td>Sélection multiple</td><td>Cases à cocher présentes, mais <b>aucune action groupée</b> n’y est branchée (partiel).</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================ 5. BASE DE DONNÉES ============================ -->
+<div class="section">
+  <h2>5. Base de données</h2>
+  <p class="muted">Schéma relevé sur la base PostgreSQL 17.5 réelle (information_schema).</p>
+  <h3 style="margin-top:4px">Table <code>scenario</code></h3>
+  <table>
+    <thead><tr><th style="width:26%">Colonne</th><th style="width:22%">Type</th><th>Remarque</th></tr></thead>
+    <tbody>
+      <tr><td>id · application_id · created_by</td><td>UUID</td><td>Clé primaire ; FK application ; FK app_user. NOT NULL.</td></tr>
+      <tr><td>name · description · status</td><td>VARCHAR(255) · (1000) · (20)</td><td>status = ACTIVE/INACTIVE.</td></tr>
+      <tr><td>virtual_users · ramp_up_seconds · think_time_ms</td><td>INTEGER</td><td>NOT NULL, défauts 1 · 0 · 0.</td></tr>
+      <tr><td>duration_seconds · iterations · target_rps</td><td>INTEGER</td><td>Optionnels.</td></tr>
+      <tr><td>csv_data</td><td>VARCHAR(50000)</td><td>Jeu de données CSV.</td></tr>
+      <tr><td>archived · archived_at</td><td>BOOLEAN · TIMESTAMPTZ</td><td>Archivage logique (défaut false).</td></tr>
+      <tr><td>created_at · updated_at</td><td>TIMESTAMPTZ</td><td>Traçabilité.</td></tr>
+    </tbody>
+  </table>
+  <h3>Table <code>step</code></h3>
+  <table>
+    <thead><tr><th style="width:26%">Colonne</th><th style="width:22%">Type</th><th>Remarque</th></tr></thead>
+    <tbody>
+      <tr><td>id · scenario_id</td><td>UUID</td><td>FK scenario, NOT NULL.</td></tr>
+      <tr><td>name · method · url</td><td>VARCHAR(255) · (10) · (2048)</td><td>NOT NULL.</td></tr>
+      <tr><td>headers · body</td><td>VARCHAR(4000)</td><td>En-têtes au format JSON ; corps libre.</td></tr>
+      <tr><td>step_order · expected_status</td><td>INTEGER</td><td>Ordre NOT NULL (non unique) ; code attendu optionnel.</td></tr>
+      <tr><td>think_time_ms · timeout_seconds · follow_redirects</td><td>INTEGER · INTEGER · BOOLEAN</td><td>Options par étape (optionnelles).</td></tr>
+      <tr><td>assertion_body_contains</td><td>VARCHAR(500)</td><td>Assertion de contenu.</td></tr>
+      <tr><td>capture_variable_name · capture_json_path</td><td>VARCHAR(255) · (500)</td><td>Capture de variable.</td></tr>
+      <tr><td>status · created_at · updated_at</td><td>VARCHAR(20) · TIMESTAMPTZ</td><td>status = ACTIVE/INACTIVE.</td></tr>
+    </tbody>
+  </table>
+  <h3>Tables <code>execution</code> et <code>execution_step_result</code></h3>
+  <table>
+    <thead><tr><th style="width:30%">Colonne</th><th style="width:20%">Type</th><th>Remarque</th></tr></thead>
+    <tbody>
+      <tr><td>execution.scenario_id · triggered_by_app_user_id</td><td>UUID</td><td>FK scenario (NOT NULL) ; FK app_user (optionnelle).</td></tr>
+      <tr><td>execution.status · error_message</td><td>VARCHAR(20) · (2000)</td><td>QUEUED, RUNNING, SUCCESS, FAILED, CANCELLED.</td></tr>
+      <tr><td>execution.started_at · finished_at · duration_ms</td><td>TIMESTAMPTZ · BIGINT</td><td>Horodatage et durée.</td></tr>
+      <tr><td>execution.total/successful/failed_steps</td><td>INTEGER</td><td>Compteurs de requêtes.</td></tr>
+      <tr><td>execution.virtual_users · ramp_up_seconds · duration_seconds · iterations</td><td>INTEGER</td><td>Copie figée des paramètres au lancement.</td></tr>
+      <tr><td>result.execution_id · step_id</td><td>UUID</td><td>FK execution NOT NULL ; FK step <b>nullable</b> (ON DELETE SET NULL).</td></tr>
+      <tr><td>result.http_status · response_time_ms · success · error</td><td>INTEGER · BIGINT · BOOLEAN · VARCHAR(2000)</td><td>Résultat d’une requête.</td></tr>
+      <tr><td>result.step_name · step_method · step_url</td><td>VARCHAR(255) · (10) · (2048)</td><td>Copie de l’étape (migration 017).</td></tr>
+      <tr><td>result.captured_at</td><td>TIMESTAMPTZ</td><td>Horodatage de la requête.</td></tr>
+    </tbody>
+  </table>
+  <h3>Tables <code>metric</code> et <code>scheduled_execution</code></h3>
+  <table>
+    <thead><tr><th style="width:30%">Colonne</th><th style="width:20%">Type</th><th>Remarque</th></tr></thead>
+    <tbody>
+      <tr><td>metric.application_id · scenario_id · step_id · execution_id</td><td>UUID</td><td>Seul execution_id est NOT NULL ; step_id ON DELETE SET NULL.</td></tr>
+      <tr><td>metric.response_time · status_code · throughput · error_rate · timestamp</td><td>INTEGER · INTEGER · NUMERIC · NUMERIC · TIMESTAMPTZ</td><td>Une ligne par résultat.</td></tr>
+      <tr><td>scheduled_execution.scenario_id · schedule_type · cron_expression · run_at · timezone</td><td>UUID · VARCHAR(30) · (120) · TIMESTAMPTZ · VARCHAR(60)</td><td>ONE_TIME ou RECURRING_CRON.</td></tr>
+      <tr><td>scheduled_execution.enabled · next_run_at · last_*</td><td>BOOLEAN · TIMESTAMPTZ …</td><td>Index sur next_run_at et scenario_id.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h3 style="margin-top:0">Relations et clés étrangères (règles réelles)</h3>
+  <table>
+    <thead><tr><th style="width:36%">Clé étrangère</th><th style="width:22%">Référence</th><th style="width:14%">ON DELETE</th><th>Conséquence</th></tr></thead>
+    <tbody>
+      <tr><td><code>scenario.application_id</code></td><td>application</td><td>NO ACTION</td><td>Cascade faite par le service (une transaction).</td></tr>
+      <tr><td><code>step.scenario_id</code></td><td>scenario</td><td>NO ACTION</td><td>Idem.</td></tr>
+      <tr><td><code>execution.scenario_id</code></td><td>scenario</td><td>NO ACTION</td><td>Idem.</td></tr>
+      <tr><td><code>scheduled_execution.scenario_id</code></td><td>scenario</td><td>NO ACTION</td><td>Idem.</td></tr>
+      <tr><td><code>execution_step_result.execution_id</code></td><td>execution</td><td>NO ACTION</td><td>Idem.</td></tr>
+      <tr><td><code>execution_step_result.step_id</code></td><td>step</td><td class="ok">SET NULL</td><td>Supprimer une étape garde l’historique lisible.</td></tr>
+      <tr><td><code>metric.step_id</code></td><td>step</td><td class="ok">SET NULL</td><td>Idem pour les métriques.</td></tr>
+      <tr><td><code>metric.application_id · scenario_id · execution_id</code></td><td>application · scenario · execution</td><td>NO ACTION</td><td>Supprimées par la cascade du service.</td></tr>
+    </tbody>
+  </table>
+<pre>application 1 ──< scenario 1 ──< step
+                     │  └──< scheduled_execution
+                     └──< execution 1 ──< execution_step_result >── step (SET NULL)
+                                    └──< metric >── step (SET NULL)</pre>
+
+  <h3>Migrations Liquibase du module</h3>
+  <table>
+    <thead><tr><th style="width:44%">Fichier</th><th>Contenu</th></tr></thead>
+    <tbody>
+      <tr><td><code>003-create-scenario.xml</code></td><td>Table scenario.</td></tr>
+      <tr><td><code>004-create-step.xml</code></td><td>Table step.</td></tr>
+      <tr><td><code>005-create-execution.xml</code></td><td>Table execution.</td></tr>
+      <tr><td><code>006-create-execution-step-result.xml</code></td><td>Table des résultats.</td></tr>
+      <tr><td><code>007-create-metric.xml</code></td><td>Table metric.</td></tr>
+      <tr><td><code>010-add-load-test-parameters.xml</code></td><td>Paramètres de charge (VU, ramp-up, durée, itérations, think time).</td></tr>
+      <tr><td><code>011-create-notification-and-scheduled-execution.xml</code></td><td>Planifications et <code>execution.triggered_by</code>.</td></tr>
+      <tr><td><code>013-add-step-engine-options.xml</code></td><td>Options par étape et CSV.</td></tr>
+      <tr><td><code>014-add-pacing-and-variable-capture.xml</code></td><td>Débit cible et capture de variable.</td></tr>
+      <tr><td><code>017-deletion-history-and-archiving.xml</code></td><td>Copie de l’étape dans les résultats, FK SET NULL, archivage.</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>Constat :</b> en dehors de <code>scheduled_execution</code>, les colonnes de clé étrangère (<code>step.scenario_id</code>, <code>execution.scenario_id</code>, <code>execution_step_result.execution_id</code>, <code>metric.*</code>) n’ont <b>pas d’index</b> : seules les clés primaires sont indexées.</div>
+</div>
+
+<!-- ============================ 6. SÉCURITÉ ============================ -->
+<div class="section">
+  <h2>6. Sécurité</h2>
+  <p>Kol requête khassha JWT dyal Keycloak. Les rôles kaytverifaw f backend b <code>@PreAuthorize</code>, w frontend kaykhbbi les boutons li ma 3ndekch l7a9 fihom (ghir confort, backend howa li kay9erer).</p>
+  <table>
+    <thead><tr><th>Action</th><th style="width:15%">SUPER_ADMIN</th><th style="width:22%">PERFORMANCE_ENGINEER</th><th style="width:12%">VIEWER</th></tr></thead>
+    <tbody>
+      <tr><td>Consulter scénarios, étapes, exécutions, rapports, historique, métriques</td><td class="ok">Oui</td><td class="ok">Oui</td><td class="ok">Oui</td></tr>
+      <tr><td>Créer / modifier un scénario</td><td class="ok">Oui</td><td class="ok">Oui</td><td class="ko">Non</td></tr>
+      <tr><td>Créer / modifier / supprimer une étape</td><td class="ok">Oui</td><td class="ok">Oui</td><td class="ko">Non</td></tr>
+      <tr><td>Lancer / annuler / relancer une exécution</td><td class="ok">Oui</td><td class="ok">Oui</td><td class="ko">Non</td></tr>
+      <tr><td>Voir l’impact, archiver, restaurer un scénario</td><td class="ok">Oui</td><td class="ok">Oui</td><td class="ko">Non</td></tr>
+      <tr><td>Supprimer définitivement un scénario</td><td class="ok">Oui</td><td class="ko">Non</td><td class="ko">Non</td></tr>
+      <tr><td>Gérer les planifications (créer, modifier, activer, déclencher, supprimer)</td><td class="ok">Oui</td><td class="ok">Oui</td><td class="ko">Non</td></tr>
+    </tbody>
+  </table>
+  <div class="info">Les identifiants de l’application cible (jeton, clé, mot de passe) ne sont jamais renvoyés par l’API et ne sont pas écrits dans les logs ; le moteur les ajoute uniquement aux requêtes sortantes.</div>
+
+  <h2 style="margin-top:20px">7. Suppression et archivage</h2>
+  <table>
+    <thead><tr><th style="width:15%">Élément</th><th>Comportement réel</th></tr></thead>
+    <tbody>
+      <tr><td>Étape</td><td>Suppression directe (SA, PE). <b>Refusée</b> si une exécution du scénario est QUEUED/RUNNING. Les résultats passés gardent leur copie (nom, méthode, URL) et <code>step_id</code> passe à NULL. Les étapes restantes sont renumérotées 1..n.</td></tr>
+      <tr><td>Scénario</td><td><b>Impact</b> avant confirmation. <b>Archiver</b> (par défaut) : masqué des listes, non exécutable, planifications désactivées, restaurable. <b>Supprimer définitivement</b> (SA, saisie du nom) : métriques, résultats, exécutions, planifications, étapes et scénario supprimés dans une seule transaction.</td></tr>
+      <tr><td>Application</td><td>Même logique, cascade sur tous ses scénarios ; un scénario d’une application archivée est masqué et ne peut pas être restauré seul.</td></tr>
+      <tr><td>Exécution en cours</td><td>Toute suppression ou archivage est refusé : « Une exécution est en cours, arrêtez-la avant de supprimer. »</td></tr>
+      <tr><td>Audit</td><td>Actions DELETE, ARCHIVE et RESTORE tracées (succès et échec).</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================ 8. FLUX ============================ -->
+<div class="section">
+  <h2>8. Flux complets</h2>
+  <h3 style="margin-top:4px">A. Créer un scénario (assistant)</h3>
+<pre>Informations ─► Étapes ─► Tester ─────────────────────────► Charge &amp; résumé
+ application      éditeur   POST /api/scenarios (1 VU)        PUT /api/scenarios/{id} (charge choisie)
+ nom, desc.       local     POST/PUT /api/steps (ordre 1..n)   « Enregistrer » ou « Enregistrer et lancer »
+                            POST /api/executions → suivi → résultats par étape</pre>
+  <ol>
+    <li>Informations : khtar l’application w smiya dyal scénario.</li>
+    <li>Étapes : tzid les étapes (méthode, URL, en-têtes, corps, validation, variables) ; brouillon local.</li>
+    <li>Tester : scénario w étapes kaytsjlo, w kaytlanca test 7a9i9i b 1 VU × 1 passage.</li>
+    <li>Charge &amp; résumé : preset wla paramètres, puis enregistrement (w lancement ila bghiti).</li>
+  </ol>
+
+  <h3>B. Ajouter / modifier des étapes</h3>
+  <p>Men détail dyal scénario (page Scénarios) : modale d’étape → <code>POST /api/steps</code> wla <code>PUT /api/steps/{id}</code> ; suppression → <code>DELETE /api/steps/{id}</code>, renumérotation automatique.</p>
+
+  <h3>C. Lancer une exécution et suivre</h3>
+<pre>POST /api/executions ──► 202 {status: QUEUED|RUNNING}
+        │
+        ├─ GET /api/executions/{id}/status   (polling : requêtes, succès, échecs, progression)
+        ├─ POST /api/executions/{id}/cancel  (annulation réelle)
+        ▼
+statut final SUCCESS | FAILED | CANCELLED ──► GET /api/executions/{id}/report</pre>
+
+  <h3>D. Consulter les résultats</h3>
+  <p>Détail (une ligne par requête), Rapport (statistiques globales, par étape, erreurs, graphiques, export CSV <code>/report/export</code>), Historique paginé (<code>/api/executions/history</code>).</p>
+
+  <h3>E. Supprimer / archiver</h3>
+<pre>Clic « Supprimer » ─► GET …/deletion-impact ─► modale (compteurs, exécution en cours ?)
+     ├─ Archiver ─────────────────► POST …/archive   (restaurable : POST …/restore)
+     └─ Supprimer définitivement ─► saisie du nom ─► DELETE …   (SUPER_ADMIN, cascade)</pre>
+</div>
+
+<!-- ============================ 9. EXEMPLE ============================ -->
+<div class="section">
+  <h2>9. Exemple concret sur banking-test-api</h2>
+  <p>Exécution <b>réelle</b> lancée le 01/10/2026 via l’API LoadPilot, sur une application temporaire (supprimée ensuite) pointant vers <code>http://localhost:8888</code>.</p>
+  <table>
+    <thead><tr><th style="width:28%">Élément</th><th>Valeur</th></tr></thead>
+    <tbody>
+      <tr><td>Application</td><td>URL <code>http://localhost:8888</code> · authentification <b>Connexion auto</b> : <code>POST /api/auth/login</code>, corps <code>{"username":"agent001","password":"test123"}</code>, jeton <code>$.token</code>. Test de connectivité : <span class="ok">CONNECTED</span> « Authentification réussie (token obtenu). »</td></tr>
+      <tr><td>Scénario</td><td>« Exemple rapport — Parcours agent » · <b>5 VU</b> · ramp-up 5 s · durée 20 s · think time 500 ms</td></tr>
+    </tbody>
+  </table>
+  <table>
+    <thead><tr><th style="width:5%">#</th><th style="width:22%">Étape</th><th style="width:9%">Méthode</th><th style="width:22%">URL</th><th>En-têtes / validation</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Consulter le solde</td><td>GET</td><td><code>/api/account/balance</code></td><td>Auth de l’application ajoutée automatiquement · attendu 200 · contient <code>"success":true</code></td></tr>
+      <tr><td>2</td><td>Historique de l’agent</td><td>GET</td><td><code>/api/agent/history</code></td><td>Auth automatique · attendu 200</td></tr>
+      <tr><td>3</td><td>Vérifier le jeton</td><td>GET</td><td><code>/api/auth/verify</code></td><td>En-tête de l’étape <code>Authorization: Bearer ${authToken}</code> (prioritaire) · attendu 200 · contient <code>"authenticated":true</code></td></tr>
+    </tbody>
+  </table>
+  <h3>Résultat obtenu</h3>
+  <div class="kpis">
+    <div class="kpi"><b>SUCCESS</b><span>statut final</span></div>
+    <div class="kpi"><b>288</b><span>requêtes (288 réussies, 0 échec)</span></div>
+    <div class="kpi"><b>100 %</b><span>taux de succès</span></div>
+    <div class="kpi"><b>13,4 req/s</b><span>débit</span></div>
+    <div class="kpi"><b>150 ms</b><span>temps moyen</span></div>
+    <div class="kpi"><b>301 ms</b><span>P95</span></div>
+    <div class="kpi"><b>507 ms</b><span>P99</span></div>
+    <div class="kpi"><b>21,5 s</b><span>durée réelle</span></div>
+  </div>
+  <table>
+    <thead><tr><th>Étape</th><th style="width:12%">Requêtes</th><th style="width:12%">Réussies</th><th style="width:14%">Moyenne</th><th style="width:12%">P95</th><th style="width:14%">Taux d’erreur</th></tr></thead>
+    <tbody>
+      <tr><td>Consulter le solde</td><td>96</td><td>96</td><td>223 ms</td><td>308 ms</td><td>0 %</td></tr>
+      <tr><td>Historique de l’agent</td><td>96</td><td>96</td><td>220 ms</td><td>305 ms</td><td>0 %</td></tr>
+      <tr><td>Vérifier le jeton</td><td>96</td><td>96</td><td>6 ms</td><td>16 ms</td><td>0 %</td></tr>
+    </tbody>
+  </table>
+  <p>Global : min 2 ms, P50 165 ms, max 610 ms, 0 erreur. Les étapes 1 et 2 sont plus lentes parce que banking-test-api y simule une latence ; <code>/api/auth/verify</code> n’en a pas.</p>
+</div>
+
+<!-- ============================ 10. TESTS ============================ -->
+<div class="section">
+  <h2>10. Tests</h2>
+  <div class="kpis">
+    <div class="kpi"><b>605 / 605</b><span><code>mvn test</code> backend (0 échec)</span></div>
+    <div class="kpi"><b>319</b><span>tests backend du module</span></div>
+    <div class="kpi"><b>51 / 51</b><span><code>npm test</code> frontend</span></div>
+    <div class="kpi"><b>OK</b><span><code>npm run build</code> (102 modules)</span></div>
+  </div>
+  <table class="compact">
+    <thead><tr><th style="width:22%">Type</th><th style="width:26%">Outil</th><th style="width:10%">Tests</th><th>Classes du module</th></tr></thead>
+    <tbody>
+      <tr><td>API / intégration</td><td>Spring Boot Test + MockMvc + H2</td><td>134</td><td>ScenarioControllerTest (22), StepControllerTest (28), ExecutionControllerTest (23), ExecutionHistoryAndReportTest (18), MetricControllerTest (18), ScheduledExecutionControllerTest (13), DeletionArchivingPagingTest (7), ExecutionConcurrencyLimitsTest (3), ScheduledExecutionCapacityLimitTest (1), EndToEndIntegrationTest (1)</td></tr>
+      <tr><td>Repositories</td><td>@DataJpaTest + H2</td><td>44</td><td>MetricRepositoryTest (16), ExecutionRepositoryTest (10), ScenarioRepositoryTest (6), StepRepositoryTest (6), ExecutionStepResultRepositoryTest (6)</td></tr>
+      <tr><td>Moteur (intégration)</td><td>JUnit 5 + vrai serveur HTTP local</td><td>58</td><td>HttpClientExecutionEngineTest (47), ApplicationAuthEngineTest (11)</td></tr>
+      <tr><td>Unitaires</td><td>JUnit 5 + AssertJ</td><td>83</td><td>PercentileCalculatorTest (14), MetricServiceImplTest (13), JsonPathExtractorTest (11), ScheduleNextRunCalculatorTest (10), CsvDataSourceTest (9), PerformanceStatisticsServiceTest (8), ExecutionTransactionHelperRaceTest (8), VariableResolverTest (7), ExecutionRecoveryRunnerTest (3)</td></tr>
+      <tr><td>Frontend</td><td>Vitest + Testing Library</td><td>4</td><td>Pagination.test.tsx (4) — composant partagé ; aucun test des pages Scénarios ni de l’assistant.</td></tr>
+      <tr><td>End-to-end réel</td><td>Scripts Python (API réelle + banking-test-api)</td><td>manuel</td><td>Exemple de la section 9 ; vérification de la suppression/archivage (étape supprimée avec historique lisible, refus en cours, cascade, groupé, pagination).</td></tr>
+    </tbody>
+  </table>
+  <h3>Ce que vérifient les principales classes</h3>
+  <table class="compact">
+    <thead><tr><th style="width:32%">Classe</th><th>Vérifie</th></tr></thead>
+    <tbody>
+      <tr><td>HttpClientExecutionEngineTest</td><td>Méthodes HTTP, en-têtes, URL relatives/absolues, codes attendus, timeouts, échec qui arrête l’itération, 5 et 10 VU réels, ramp-up, durée, itérations, think time, annulation, CSV cyclique, assertions, redirections, débit cible partagé, capture de variable.</td></tr>
+      <tr><td>ApplicationAuthEngineTest</td><td>Login une seule fois pour tous les VU, login refusé, jeton absent, réponse non JSON, <code>${authToken}</code>, clé API en paramètre, Basic, priorité de l’en-tête d’étape.</td></tr>
+      <tr><td>ExecutionHistoryAndReportTest</td><td>Historique paginé/filtré, rapport (percentiles, par étape, erreurs) et export CSV avec de vraies exécutions.</td></tr>
+      <tr><td>ExecutionConcurrencyLimitsTest / CapacityLimitTest</td><td>Refus au-delà des limites de capacité, y compris pour les planifications.</td></tr>
+      <tr><td>ExecutionTransactionHelperRaceTest · RecoveryRunnerTest</td><td>Course annulation/fin d’exécution ; exécutions orphelines passées en FAILED au démarrage.</td></tr>
+      <tr><td>DeletionArchivingPagingTest</td><td>Étape supprimée avec historique lisible et renumérotation, refus si exécution en cours, archivage/restauration, cascade, actions groupées.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================ 11. LIMITES ============================ -->
+<div class="section">
+  <h2>11. Limites et améliorations possibles</h2>
+  <table>
+    <thead><tr><th style="width:30%">Constat (vérifié dans le code)</th><th>Amélioration possible</th></tr></thead>
+    <tbody>
+      <tr><td>Statut <code>INACTIVE</code> d’un scénario jamais attribué (aucun endpoint pour désactiver) ; le filtre « Inactif » est toujours vide. Le statut d’une étape n’est pas pris en compte par le moteur.</td><td>Ajouter activer/désactiver, ou retirer ces statuts.</td></tr>
+      <tr><td>Page Scénarios : cases à cocher sans action groupée ; « tout sélectionner » prend toute la liste filtrée.</td><td>Barre d’actions (archiver, exécuter) comme sur la page Applications.</td></tr>
+      <tr><td>Liste des scénarios et des étapes non paginée côté serveur (filtrage et pagination dans le navigateur) ; pas de sélecteur de tri.</td><td>Pagination serveur comme <code>/api/applications</code>.</td></tr>
+      <tr><td>Aucun test frontend des pages Scénarios, Exécutions et de l’assistant.</td><td>Tests Testing Library sur ces écrans.</td></tr>
+      <tr><td>Colonnes de clé étrangère sans index (sauf <code>scheduled_execution</code>).</td><td>Migration ajoutant des index sur <code>scenario_id</code>, <code>execution_id</code>.</td></tr>
+      <tr><td>Une ligne de résultat <b>et</b> une métrique par requête (288 de chaque pour 20 s à 5 VU) : volume qui grossit vite.</td><td>Agrégation par fenêtre de temps, rétention ou purge.</td></tr>
+      <tr><td>Générateur de charge dans la même JVM que l’API (limites 200 VU globaux, 10 exécutions).</td><td>Workers d’injection séparés pour les fortes charges.</td></tr>
+      <tr><td>Connexion auto : un seul login par exécution, pas de renouvellement du jeton.</td><td>Rafraîchissement du jeton pour les tests longs.</td></tr>
+      <tr><td>Capture JSONPath simplifiée (pas de tableaux ni filtres) ; corps de requête texte uniquement (pas de multipart).</td><td>Bibliothèque JSONPath complète, support multipart.</td></tr>
+      <tr><td>Pas de montée/descente progressive en fin de test (ramp-down) ni de profils par paliers.</td><td>Profils de charge à étapes.</td></tr>
+      <tr><td>Restaurer un élément archivé ne réactive pas ses planifications.</td><td>Proposer la réactivation à la restauration.</td></tr>
+      <tr><td>Statistiques du rapport recalculées à chaque consultation depuis tous les résultats.</td><td>Mise en cache du rapport d’une exécution terminée.</td></tr>
+      <tr><td>Bundle frontend de 678 kB (avertissement Vite &gt; 500 kB).</td><td>Découpage par route (import dynamique).</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>État d’avancement — Module Gestion des scénarios</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 15mm 18mm 15mm;
+    @top-left { content: "LoadPilot — État d’avancement · Module Gestion des scénarios"; font: 600 8pt "Segoe UI", Arial, sans-serif; color: #6b7280; }
+    @top-right { content: "Code et tests au 02/10/2026"; font: 8pt "Segoe UI", Arial, sans-serif; color: #9ca3af; }
+    @bottom-left { content: "Projet Test_performance_ADRIA"; font: 8pt "Segoe UI", Arial, sans-serif; color: #9ca3af; }
+    @bottom-right { content: "Page " counter(page) " / " counter(pages); font: 600 8pt "Segoe UI", Arial, sans-serif; color: #4F46E5; }
+  }
+  @page :first {
+    @top-left { content: none; } @top-right { content: none; } @bottom-left { content: none; } @bottom-right { content: none; }
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Inter, Arial, sans-serif; color: #111827; font-size: 10pt; line-height: 1.5; margin: 0; }
+  h1, h2, h3 { color: #1e1b4b; line-height: 1.25; }
+  h2 { font-size: 15pt; margin: 0 0 9px; padding-bottom: 5px; border-bottom: 2px solid #4F46E5; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 15px 0 7px; break-after: avoid; }
+  p { margin: 5px 0; }
+  code, .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 8.6pt; }
+  code { background: #EEF2FF; color: #3730A3; padding: 0 3px; border-radius: 3px; word-break: break-word; }
+  table { width: 100%; border-collapse: collapse; margin: 7px 0 11px; font-size: 8.8pt; table-layout: fixed; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  th { background: #4F46E5; color: #fff; text-align: left; padding: 5px 7px; font-weight: 600; }
+  td { padding: 4px 7px; border-bottom: 1px solid #E5E7EB; vertical-align: top; overflow-wrap: anywhere; }
+  tbody tr:nth-child(even) td { background: #F9FAFB; }
+  td code { font-size: 8.1pt; }
+  .section { break-before: page; }
+  table.compact { font-size: 8.3pt; margin: 5px 0 8px; }
+  table.compact td { padding: 2.5px 6px; line-height: 1.38; }
+  table.compact th { padding: 4px 6px; }
+  .note { border-left: 4px solid #F59E0B; background: #FFFBEB; padding: 7px 11px; border-radius: 4px; margin: 9px 0; break-inside: avoid; }
+  .info { border-left: 4px solid #4F46E5; background: #EEF2FF; padding: 7px 11px; border-radius: 4px; margin: 9px 0; break-inside: avoid; }
+  .bad { border-left: 4px solid #DC2626; background: #FEF2F2; padding: 7px 11px; border-radius: 4px; margin: 9px 0; break-inside: avoid; }
+  .ok { color: #15803d; font-weight: 700; }
+  .part { color: #a16207; font-weight: 700; }
+  .ko { color: #b91c1c; font-weight: 700; }
+  .muted { color: #6b7280; }
+  ol, ul { margin: 5px 0 5px 18px; padding: 0; }
+  li { margin: 2px 0; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 9px 0; break-inside: avoid; }
+  .kpi { border: 1px solid #E5E7EB; border-radius: 7px; padding: 7px 9px; }
+  .kpi b { display: block; font-size: 15pt; color: #4F46E5; }
+  .kpi span { font-size: 8.5pt; color: #6b7280; }
+  .feat { border: 1px solid #E5E7EB; border-radius: 7px; padding: 7px 10px; margin: 8px 0; break-inside: avoid; }
+  .feat h4 { margin: 0 0 4px; font-size: 10.5pt; color: #1e1b4b; display: flex; justify-content: space-between; gap: 8px; }
+  .feat dl { margin: 0; display: grid; grid-template-columns: 26mm 1fr; gap: 2px 8px; font-size: 8.7pt; }
+  .feat dt { color: #6b7280; font-weight: 600; }
+  .feat dd { margin: 0; overflow-wrap: anywhere; }
+
+  .cover { height: 255mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover-top { margin-top: 24mm; }
+  .kicker { color: #4F46E5; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: 10pt; }
+  .cover h1 { font-size: 29pt; margin: 8px 0 6px; }
+  .cover .sub { font-size: 12.5pt; color: #4b5563; }
+  .cover .bar { height: 6px; width: 90px; background: #4F46E5; border-radius: 3px; margin: 16px 0; }
+  .badges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 14mm; }
+  .badge { border: 1px solid #E5E7EB; border-radius: 8px; padding: 9px 11px; }
+  .badge b { display: block; color: #4F46E5; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .06em; }
+  .badge span { font-size: 10pt; }
+  .toc { columns: 2; column-gap: 24px; margin: 0; padding-left: 18px; }
+  .toc li { margin: 3px 0; break-inside: avoid; }
+  .cover-foot { color: #6b7280; font-size: 9pt; border-top: 1px solid #E5E7EB; padding-top: 7px; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<!-- ============================ PAGE DE GARDE ============================ -->
+<div class="cover">
+  <div class="cover-top">
+    <div class="kicker">LoadPilot — Plateforme de test de charge</div>
+    <h1>État d’avancement<br>Module Gestion des scénarios</h1>
+    <div class="sub">Ce qui a été réalisé, du début à la fin, et le statut vérifié de chaque fonctionnalité, avec ses preuves dans le code, dans Git et dans les tests exécutés</div>
+    <div class="bar"></div>
+    <div class="badges">
+      <div class="badge"><b>Fonctionnalités</b><span>17 ✅ · 3 🟡 · 1 ❌</span></div>
+      <div class="badge"><b>Tests backend</b><span>652 / 652 réussis (02/10, 22:11)</span></div>
+      <div class="badge"><b>Tests frontend</b><span>99 / 99 réussis (02/10, 21:08)</span></div>
+      <div class="badge"><b>Endpoints du module</b><span>38 (scénarios, étapes, tests, exécutions)</span></div>
+      <div class="badge"><b>Migrations Liquibase</b><span>20 au total, dont 017 à 020 pour ce module</span></div>
+      <div class="badge"><b>Git</b><span>Dernier commit le 26/09 ; travail ultérieur non commité</span></div>
+    </div>
+  </div>
+  <div>
+    <h3 style="margin-top:0">Sommaire</h3>
+    <ol class="toc">
+      <li>Synthèse</li>
+      <li>Méthode et sources</li>
+      <li>Historique Git et chronologie</li>
+      <li>Statut des fonctionnalités</li>
+      <li>Endpoints REST du module</li>
+      <li>Base de données (migrations)</li>
+      <li>Résultats des tests</li>
+      <li>Ce qui manque, risques et prochaines étapes</li>
+    </ol>
+    <div class="cover-foot"><span>Projet : Test_performance_ADRIA · branche main</span><span>Date : 02/10/2026</span></div>
+  </div>
+</div>
+
+<!-- ============================ 1. SYNTHÈSE ============================ -->
+<div class="section">
+  <h2>1. Synthèse</h2>
+  <p>Le module Gestion des scénarios couvre la création, la modification, le test et l’exécution en charge des scénarios HTTP de LoadPilot. Après le dernier commit (26/09/2026), il a été étendu par étapes. On a ajouté l’assistant de création avec brouillons, l’import CSV, le test détaillé des étapes, le statut INACTIF, les actions groupées, le système de variables, le suivi d’exécution en direct et la page de modification complète.</p>
+
+  <div class="kpis">
+    <div class="kpi"><b>17</b><span>fonctionnalités ✅ terminées</span></div>
+    <div class="kpi"><b>3</b><span>fonctionnalités 🟡 partielles</span></div>
+    <div class="kpi"><b>1</b><span>point ❌ non réalisé (commit Git)</span></div>
+    <div class="kpi"><b>751</b><span>tests exécutés, 0 échec (652 + 99)</span></div>
+  </div>
+
+  <h3>Vue d’ensemble des statuts</h3>
+  <table class="compact">
+    <thead><tr><th style="width:8mm">#</th><th>Fonctionnalité</th><th style="width:24mm">Statut</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td>CRUD des scénarios et des étapes (socle)</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>B</td><td>Suppression avec impact, archivage, restauration</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>C</td><td>Assistant de création en étapes</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>D</td><td>Brouillons (DRAFT), « Reprendre », protection en quittant</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>E</td><td>Bouton « Suivant » bloqué, même validation côté front et back</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>F</td><td>Import de fichier CSV (aperçu, contrôles, modèle)</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>G</td><td>Test détaillé d’une étape ou d’un scénario (« Tester »)</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>H</td><td>Liste des scénarios avec pagination et tri serveur</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>I</td><td>Actions groupées (archiver, restaurer, supprimer, statut)</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>J</td><td>Statut INACTIF fonctionnel (planifications en pause)</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>K</td><td>Moteur de variables (capture, CSV, variables de scénario, contexte par VU)</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>L</td><td>Onglet « Paramètres » (path/query) et variables de scénario dans l’UI</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>M</td><td>Étape « Charge &amp; résumé »</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>N</td><td>Suivi d’exécution en direct, annulation, fenêtre de résultat</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>O</td><td>Page de modification <code>/scenarios/:id/edit</code> et <code>PUT /full</code></td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>P</td><td>« Ajouter une étape » dans un panneau latéral (StepDrawer)</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>Q</td><td>Message d’authentification masqué en cas de succès dans « Tester »</td><td class="ok">✅ Terminé</td></tr>
+      <tr><td>R</td><td>Traçabilité VU / itération / URL finale par résultat</td><td class="part">🟡 Partiel</td></tr>
+      <tr><td>S</td><td>Options avancées d’étape (timeout, think time, redirections) dans l’éditeur</td><td class="part">🟡 Partiel</td></tr>
+      <tr><td>T</td><td>Annulation d’une exécution : conservation des résultats partiels</td><td class="part">🟡 Partiel</td></tr>
+      <tr><td>U</td><td>Travail versionné dans Git (commit)</td><td class="ko">❌ Non réalisé</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Légende : ✅ Terminé, implémenté et couvert par des tests qui passent · 🟡 Partiel, en partie implémenté, le manque est décrit · ❌ Non réalisé.</p>
+</div>
+
+<!-- ============================ 2. MÉTHODE ============================ -->
+<div class="section">
+  <h2>2. Méthode et sources</h2>
+  <p>Ce rapport ne contient que des éléments vérifiables. Aucun fichier de code n’a été modifié pour le produire.</p>
+  <table class="compact">
+    <thead><tr><th style="width:38mm">Source</th><th>Ce qui en a été extrait</th></tr></thead>
+    <tbody>
+      <tr><td>Historique Git</td><td><code>git log</code> (commits, auteurs, dates, nombre de fichiers), <code>git status</code> et <code>git diff --stat</code> (fichiers modifiés ou non suivis), dates de modification des fichiers non suivis.</td></tr>
+      <tr><td>Code actuel</td><td>Annotations <code>@GetMapping</code>, <code>@PostMapping</code>, etc. des contrôleurs ; fichiers de migration Liquibase ; classes et composants cités dans chaque fiche ; recherches ciblées pour confirmer les manques (par exemple l’absence de champ timeout dans <code>StepEditor.tsx</code>).</td></tr>
+      <tr><td>Tests backend</td><td><code>mvn -o test</code> lancé le 02/10/2026, terminé à 22:11:02 (+01:00) en 2 min 46 s : <b>652 tests, 0 échec, 0 erreur, 0 ignoré</b>, BUILD SUCCESS.</td></tr>
+      <tr><td>Tests frontend</td><td>Vitest 2.1.9, rapport JSON du 02/10/2026 à 21:08 : <b>99 tests sur 14 fichiers, 99 réussis</b>.</td></tr>
+      <tr><td>Vérifications réelles</td><td>Scripts lancés contre le backend local (port 8080) et l’API de démonstration banking-test-api (port 8888). Le mot de passe passe par une variable d’environnement et n’est pas reproduit ici.</td></tr>
+    </tbody>
+  </table>
+  <div class="note">Aucun identifiant, mot de passe ni secret n’apparaît dans ce document.</div>
+</div>
+
+<!-- ============================ 3. GIT ET CHRONOLOGIE ============================ -->
+<div class="section">
+  <h2>3. Historique Git et chronologie</h2>
+  <h3>3.1 Commits existants</h3>
+  <table class="compact">
+    <thead><tr><th style="width:18mm">Commit</th><th style="width:40mm">Date</th><th>Message</th><th style="width:44mm">Volume</th></tr></thead>
+    <tbody>
+      <tr><td><code>f04f935</code></td><td>09/09/2026 21:11 (+01:00)</td><td>Add frontend and backend</td><td>90 fichiers, +40 585 lignes</td></tr>
+      <tr><td><code>3003211</code></td><td>26/09/2026 16:37 (UTC)</td><td>Finalize LoadPilot ADRIA migration</td><td>371 fichiers, +33 037 / −15 582</td></tr>
+    </tbody>
+  </table>
+  <p>Ces deux commits forment le socle du projet : CRUD des scénarios et des étapes, moteur d’exécution, planifications et rapports.</p>
+
+  <h3>3.2 Travail non commité (état de l’arbre de travail)</h3>
+  <div class="kpis">
+    <div class="kpi"><b>142</b><span>entrées dans <code>git status</code></span></div>
+    <div class="kpi"><b>74</b><span>fichiers suivis modifiés</span></div>
+    <div class="kpi"><b>+3 527 / −1 477</b><span>lignes sur les fichiers suivis</span></div>
+    <div class="kpi"><b>68</b><span>fichiers ou dossiers non suivis (nouveaux)</span></div>
+  </div>
+  <div class="bad">Tout le travail décrit dans la chronologie ci-dessous est <b>hors Git</b> : aucun commit depuis le 26/09/2026.</div>
+
+  <h3>3.3 Chronologie, d’après les dates des nouveaux fichiers</h3>
+  <table class="compact">
+    <thead><tr><th style="width:42mm">Période</th><th>Travail réalisé</th></tr></thead>
+    <tbody>
+      <tr><td>01/10, 14 h</td><td>Historique des suppressions et archivage (migration 017)</td></tr>
+      <tr><td>01/10, 16:00 – 16:23</td><td>Test détaillé des étapes et scénarios (StepTestRunner, TestRunController, TestRunPanel)</td></tr>
+      <tr><td>01/10, 18:11 – 23:25</td><td>Brouillons, validation partagée, import CSV (migration 018)</td></tr>
+      <tr><td>02/10, 02:05 – 02:21</td><td>Statut INACTIF, actions groupées, pagination serveur (migration 019)</td></tr>
+      <tr><td>02/10, 04:17 – 04:46</td><td>Système de variables, onglet Paramètres, variables de scénario (migration 020)</td></tr>
+      <tr><td>02/10, 19:25 – 19:39</td><td>Étape « Charge &amp; résumé », suivi d’exécution en direct</td></tr>
+      <tr><td>02/10, 19:54 – 20:07</td><td>Page de modification et panneau StepDrawer</td></tr>
+      <tr><td>02/10, 21:08 et 22:11</td><td>Exécution complète des tests frontend puis backend pour ce rapport</td></tr>
+    </tbody>
+  </table>
+  <h3>3.4 Taille des principaux fichiers</h3>
+  <table class="compact">
+    <thead><tr><th>Fichier</th><th style="width:22mm">Lignes</th></tr></thead>
+    <tbody>
+      <tr><td><code>perftest-frontend/src/pages/scenario-wizard/ScenarioWizard.tsx</code></td><td>1 124</td></tr>
+      <tr><td><code>perftest-frontend/src/pages/Scenarios.tsx</code></td><td>1 104</td></tr>
+      <tr><td><code>backend/…/service/execution/StepTestRunner.java</code></td><td>541</td></tr>
+      <tr><td><code>perftest-frontend/src/pages/scenario-wizard/StepEditor.tsx</code></td><td>535</td></tr>
+      <tr><td><code>backend/…/service/execution/HttpClientExecutionEngine.java</code></td><td>480</td></tr>
+      <tr><td><code>backend/…/service/impl/ScenarioServiceImpl.java</code></td><td>379</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================ 4. FONCTIONNALITÉS ============================ -->
+<div class="section">
+  <h2>4. Statut des fonctionnalités</h2>
+  <p class="muted">Chemins abrégés : <code>back/</code> = <code>backend/src/main/java/com/loadpilot/backend/</code> ; <code>front/</code> = <code>perftest-frontend/src/</code> ; <code>wiz/</code> = <code>front/pages/scenario-wizard/</code>.</p>
+
+  <div class="feat"><h4><span>A. CRUD des scénarios et des étapes (socle)</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>back/controller/ScenarioController.java</code>, <code>StepController.java</code>, <code>ScenarioServiceImpl</code>, mappers MapStruct ; présent depuis les commits <code>f04f935</code> et <code>3003211</code>.</dd>
+    <dt>Endpoints</dt><dd><code>GET/POST /api/scenarios</code>, <code>GET/PUT/DELETE /api/scenarios/{id}</code>, <code>GET/POST /api/steps</code>, <code>GET/PUT/DELETE /api/steps/{id}</code></dd>
+    <dt>Tests</dt><dd>ScenarioControllerTest (22), StepControllerTest (28), ScenarioRepositoryTest (6), StepRepositoryTest (6), RequestValidationTest (22) : tous réussis.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>B. Suppression avec impact, archivage, restauration</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd>Migration <code>017-deletion-history-and-archiving.xml</code> ; <code>DeletionServiceImpl</code> (dont <code>scenariosImpact</code>).</dd>
+    <dt>Endpoints</dt><dd><code>GET /api/scenarios/{id}/deletion-impact</code>, <code>POST /{id}/archive</code>, <code>POST /{id}/restore</code>, <code>POST /bulk-deletion-impact</code></dd>
+    <dt>Tests</dt><dd>DeletionArchivingPagingTest (7) réussi.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>C. Assistant de création en étapes</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>wiz/ScenarioWizard.tsx</code>, <code>wizardModel.ts</code>, <code>StepEditor.tsx</code>, <code>scenarioWizard.css</code> ; route <code>scenarios/new</code> dans <code>front/App.tsx</code>.</dd>
+    <dt>Tests</dt><dd>ScenarioWizard.test (5), validation.test (10) réussis.</dd>
+    <dt>Manque</dt><dd>Rien sur le plan fonctionnel. Le rendu visuel n’a pas été contrôlé dans un navigateur (voir section 8).</dd></dl></div>
+
+  <div class="feat"><h4><span>D. Brouillons (DRAFT), « Reprendre », protection en quittant</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd>Enum <code>ScenarioStatus</code> (DRAFT, ACTIVE, INACTIVE) ; migration 018 (colonnes <code>wizard_step</code> et <code>draft_state</code>) ; <code>ScenarioServiceImpl</code> (publish, deleteDraft) ; <code>wiz/draftModel.ts</code> ; <code>useBlocker</code> dans <code>ScenarioWizard.tsx</code> avec fenêtre de confirmation.</dd>
+    <dt>Endpoints</dt><dd><code>POST /api/scenarios/{id}/publish</code>, <code>DELETE /api/scenarios/{id}/draft</code></dd>
+    <dt>Tests</dt><dd>ScenarioDraftControllerTest (4) réussi. <code>ExecutionTransactionHelper</code> refuse d’exécuter un brouillon.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>E. Bouton « Suivant » bloqué, même validation côté front et back</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>back/service/validation/StepRules.java</code> (URL, en-têtes, corps JSON, capture, paramètres), dont les règles sont reprises côté front dans <code>wizardModel.ts</code>. Le bloc « Pour continuer » a été retiré : le bouton reste désactivé et l’erreur s’affiche sous le champ une fois celui-ci touché.</dd>
+    <dt>Tests</dt><dd>ScenarioWizard.test (5), validation.test (10) réussis.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>F. Import de fichier CSV</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd>Backend : <code>back/service/execution/CsvDataSource.java</code>, réécrit (parseur RFC 4180, BOM, séparateur <code>;</code> ou <code>,</code>, guillemets, validation) ; migration 018 (<code>csv_data</code> en VARCHAR(1000000)). Frontend : <code>wiz/CsvPanel.tsx</code> et <code>csvModel.ts</code> (aperçu, alertes de cohérence, modèle téléchargeable). Exemples réels : <code>docs/samples/banking-test-api-users.csv</code> et <code>docs/samples/banking-variables.csv</code>.</dd>
+    <dt>Tests</dt><dd>CsvDataSourceTest (12), csvModel.test (7) réussis ; scénario banking-test-api exécuté avec ce CSV.</dd>
+    <dt>Manque</dt><dd>Les valeurs CSV ne sont pas échappées pour le JSON (voir section 8).</dd></dl></div>
+
+  <div class="feat"><h4><span>G. Test détaillé d’une étape ou d’un scénario (« Tester »)</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>back/service/execution/StepTestRunner.java</code> (flux NDJSON via <code>ResponseBodyEmitter</code>, masquage des données sensibles avec <code>TestRunMasking</code>, corps limité à 100 Ko, délai global de 60 s) ; <code>TestRunPlanner</code> (scénario, étape, version non enregistrée jusqu’à <code>upToStep</code>) ; <code>wiz/TestRunPanel.tsx</code>, <code>TestResultCard.tsx</code>, <code>testRunModel.ts</code>.</dd>
+    <dt>Endpoints</dt><dd><code>POST /api/scenarios/{id}/test-run</code> (avec <code>stream=true</code> en option), <code>POST /api/steps/{id}/test-run</code> (avec <code>stream=true</code> en option)</dd>
+    <dt>Tests</dt><dd>StepTestRunnerTest (13), TestRunControllerTest (4), testRun.test (6) réussis.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>H. Liste des scénarios avec pagination et tri serveur</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>GET /api/scenarios</code> accepte des paramètres de page ; filtres dans <code>back/specification/ScenarioSpecifications</code> ; tableau paginé dans <code>front/pages/Scenarios.tsx</code>.</dd>
+    <dt>Tests</dt><dd>Scenarios.test (7), Pagination.test (4), DeletionArchivingPagingTest (7) réussis.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>I. Actions groupées</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>back/service/impl/ScenarioBulkService</code>, qui renvoie un résultat par identifiant (<code>BulkActionResponse</code>) ; DTO <code>ScenarioBulkRequest</code> ; barre d’actions groupées dans <code>Scenarios.tsx</code>.</dd>
+    <dt>Endpoints</dt><dd><code>POST /api/scenarios/bulk-archive</code>, <code>/bulk-restore</code>, <code>/bulk-delete</code>, <code>/bulk-status</code>, <code>/bulk-resume-schedules</code>, <code>/bulk-deletion-impact</code></dd>
+    <dt>Tests</dt><dd>ScenarioStatusAndBulkControllerTest (5), Scenarios.test (7) réussis.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>J. Statut INACTIF fonctionnel</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>ScenarioStatusService</code> ; migration 019 (colonne <code>scheduled_execution.paused_by_scenario</code>) ; la requête des planifications à lancer ne retient que les scénarios ACTIVE ; <code>ExecutionTransactionHelper</code> refuse d’exécuter un scénario INACTIF.</dd>
+    <dt>Endpoints</dt><dd><code>POST /api/scenarios/{id}/activate</code>, <code>/deactivate</code>, <code>/resume-schedules</code></dd>
+    <dt>Tests</dt><dd>ScenarioStatusAndBulkControllerTest (5), statusMapping.test (10) réussis.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>K. Moteur de variables</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>back/service/execution/VariableContext</code> (un contexte par VU, captures remises à zéro à chaque itération), <code>VariableSources</code> (distribution CSV par VU ou par itération, enum <code>CsvDistribution</code>), <code>RequestBuilder</code> (priorité capture &gt; CSV &gt; variable de scénario &gt; <code>${authToken}</code>, encodage de l’URL, échec avant l’envoi si une variable est introuvable), <code>back/service/validation/ScenarioVariables</code>.</dd>
+    <dt>Tests</dt><dd>RequestBuilderTest (8), EngineVariablesTest (4), VariableResolverTest (7), VariablesControllerTest (1), HttpClientExecutionEngineTest (48) réussis. Exécution réelle sur banking-test-api : 59 DELETE sur 59 <code>transferId</code> distincts, aucun 404 ni 409 inattendu.</dd>
+    <dt>Manque</dt><dd>JSONPath limité aux chemins pointés (pas d’index de tableau) ; pas d’échappement JSON des valeurs injectées (voir section 8).</dd></dl></div>
+
+  <div class="feat"><h4><span>L. Onglet « Paramètres » et variables de scénario dans l’UI</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd>Migration 020 (colonnes <code>step.path_params</code>, <code>step.query_params</code>, <code>scenario.variables</code>, <code>scenario.csv_distribution</code>) ; <code>StepRequest</code> et <code>StepResponse</code> (+pathParams, queryParams) ; <code>wiz/StepEditor.tsx</code> (onglet Paramètres, <code>VariableInput</code>), <code>ScenarioVariablesPanel.tsx</code>, <code>variablesModel.ts</code>.</dd>
+    <dt>Tests</dt><dd>variables.test (8) réussi.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>M. Étape « Charge &amp; résumé »</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>wiz/LoadSummaryPanel.tsx</code> ; avertissements de charge (<code>loadWarnings</code>) dans <code>wizardModel.ts</code>.</dd>
+    <dt>Tests</dt><dd>load.test (3) réussi.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>N. Suivi d’exécution en direct</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd>Backend : <code>LiveStats</code> (compteurs <code>LongAdder</code>, débit calculé sur 5 s) rattaché à l’exécution en cours ; <code>ExecutionServiceImpl.getStatus</code> (progression, statistiques en direct) ; <code>ExecutionStatusResponse</code> enrichi. Frontend : <code>front/pages/ExecutionLive.tsx</code>, <code>ExecutionMonitorContext.tsx</code> (monté dans <code>MainLayout</code>, le suivi continue quand on change de page), route <code>executions/live/:id</code>.</dd>
+    <dt>Endpoints</dt><dd><code>GET /api/executions/{id}/status</code> (interrogé chaque seconde), <code>POST /api/executions/{id}/cancel</code></dd>
+    <dt>Tests</dt><dd>ExecutionLiveStatusTest (1), LiveStatsTest (2), ExecutionLive.test (5), ExecutionControllerTest (23) réussis.</dd>
+    <dt>Manque</dt><dd>Les résultats partiels sont perdus à l’annulation (voir T).</dd></dl></div>
+
+  <div class="feat"><h4><span>O. Page de modification complète</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>ScenarioWizard.tsx</code> en mode <code>mode="edit"</code> (sections marquées « Modifié », bouton « Enregistrer » actif seulement après une modification, confirmation avant de quitter) ; route <code>scenarios/:id/edit</code> ; DTO <code>ScenarioFullRequest</code> et <code>ScenarioFullResponse</code> ; <code>ScenarioServiceImpl.updateFull</code> (transactionnel, refus 409 pendant une exécution) ; l’ancienne fenêtre de modification de <code>Scenarios.tsx</code> a été retirée.</dd>
+    <dt>Endpoints</dt><dd><code>PUT /api/scenarios/{id}/full</code></dd>
+    <dt>Tests</dt><dd>ScenarioFullUpdateTest (1), editPage.test (7), ExecutionControllerTest (refus 409) réussis. Vérification réelle : enregistrement en une transaction, refus d’une étape invalide sans rien modifier en base, 409 pendant une exécution.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>P. « Ajouter une étape » dans un panneau latéral</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>wiz/StepDrawer.tsx</code> réutilise <code>StepEditor</code> et propose « Tester cette étape » ; utilisé dans <code>Scenarios.tsx</code>.</dd>
+    <dt>Tests</dt><dd>editPage.test (7), Scenarios.test (7) réussis.</dd>
+    <dt>Manque</dt><dd>Accessibilité et thème non contrôlés visuellement dans un navigateur.</dd></dl></div>
+
+  <div class="feat"><h4><span>Q. Message d’authentification masqué en cas de succès</span><span class="ok">✅ Terminé</span></h4><dl>
+    <dt>Preuve</dt><dd><code>wiz/TestRunPanel.tsx</code> : le bloc d’authentification ne s’affiche plus qu’en cas d’échec.</dd>
+    <dt>Tests</dt><dd>testRun.test (6) réussi.</dd>
+    <dt>Manque</dt><dd>Rien.</dd></dl></div>
+
+  <div class="feat"><h4><span>R. Traçabilité VU / itération / URL finale par résultat</span><span class="part">🟡 Partiel</span></h4><dl>
+    <dt>Fait</dt><dd>Migration 020 (colonnes <code>execution_step_result.virtual_user</code>, <code>iteration</code>, <code>request_url</code>) ; <code>StepOutcome</code> et <code>ExecutionStepResultResponse</code> enrichis ; valeurs enregistrées par <code>ExecutionTransactionHelper</code> et renvoyées par l’API.</dd>
+    <dt>Manque</dt><dd>La page de détail d’une exécution (<code>ExecutionDetail</code>) n’affiche pas encore ces trois champs.</dd></dl></div>
+
+  <div class="feat"><h4><span>S. Options avancées d’étape dans l’éditeur</span><span class="part">🟡 Partiel</span></h4><dl>
+    <dt>Fait</dt><dd>Le backend prend en charge le timeout, le think time et le suivi des redirections au niveau de l’étape.</dd>
+    <dt>Manque</dt><dd><code>StepEditor.tsx</code> ne contient aucun champ pour ces options (0 résultat à la recherche) : on ne peut pas les modifier depuis l’interface.</dd></dl></div>
+
+  <div class="feat"><h4><span>T. Annulation : conservation des résultats partiels</span><span class="part">🟡 Partiel</span></h4><dl>
+    <dt>Fait</dt><dd>L’annulation fonctionne (<code>POST /api/executions/{id}/cancel</code>, avec confirmation dans l’UI) et la fenêtre de fin affiche CANCELLED.</dd>
+    <dt>Manque</dt><dd>La finalisation ignore les exécutions qui ne sont plus RUNNING ou QUEUED : les résultats déjà mesurés sont perdus. Le texte de la fenêtre de confirmation le dit clairement.</dd></dl></div>
+
+  <div class="feat"><h4><span>U. Travail versionné dans Git</span><span class="ko">❌ Non réalisé</span></h4><dl>
+    <dt>Constat</dt><dd>Dernier commit : <code>3003211</code> du 26/09/2026. Les 74 fichiers modifiés et les 68 entrées nouvelles ne sont pas commités.</dd>
+    <dt>Manque</dt><dd>Un ou plusieurs commits, une fois les modifications relues.</dd></dl></div>
+</div>
+
+<!-- ============================ 5. ENDPOINTS ============================ -->
+<div class="section">
+  <h2>5. Endpoints REST du module</h2>
+  <p>Liste extraite des annotations des contrôleurs dans le code actuel.</p>
+  <table class="compact">
+    <thead><tr><th style="width:16mm">Méthode</th><th>Chemin</th><th style="width:62mm">Rôle</th></tr></thead>
+    <tbody>
+      <tr><td colspan="3"><b>ScenarioController</b> — <code>/api/scenarios</code> (20)</td></tr>
+      <tr><td>GET</td><td><code>/api/scenarios</code></td><td>Liste paginée et filtrée</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios</code></td><td>Création</td></tr>
+      <tr><td>GET</td><td><code>/api/scenarios/{id}</code></td><td>Détail</td></tr>
+      <tr><td>PUT</td><td><code>/api/scenarios/{id}</code></td><td>Mise à jour du scénario seul</td></tr>
+      <tr><td>PUT</td><td><code>/api/scenarios/{id}/full</code></td><td>Mise à jour complète, scénario et étapes</td></tr>
+      <tr><td>DELETE</td><td><code>/api/scenarios/{id}</code></td><td>Suppression</td></tr>
+      <tr><td>GET</td><td><code>/api/scenarios/{id}/deletion-impact</code></td><td>Impact d’une suppression</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/archive</code></td><td>Archivage</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/restore</code></td><td>Restauration</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/publish</code></td><td>Publication d’un brouillon</td></tr>
+      <tr><td>DELETE</td><td><code>/api/scenarios/{id}/draft</code></td><td>Suppression d’un brouillon</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/activate</code></td><td>Passage en ACTIVE</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/deactivate</code></td><td>Passage en INACTIVE</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/resume-schedules</code></td><td>Reprise des planifications mises en pause</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/bulk-deletion-impact</code></td><td>Impact d’une suppression groupée</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/bulk-archive</code></td><td>Archivage groupé</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/bulk-restore</code></td><td>Restauration groupée</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/bulk-delete</code></td><td>Suppression groupée</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/bulk-status</code></td><td>Changement de statut groupé</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/bulk-resume-schedules</code></td><td>Reprise groupée des planifications</td></tr>
+      <tr><td colspan="3"><b>StepController</b> — <code>/api/steps</code> (5)</td></tr>
+      <tr><td>GET</td><td><code>/api/steps</code></td><td>Liste (par scénario)</td></tr>
+      <tr><td>GET</td><td><code>/api/steps/{id}</code></td><td>Détail</td></tr>
+      <tr><td>POST</td><td><code>/api/steps</code></td><td>Création</td></tr>
+      <tr><td>PUT</td><td><code>/api/steps/{id}</code></td><td>Mise à jour</td></tr>
+      <tr><td>DELETE</td><td><code>/api/steps/{id}</code></td><td>Suppression</td></tr>
+      <tr><td colspan="3"><b>TestRunController</b> (4)</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/test-run</code></td><td>Test du scénario (accepte un brouillon et <code>upToStep</code>)</td></tr>
+      <tr><td>POST</td><td><code>/api/scenarios/{id}/test-run?stream=true</code></td><td>Même test, résultat diffusé en flux NDJSON</td></tr>
+      <tr><td>POST</td><td><code>/api/steps/{id}/test-run</code></td><td>Test d’une étape</td></tr>
+      <tr><td>POST</td><td><code>/api/steps/{id}/test-run?stream=true</code></td><td>Même test, résultat diffusé en flux NDJSON</td></tr>
+      <tr><td colspan="3"><b>ExecutionController</b> — <code>/api/executions</code> (9), utilisé par le module</td></tr>
+      <tr><td>POST</td><td><code>/api/executions</code></td><td>Lancer une exécution</td></tr>
+      <tr><td>GET</td><td><code>/api/executions</code>, <code>/history</code>, <code>/{id}</code></td><td>Liste, historique, détail</td></tr>
+      <tr><td>GET</td><td><code>/api/executions/{id}/status</code></td><td>État en direct, interrogé chaque seconde</td></tr>
+      <tr><td>POST</td><td><code>/api/executions/{id}/cancel</code>, <code>/{id}/retry</code></td><td>Annulation, relance</td></tr>
+      <tr><td>GET</td><td><code>/api/executions/{id}/report</code>, <code>/report/export</code></td><td>Rapport, export</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================ 6. MIGRATIONS ============================ -->
+<div class="section">
+  <h2>6. Base de données (migrations Liquibase)</h2>
+  <p>Le projet compte 20 migrations. Hibernate tourne avec <code>ddl-auto: validate</code> : chaque colonne des entités doit exister dans le schéma créé par Liquibase. Les quatre migrations ajoutées pour ce module :</p>
+  <table class="compact">
+    <thead><tr><th style="width:68mm">Fichier</th><th>Contenu</th></tr></thead>
+    <tbody>
+      <tr><td><code>017-deletion-history-and-archiving.xml</code></td><td>Historique des suppressions et archivage</td></tr>
+      <tr><td><code>018-scenario-drafts-and-csv-size.xml</code></td><td>Statut DRAFT, colonnes <code>wizard_step</code> et <code>draft_state</code>, <code>csv_data</code> agrandi à VARCHAR(1000000)</td></tr>
+      <tr><td><code>019-scenario-inactive-paused-schedules.xml</code></td><td>Colonne <code>scheduled_execution.paused_by_scenario</code></td></tr>
+      <tr><td><code>020-variables-and-request-params.xml</code></td><td>Colonnes <code>scenario.variables</code> et <code>csv_distribution</code> ; <code>step.path_params</code> et <code>query_params</code> ; <code>execution_step_result.virtual_user</code>, <code>iteration</code> et <code>request_url</code></td></tr>
+    </tbody>
+  </table>
+  <div class="info">Ces migrations sont appliquées et validées à chaque démarrage du contexte Spring dans les tests (base H2) : BackendApplicationTests et les tests de contrôleurs passent.</div>
+</div>
+
+<!-- ============================ 7. TESTS ============================ -->
+<div class="section">
+  <h2>7. Résultats des tests</h2>
+  <div class="kpis">
+    <div class="kpi"><b>652</b><span>tests backend, 0 échec ni erreur</span></div>
+    <div class="kpi"><b>2 min 46</b><span>durée de <code>mvn -o test</code></span></div>
+    <div class="kpi"><b>99</b><span>tests frontend (14 fichiers), 0 échec</span></div>
+    <div class="kpi"><b>11</b><span>nouvelles classes de test backend du module</span></div>
+  </div>
+
+  <h3>7.1 Backend : classes liées au module (extrait de l’exécution du 02/10, 22:11)</h3>
+  <table class="compact">
+    <thead><tr><th>Classe de test</th><th style="width:16mm">Tests</th><th style="width:22mm">Résultat</th><th style="width:28mm">Origine</th></tr></thead>
+    <tbody>
+      <tr><td>controller.ScenarioControllerTest</td><td>22</td><td class="ok">22 / 22</td><td>socle, mis à jour</td></tr>
+      <tr><td>controller.StepControllerTest</td><td>28</td><td class="ok">28 / 28</td><td>socle, mis à jour</td></tr>
+      <tr><td>controller.ExecutionControllerTest</td><td>23</td><td class="ok">23 / 23</td><td>socle, mise à jour (409)</td></tr>
+      <tr><td>controller.DeletionArchivingPagingTest</td><td>7</td><td class="ok">7 / 7</td><td>nouveau</td></tr>
+      <tr><td>controller.ScenarioDraftControllerTest</td><td>4</td><td class="ok">4 / 4</td><td>nouveau</td></tr>
+      <tr><td>controller.ScenarioStatusAndBulkControllerTest</td><td>5</td><td class="ok">5 / 5</td><td>nouveau</td></tr>
+      <tr><td>controller.ScenarioFullUpdateTest</td><td>1</td><td class="ok">1 / 1</td><td>nouveau</td></tr>
+      <tr><td>controller.VariablesControllerTest</td><td>1</td><td class="ok">1 / 1</td><td>nouveau</td></tr>
+      <tr><td>controller.ExecutionLiveStatusTest</td><td>1</td><td class="ok">1 / 1</td><td>nouveau</td></tr>
+      <tr><td>controller.TestRunControllerTest</td><td>4</td><td class="ok">4 / 4</td><td>nouveau</td></tr>
+      <tr><td>service.execution.StepTestRunnerTest</td><td>13</td><td class="ok">13 / 13</td><td>nouveau</td></tr>
+      <tr><td>service.execution.RequestBuilderTest</td><td>8</td><td class="ok">8 / 8</td><td>nouveau</td></tr>
+      <tr><td>service.execution.EngineVariablesTest</td><td>4</td><td class="ok">4 / 4</td><td>nouveau</td></tr>
+      <tr><td>service.execution.LiveStatsTest</td><td>2</td><td class="ok">2 / 2</td><td>nouveau</td></tr>
+      <tr><td>service.execution.CsvDataSourceTest</td><td>12</td><td class="ok">12 / 12</td><td>étendu</td></tr>
+      <tr><td>service.execution.HttpClientExecutionEngineTest</td><td>48</td><td class="ok">48 / 48</td><td>socle, mis à jour</td></tr>
+      <tr><td>service.execution.VariableResolverTest</td><td>7</td><td class="ok">7 / 7</td><td>socle</td></tr>
+      <tr><td>service.execution.JsonPathExtractorTest</td><td>11</td><td class="ok">11 / 11</td><td>socle</td></tr>
+      <tr><td>repository.ScenarioRepositoryTest / StepRepositoryTest</td><td>6 + 6</td><td class="ok">12 / 12</td><td>socle (Scenario… mis à jour)</td></tr>
+      <tr><td><b>Ensemble du backend (66 classes)</b></td><td><b>652</b></td><td class="ok">652 / 652</td><td>BUILD SUCCESS</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Deux tests existants ont été adaptés à des changements de comportement voulus : le moteur échoue avant l’envoi si une variable est introuvable, au lieu d’envoyer <code>${token}</code> tel quel ; une modification pendant une exécution est refusée avec un 409.</p>
+
+  <h3>7.2 Frontend : Vitest (02/10, 21:08)</h3>
+  <table class="compact">
+    <thead><tr><th>Fichier de test</th><th style="width:16mm">Tests</th><th>Fichier de test</th><th style="width:16mm">Tests</th></tr></thead>
+    <tbody>
+      <tr><td>Scenarios.test</td><td>7</td><td>editPage.test</td><td>7</td></tr>
+      <tr><td>ScenarioWizard.test</td><td>5</td><td>variables.test</td><td>8</td></tr>
+      <tr><td>csvModel.test</td><td>7</td><td>testRun.test</td><td>6</td></tr>
+      <tr><td>load.test</td><td>3</td><td>ExecutionLive.test</td><td>5</td></tr>
+      <tr><td>validation.test</td><td>10</td><td>statusMapping.test</td><td>10</td></tr>
+      <tr><td>Pagination.test</td><td>4</td><td>roleMapping.test</td><td>4</td></tr>
+      <tr><td>Applications.test <span class="muted">(hors module)</span></td><td>13</td><td>ApplicationAuthFields.test <span class="muted">(hors module)</span></td><td>10</td></tr>
+      <tr><td colspan="3"><b>Total</b></td><td class="ok">99 / 99</td></tr>
+    </tbody>
+  </table>
+  <p>Le build de production du frontend (<code>tsc</code> puis Vite) réussit.</p>
+
+  <h3>7.3 Vérifications réelles (backend local + banking-test-api)</h3>
+  <ul>
+    <li>Scénario bancaire avec <code>docs/samples/banking-test-api-users.csv</code> : test avec « Tester », puis exécution à 5 VU après réinitialisation, sans erreur.</li>
+    <li>Variables avec <code>docs/samples/banking-variables.csv</code> : 59 DELETE sur 59 <code>transferId</code> distincts, aucun 404 ni 409 inattendu. Aucun VU n’a utilisé l’identifiant d’un autre.</li>
+    <li>Suivi en direct : statut obtenu chaque seconde pendant une exécution réelle.</li>
+    <li>Modification complète : test d’une version non enregistrée (étapes 1 à 2) sans toucher la base ; <code>PUT /full</code> appliqué en une transaction ; étape invalide refusée sans aucune modification ; 409 pendant une exécution.</li>
+  </ul>
+</div>
+
+<!-- ============================ 8. MANQUES ============================ -->
+<div class="section">
+  <h2>8. Ce qui manque, risques et prochaines étapes</h2>
+  <h3>8.1 Manques fonctionnels</h3>
+  <table class="compact">
+    <thead><tr><th>Point</th><th style="width:22mm">Statut</th><th>Ce qu’il reste à faire</th></tr></thead>
+    <tbody>
+      <tr><td>Affichage VU / itération / URL finale</td><td class="part">🟡</td><td>Ajouter les trois colonnes dans <code>ExecutionDetail</code> ; les données sont déjà dans l’API.</td></tr>
+      <tr><td>Timeout, think time et redirections par étape</td><td class="part">🟡</td><td>Ajouter les champs dans <code>StepEditor.tsx</code>, avec les mêmes règles que le backend.</td></tr>
+      <tr><td>Résultats partiels à l’annulation</td><td class="part">🟡</td><td>Finaliser aussi les exécutions CANCELLED pour garder les mesures déjà prises.</td></tr>
+      <tr><td>Commit du travail</td><td class="ko">❌</td><td>Relire puis commiter les 142 entrées de l’arbre de travail.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.2 Limites techniques connues</h3>
+  <ul>
+    <li><b>JSONPath :</b> <code>JsonPathExtractor</code> ne lit que des chemins pointés (<code>$.a.b</code>). Les index de tableau (<code>$.items[0].id</code>) ne sont pas pris en charge.</li>
+    <li><b>Échappement JSON :</b> <code>RequestBuilder</code> injecte les valeurs telles quelles dans le corps. Une valeur CSV contenant <code>"</code> casse le JSON (constaté pendant la démonstration, contourné en changeant les données).</li>
+  </ul>
+
+  <h3>8.3 Anomalies et risques</h3>
+  <ul>
+    <li><b>Fichier vide en trop :</b> <code>perftest-frontend/src/ScenarioWizard.tsx</code> (0 octet), probablement créé par erreur par un outil. Le vrai composant est <code>pages/scenario-wizard/ScenarioWizard.tsx</code>. Ce fichier est à supprimer après confirmation.</li>
+    <li><b>Pas de contrôle visuel :</b> l’UI est testée par Vitest et Testing Library (jsdom), mais aucune vérification visuelle n’a été faite dans un vrai navigateur (mise en page, thème sombre, accessibilité du panneau latéral).</li>
+    <li><b>Travail non versionné :</b> le risque de perte est réel tant que rien n’est commité.</li>
+  </ul>
+
+  <h3>8.4 Prochaines étapes proposées</h3>
+  <ol>
+    <li>Relire et commiter le travail par lots (brouillons et CSV ; INACTIF et actions groupées ; variables ; suivi en direct ; page de modification).</li>
+    <li>Supprimer le fichier vide en trop.</li>
+    <li>Contrôler l’UI dans un navigateur, en thème clair et sombre.</li>
+    <li>Traiter les trois points 🟡, puis l’échappement JSON et les tableaux JSONPath.</li>
+  </ol>
+</div>
+
+</body>
+</html>
