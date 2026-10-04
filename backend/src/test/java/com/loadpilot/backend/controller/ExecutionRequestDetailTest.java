@@ -184,8 +184,17 @@ class ExecutionRequestDetailTest {
         assertThat(df.toString()).doesNotContain("SESSION-ABCDEF-123");
 
         // Gros corps : 10 Ko conserves, taille reelle indiquee.
-        JsonNode bigRows = call(get("/api/executions/" + executionId + "/results").param("stepId", ids[3]).param("virtualUser", "0").param("iteration", "0"), null);
-        JsonNode db = call(get("/api/executions/" + executionId + "/results/" + bigRows.get("content").get(0).get("resultId").asText() + "/detail"), null);
+        // (une iteration peut s'arreter avant cette etape si « Donnees » echoue : premiere requete detaillee de l'etape)
+        JsonNode bigRows = call(get("/api/executions/" + executionId + "/results").param("stepId", ids[3]).param("size", "50"), null);
+        String bigResult = null;
+        for (JsonNode row : bigRows.get("content")) {
+            if (!row.get("detailKind").isNull()) {
+                bigResult = row.get("resultId").asText();
+                break;
+            }
+        }
+        assertThat(bigResult).as("au moins une requete Gros corps detaillee").isNotNull();
+        JsonNode db = call(get("/api/executions/" + executionId + "/results/" + bigResult + "/detail"), null);
         assertThat(db.get("response").get("bodyTruncated").asBoolean()).isTrue();
         assertThat(db.get("response").get("sizeBytes").asLong()).isGreaterThan(30_000);
         assertThat(db.get("response").get("body").asText().length()).isLessThanOrEqualTo(10 * 1024);

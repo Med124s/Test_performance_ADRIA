@@ -124,7 +124,16 @@ class NotificationControllerTest {
             String status = objectMapper.readTree(
                     mockMvc.perform(get("/api/executions/" + executionId).with(as))
                             .andReturn().getResponse().getContentAsString()).get("status").asText();
-            if (!status.equals("QUEUED") && !status.equals("RUNNING")) return executionId;
+            if (!status.equals("QUEUED") && !status.equals("RUNNING")) {
+                // La notification est creee juste APRES le statut final (fin de la tache asynchrone :
+                // metriques, audit) : on attend qu'elle existe plutot que de lire trop tot.
+                long notifDeadline = System.currentTimeMillis() + 5000;
+                while (System.currentTimeMillis() < notifDeadline
+                        && !listNotifications(as).toString().contains(executionId)) {
+                    Thread.sleep(20);
+                }
+                return executionId;
+            }
             Thread.sleep(20);
         }
         throw new AssertionError("Execution " + executionId + " n'a pas termine a temps.");
