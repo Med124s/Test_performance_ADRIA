@@ -37,11 +37,13 @@ public record ScenarioResponse(
         long pausedSchedules,
         /** Variables du scenario (objet JSON) et distribution du CSV. */
         String variables,
-        com.loadpilot.backend.enums.CsvDistribution csvDistribution
+        com.loadpilot.backend.enums.CsvDistribution csvDistribution,
+        /** Detail des requetes conserve a l'execution (aucun / echecs / echecs + echantillon). */
+        com.loadpilot.backend.enums.RequestDetailMode requestDetailMode
 ) {
     public ScenarioResponse withPausedSchedules(long count) {
         return new ScenarioResponse(id, applicationId, applicationName, name, description, status, virtualUsers,
                 rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData, targetRps, createdBy, createdAt,
-                updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, count, variables, csvDistribution);
+                updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, count, variables, csvDistribution, requestDetailMode);
     }
 }

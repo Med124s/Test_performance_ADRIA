@@ -1,4 +1,4 @@
-import { BackendApplicationResponse } from '../../types/backendContracts'
+import { BackendApplicationResponse, BackendRequestDetailMode } from '../../types/backendContracts'
 import { TestRunState } from './TestRunPanel'
 import {
   DraftStep,
@@ -25,9 +25,11 @@ interface LoadSummaryPanelProps {
   csvRows: number | null
   onChange: (patch: Partial<LoadConfig>) => void
   onGoTo: (wizardStep: number) => void
+  /** Réglage « Détail des requêtes » (enregistré avec les informations du scénario). */
+  onRequestDetailModeChange?: (mode: BackendRequestDetailMode) => void
 }
 
-function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo }: LoadSummaryPanelProps) {
+function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange }: LoadSummaryPanelProps) {
   const err = (field: string) => (showErrors ? errors[field] : undefined)
   const setField = (patch: Partial<LoadConfig>) => onChange({ ...patch, presetId: 'custom' })
 
@@ -105,6 +107,22 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                 Aucune des deux : chaque utilisateur joue le scénario une seule fois.
               </div>
             </div>
+            {onRequestDetailModeChange && (
+              <div className="col-12">
+                <label className="pt-form-label" htmlFor="load-request-detail">Détail des requêtes</label>
+                <select id="load-request-detail" className="pt-form-control" value={info.requestDetailMode ?? 'FAILURES_AND_SAMPLE'}
+                  onChange={(e) => onRequestDetailModeChange(e.target.value as BackendRequestDetailMode)}>
+                  <option value="FAILURES_AND_SAMPLE">Échecs + échantillon (recommandé)</option>
+                  <option value="FAILURES">Échecs seulement</option>
+                  <option value="NONE">Aucun</option>
+                </select>
+                <div className="sw-field-hint">
+                  Requête envoyée et réponse reçue de chaque requête conservée, consultables dans le détail de l’exécution
+                  (secrets masqués, corps limités à 10 Ko). Échecs : jusqu’à 20 par type d’erreur et 100 par étape ;
+                  échantillon : les 3 premières itérations de chaque étape pour chaque utilisateur virtuel.
+                </div>
+              </div>
+            )}
           </div>
           {warnings.length > 0 && (
             <div className="sw-inline-alert warn mt-3">

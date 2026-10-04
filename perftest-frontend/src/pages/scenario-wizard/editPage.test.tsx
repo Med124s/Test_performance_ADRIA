@@ -29,7 +29,7 @@ const scenario = (patch: Partial<BackendScenarioResponse> = {}): BackendScenario
   id: 'sc-1', applicationId: 'app-1', applicationName: 'Banking', name: 'Parcours virement', description: 'Virement puis solde', status: 'ACTIVE',
   virtualUsers: 5, rampUpSeconds: 5, durationSeconds: 30, iterations: null, thinkTimeMs: 500, csvData: 'amount\n150', targetRps: null,
   createdBy: 'engineer-test', createdAt: '2026-10-01T10:00:00Z', updatedAt: '2026-10-01T10:00:00Z', archived: false, archivedAt: null,
-  applicationArchived: false, wizardStep: null, draftState: null, pausedSchedules: 0, variables: '{"currency":"MAD"}', csvDistribution: 'PER_VIRTUAL_USER', ...patch,
+  applicationArchived: false, wizardStep: null, draftState: null, pausedSchedules: 0, variables: '{"currency":"MAD"}', csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', ...patch,
 })
 
 const step = (id: string, order: number, name: string, url: string): BackendStepResponse => ({

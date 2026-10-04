@@ -12,7 +12,7 @@ import { ApiError } from '../../services/api/httpClient'
 import { analyzeCsv, validateCsv as validateCsvData } from './csvModel'
 import { QueryParamRow, VARIABLE_NAME, VariableRow, detectPathVariables, splitUrl } from './variablesModel'
 import {
-  BackendCsvDistribution,
+  BackendCsvDistribution, BackendRequestDetailMode,
   BackendHttpMethod,
   BackendScenarioRequest,
   BackendStepRequest,
@@ -59,6 +59,8 @@ export interface ScenarioInfo {
   variables: VariableRow[]
   /** Distribution du CSV entre utilisateurs virtuels. */
   csvDistribution: BackendCsvDistribution
+  /** Détail des requêtes conservé à l'exécution (absent des anciens brouillons : défaut serveur). */
+  requestDetailMode?: BackendRequestDetailMode
 }
 
 /**

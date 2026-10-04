@@ -87,8 +87,20 @@ public record ScenarioRequest(
         String variables,
 
         // Distribution du CSV : PER_VIRTUAL_USER (defaut) ou PER_ITERATION.
-        CsvDistribution csvDistribution
+        CsvDistribution csvDistribution,
+
+        // Detail des requetes conserve a l'execution : NONE, FAILURES ou FAILURES_AND_SAMPLE (defaut).
+        com.loadpilot.backend.enums.RequestDetailMode requestDetailMode
 ) {
+    /** Compatibilite : requete sans reglage du detail des requetes (inchange / defaut). */
+    public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
+            Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
+            String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
+            String variables, CsvDistribution csvDistribution) {
+        this(applicationId, name, description, virtualUsers, rampUpSeconds, durationSeconds, iterations,
+                thinkTimeMs, csvData, targetRps, draft, wizardStep, draftState, variables, csvDistribution, null);
+    }
+
     /** Compatibilite : construit une requete sans parametre de charge
      * explicite (comportement historique a une seule passe). */
     public ScenarioRequest(UUID applicationId, String name, String description) {

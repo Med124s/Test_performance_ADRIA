@@ -38,6 +38,16 @@ public final class RunningExecutionHandle {
     private long completedPauseNanos;
 
     private volatile LiveStats liveStats;
+    private volatile RequestDetailRecorder detailRecorder;
+
+    /** Politique de detail des requetes de cette execution (null = aucun detail). */
+    public RequestDetailRecorder detailRecorder() {
+        return detailRecorder;
+    }
+
+    public void detailRecorder(RequestDetailRecorder recorder) {
+        this.detailRecorder = recorder;
+    }
 
     public boolean isCancelled() {
         return cancelled;

@@ -108,6 +108,12 @@ public class Scenario {
     @Builder.Default
     private com.loadpilot.backend.enums.CsvDistribution csvDistribution = com.loadpilot.backend.enums.CsvDistribution.PER_VIRTUAL_USER;
 
+    /** Detail des requetes conserve a chaque execution (voir RequestDetailRecorder). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "request_detail_mode", nullable = false, length = 30)
+    @Builder.Default
+    private com.loadpilot.backend.enums.RequestDetailMode requestDetailMode = com.loadpilot.backend.enums.RequestDetailMode.FAILURES_AND_SAMPLE;
+
     /** Etape de l'assistant atteinte (0..3) - brouillons uniquement. */
     @Column(name = "wizard_step")
     private Integer wizardStep;

@@ -34,6 +34,9 @@ import {
   BackendExecutionPageResponse,
   BackendExecutionDeletionImpact,
   BackendBulkActionResponse,
+  BackendExecutionRequestDetail,
+  BackendExecutionRequestRow,
+  ExecutionResultsQuery,
   ExecutionHistoryFilters,
 } from '../../types/backendContracts'
 
@@ -60,6 +63,8 @@ export const executionsBackendApi = {
   getByScenario: (scenarioId: string) =>
     springHttp.get<BackendExecutionResponse[]>(`${RESOURCE}?scenarioId=${scenarioId}`),
   getById: (id: string) => springHttp.get<BackendExecutionDetailResponse>(`${RESOURCE}/${id}`),
+  /** Détail sans la liste complète des requêtes (voir getResults, paginé). */
+  getSummary: (id: string) => springHttp.get<BackendExecutionDetailResponse>(`${RESOURCE}/${id}?includeResults=false`),
   /** P0-A — asynchrone : répond 202 avec l'Execution QUEUED (ou déjà RUNNING),
    * jamais le résultat final. Poller GET /{id} ou getStatus(id) pour suivre
    * la progression réelle jusqu'à un statut terminal. */
@@ -86,6 +91,19 @@ export const executionsBackendApi = {
   /** Page de la liste Exécutions : filtres serveur + compteurs par statut (jamais auditée). */
   getPage: (filters: ExecutionHistoryFilters) =>
     springHttp.get<BackendExecutionPageResponse>(`${RESOURCE}/page${buildHistoryQuery(filters)}`),
+  /** Requêtes d'une exécution, paginées côté serveur (filtres étape, VU, itération, échecs). */
+  getResults: (id: string, q: ExecutionResultsQuery) => {
+    const params = new URLSearchParams({ page: String(q.page), size: String(q.size) })
+    if (q.stepId) params.set('stepId', q.stepId)
+    else if (q.stepName) params.set('stepName', q.stepName)
+    if (q.virtualUser != null) params.set('virtualUser', String(q.virtualUser))
+    if (q.iteration != null) params.set('iteration', String(q.iteration))
+    if (q.failedOnly) params.set('failedOnly', 'true')
+    return springHttp.get<BackendPagedResponse<BackendExecutionRequestRow>>(`${RESOURCE}/${id}/results?${params}`)
+  },
+  /** Détail complet d'une requête (404 si non conservé). */
+  getResultDetail: (id: string, resultId: string) =>
+    springHttp.get<BackendExecutionRequestDetail>(`${RESOURCE}/${id}/results/${resultId}/detail`),
   /** Impact d'une suppression (résultats, métriques, exécutions actives ignorées). */
   deletionImpact: (ids: string[]) => springHttp.post<BackendExecutionDeletionImpact>(`${RESOURCE}/deletion-impact`, { ids }),
   /** Suppression définitive d'une exécution terminée ; 409 si active. */

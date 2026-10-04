@@ -5,6 +5,8 @@ import com.loadpilot.backend.dto.request.ExecutionHistoryFilterRequest;
 import com.loadpilot.backend.dto.response.BulkActionResponse;
 import com.loadpilot.backend.dto.response.ExecutionDeletionImpactResponse;
 import com.loadpilot.backend.dto.response.ExecutionPageResponse;
+import com.loadpilot.backend.dto.response.ExecutionRequestDetailResponse;
+import com.loadpilot.backend.dto.response.ExecutionRequestRowResponse;
 import com.loadpilot.backend.service.impl.ExecutionDeletionService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import com.loadpilot.backend.dto.request.ExecutionRequest;
@@ -73,6 +75,7 @@ public class ExecutionController {
     private final AppUserSyncService appUserSyncService;
     private final AuditLogService auditLogService;
     private final ExecutionDeletionService deletionService;
+    private final com.loadpilot.backend.service.impl.ExecutionRequestDetailService requestDetailService;
 
     /** ?scenarioId= filtre par scenario (meme convention que Scenarios/Steps). */
     @GetMapping
@@ -199,8 +202,36 @@ public class ExecutionController {
     @GetMapping("/{id}")
     @Operation(summary = "Detail d'une execution", description = "Inclut le detail de chaque etape reellement executee (ExecutionStepResult).")
     @ApiResponse(responseCode = "404", description = "Execution introuvable")
-    public ExecutionDetailResponse getById(@PathVariable UUID id) {
-        return executionService.getById(id);
+    public ExecutionDetailResponse getById(@PathVariable UUID id,
+            @Parameter(description = "false : sans la liste des requetes (voir /{id}/results, paginee)")
+            @RequestParam(defaultValue = "true") boolean includeResults) {
+        return executionService.getById(id, includeResults);
+    }
+
+    @GetMapping("/{id}/results")
+    @Operation(summary = "Requetes d'une execution (paginees)",
+            description = "Filtres : stepId (ou stepName pour une etape supprimee depuis), virtualUser, iteration, failedOnly. "
+                    + "detailKind indique si le detail complet a ete conserve (FAILURE / SAMPLE). size borne a 5..100.")
+    @ApiResponse(responseCode = "404", description = "Execution introuvable")
+    public PagedResponse<ExecutionRequestRowResponse> results(
+            @PathVariable UUID id,
+            @RequestParam(required = false) UUID stepId,
+            @RequestParam(required = false) String stepName,
+            @RequestParam(required = false) Integer virtualUser,
+            @RequestParam(required = false) Integer iteration,
+            @RequestParam(defaultValue = "false") boolean failedOnly,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return requestDetailService.list(id, stepId, stepName, virtualUser, iteration, failedOnly,
+                Math.max(0, page), Math.min(100, Math.max(5, size)));
+    }
+
+    @GetMapping("/{id}/results/{resultId}/detail")
+    @Operation(summary = "Detail complet d'une requete (requete envoyee, reponse recue, verifications)",
+            description = "Secrets masques, corps limites a 10 Ko. 404 si le detail n'a pas ete conserve pour cette requete.")
+    @ApiResponse(responseCode = "404", description = "Requete introuvable, ou detail non conserve")
+    public ExecutionRequestDetailResponse resultDetail(@PathVariable UUID id, @PathVariable UUID resultId) {
+        return requestDetailService.detail(id, resultId);
     }
 
     @GetMapping("/{id}/status")

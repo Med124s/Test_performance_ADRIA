@@ -391,7 +391,8 @@ public class StepTestRunner {
                 null, checks, urlWarning, List.copyOf(warnings));
     }
 
-    private static List<String> configuredSecrets(ApplicationAuthSpec spec) {
+    /** Secrets de la configuration d'authentification (aussi utilises par le detail des requetes d'une execution). */
+    static List<String> configuredSecrets(ApplicationAuthSpec spec) {
         List<String> secrets = new ArrayList<>();
         ApplicationAuthConfig c = spec.config();
         if (c == null) return secrets;
@@ -402,7 +403,7 @@ public class StepTestRunner {
         return secrets;
     }
 
-    private static List<String> resolvedSecrets(ResolvedAuth auth) {
+    static List<String> resolvedSecrets(ResolvedAuth auth) {
         List<String> secrets = new ArrayList<>();
         auth.headers().values().forEach(value -> {
             secrets.add(value);

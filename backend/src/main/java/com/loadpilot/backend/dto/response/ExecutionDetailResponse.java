@@ -20,6 +20,12 @@ public record ExecutionDetailResponse(
         Integer failedSteps,
         Long duration,
         String errorMessage,
-        List<ExecutionStepResultResponse> results
+        List<ExecutionStepResultResponse> results,
+        /** Detail des requetes conserve (null = execution anterieure : aucun detail). */
+        com.loadpilot.backend.enums.RequestDetailMode requestDetailMode,
+        /** Plafond memoire atteint : l'echantillon des requetes reussies a ete arrete en cours de route. */
+        boolean detailSampleCapReached,
+        long detailedFailures,
+        long detailedSamples
 ) {
 }

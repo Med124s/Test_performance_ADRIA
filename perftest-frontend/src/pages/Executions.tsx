@@ -4,7 +4,6 @@ import {
   BackendApplicationResponse,
   BackendBulkActionResponse,
   BackendExecutionDeletionImpact,
-  BackendExecutionDetailResponse,
   BackendExecutionHistoryResponse,
   BackendExecutionPageResponse,
   BackendExecutionRequest,
@@ -421,25 +420,8 @@ function SpringExecutions() {
     }
   }
 
-  // ---------------------------------------------------------------- détail (modale, inchangée)
-  const [selectedExecutionDetail, setSelectedExecutionDetail] = useState<BackendExecutionDetailResponse | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-  useEffect(() => {
-    if (!selectedExecutionDetail || !isActive(selectedExecutionDetail.status)) return
-    const interval = setInterval(() => {
-      executionsBackendApi.getById(selectedExecutionDetail.id).then(setSelectedExecutionDetail).catch(() => {})
-    }, 2000)
-    return () => clearInterval(interval)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedExecutionDetail?.id, selectedExecutionDetail?.status])
-  const openDetail = (id: string) => {
-    setDetailLoading(true)
-    setSelectedExecutionDetail(null)
-    executionsBackendApi.getById(id)
-      .then(setSelectedExecutionDetail)
-      .catch((err) => showToast(describeApiError(err, "Impossible de charger le détail de l'exécution."), 'danger'))
-      .finally(() => setDetailLoading(false))
-  }
+  // Détail : page dédiée (requêtes par étape, paginées côté serveur) plutôt qu'une modale chargeant tout.
+  const openDetail = (id: string) => navigate(`/executions/detail/${id}`)
 
   const counts = data?.counts
   const totalItems = data?.totalElements ?? 0
@@ -757,111 +739,6 @@ function SpringExecutions() {
               >
                 {launching ? <><i className="bi bi-arrow-repeat me-2 pt-spin"></i>Exécution...</> : <><i className="bi bi-play-fill me-2"></i>Lancer</>}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modale Détail Execution */}
-      {(detailLoading || selectedExecutionDetail) && (
-        <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
-          <div className="modal-dialog modal-dialog-centered modal-lg">
-            <div className="modal-content" style={{ borderRadius: 'var(--pt-radius)', border: '1px solid var(--pt-border)', background: 'var(--pt-card-bg)' }}>
-              <div className="modal-header">
-                <h5 className="modal-title d-flex align-items-center gap-2" style={{ fontSize: '16px', fontWeight: 600 }}>
-                  <i className="bi bi-play-circle text-primary"></i>
-                  Détail de l'exécution {selectedExecutionDetail ? `— ${selectedExecutionDetail.scenarioName}` : ''}
-                </h5>
-                <div className="d-flex align-items-center gap-2">
-                  {selectedExecutionDetail && canWrite && isActive(selectedExecutionDetail.status) && (
-                    <button className="pt-btn-outline" style={{ fontSize: '12px', padding: '0.3rem 0.7rem', color: 'var(--pt-danger)', borderColor: 'var(--pt-danger)' }}
-                      disabled={cancellingId === selectedExecutionDetail.id} onClick={() => handleCancel(selectedExecutionDetail)}>
-                      <i className={`bi ${cancellingId === selectedExecutionDetail.id ? 'bi-arrow-repeat pt-spin' : 'bi-slash-circle'} me-1`}></i>
-                      Annuler
-                    </button>
-                  )}
-                  <button type="button" className="btn-close" onClick={() => setSelectedExecutionDetail(null)} aria-label="Fermer"></button>
-                </div>
-              </div>
-              <div className="modal-body p-4">
-                {detailLoading ? (
-                  <div className="text-center text-muted py-4"><i className="bi bi-arrow-repeat pt-spin me-1"></i>Chargement...</div>
-                ) : selectedExecutionDetail && (
-                  <>
-                    <div className="row g-3 mb-3">
-                      <div className="col-6 col-md-3">
-                        <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Statut</div>
-                        <span className={`pt-pill ${statusPillClass[selectedExecutionDetail.status]}`}>{statusLabel[selectedExecutionDetail.status]}</span>
-                      </div>
-                      <div className="col-6 col-md-3">
-                        <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Durée</div>
-                        <div style={{ fontSize: '13.5px', fontWeight: 600 }}>{formatDuration(selectedExecutionDetail.duration)}</div>
-                      </div>
-                      <div className="col-6 col-md-3">
-                        <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Démarrée le</div>
-                        <div style={{ fontSize: '13.5px', fontWeight: 600 }}>{formatDate(selectedExecutionDetail.startedAt)}</div>
-                      </div>
-                      <div className="col-6 col-md-3">
-                        <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Terminée le</div>
-                        <div style={{ fontSize: '13.5px', fontWeight: 600 }}>{selectedExecutionDetail.finishedAt ? formatDate(selectedExecutionDetail.finishedAt) : '—'}</div>
-                      </div>
-                    </div>
-                    <div className="d-flex flex-wrap gap-2 mb-3">
-                      <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-people me-1"></i>{selectedExecutionDetail.virtualUsers} VU</span>
-                      <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-graph-up-arrow me-1"></i>Ramp-up {selectedExecutionDetail.rampUpSeconds}s</span>
-                      {selectedExecutionDetail.durationSeconds != null && (
-                        <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-stopwatch me-1"></i>Durée {selectedExecutionDetail.durationSeconds}s</span>
-                      )}
-                      {selectedExecutionDetail.iterations != null && (
-                        <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-arrow-repeat me-1"></i>{selectedExecutionDetail.iterations} itération(s)</span>
-                      )}
-                    </div>
-                    {selectedExecutionDetail.errorMessage && (
-                      <div className="pt-alert-banner danger mb-3">
-                        <i className="bi bi-exclamation-triangle-fill"></i>
-                        {selectedExecutionDetail.errorMessage}
-                      </div>
-                    )}
-                    <h6 style={{ fontSize: '14px', fontWeight: 600 }}>
-                      Résultats par étape ({selectedExecutionDetail.results.length}
-                      {selectedExecutionDetail.totalSteps > selectedExecutionDetail.results.length
-                        ? ` sur ${selectedExecutionDetail.totalSteps} — arrêt à la première étape en échec`
-                        : ''})
-                    </h6>
-                    <div className="pt-table-wrapper" style={{ maxHeight: '320px', overflowY: 'auto' }}>
-                      <table className="pt-table" style={{ fontSize: '12.5px' }}>
-                        <thead>
-                          <tr><th>#</th><th>Étape</th><th>HTTP</th><th>Temps</th><th>Résultat</th></tr>
-                        </thead>
-                        <tbody>
-                          {selectedExecutionDetail.results.map((r, idx) => (
-                            <tr key={idx}>
-                              <td>{idx + 1}</td>
-                              <td>
-                                <span style={{ padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '10.5px', fontWeight: 700, background: 'var(--pt-primary-light)', color: 'var(--pt-primary)' }}>{r.method}</span>
-                                {' '}<span style={{ fontWeight: 600 }}>{r.stepName}</span>{' '}
-                                <code style={{ fontSize: '11px', color: 'var(--pt-text-muted)' }}>{r.url}</code>
-                              </td>
-                              <td>{r.httpStatus ?? '—'}</td>
-                              <td>{r.responseTime} ms</td>
-                              <td>
-                                {r.success ? (
-                                  <span style={{ color: 'var(--pt-success)', fontWeight: 600 }}><i className="bi bi-check-lg me-1"></i>Réussi</span>
-                                ) : (
-                                  <span style={{ color: 'var(--pt-danger)', fontWeight: 600 }} title={r.error ?? undefined}><i className="bi bi-x-lg me-1"></i>Échec{r.error ? ` — ${r.error}` : ''}</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="modal-footer d-flex justify-content-end">
-                <button className="pt-btn-outline" onClick={() => setSelectedExecutionDetail(null)}>Fermer</button>
-              </div>
             </div>
           </div>
         </div>

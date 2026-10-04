@@ -33,6 +33,7 @@ import com.loadpilot.backend.service.execution.CancellationAttempt;
 import com.loadpilot.backend.service.execution.CancellationOutcome;
 import com.loadpilot.backend.service.execution.ExecutionEngine;
 import com.loadpilot.backend.service.execution.PreparedExecution;
+import com.loadpilot.backend.service.execution.RequestDetailRecorder;
 import com.loadpilot.backend.service.execution.RunningExecutionHandle;
 import com.loadpilot.backend.service.execution.RunningExecutionRegistry;
 import com.loadpilot.backend.service.execution.ScenarioExecutionOutcome;
@@ -93,6 +94,11 @@ public class ExecutionServiceImpl implements ExecutionService {
     private final ExecutorService loadTestExecutor;
     private final PerformanceStatisticsService performanceStatisticsService;
     private final NotificationService notificationService;
+    private final com.loadpilot.backend.repository.ExecutionRequestDetailRepository requestDetailRepository;
+
+    /** Plafond memoire du detail des requetes par execution (Mo) - voir RequestDetailRecorder. */
+    @org.springframework.beans.factory.annotation.Value("${app.execution.request-detail.max-memory-mb:50}")
+    private long requestDetailMaxMemoryMb = 50;
 
     @Override
     public ExecutionResponse execute(ExecutionRequest request, UUID triggeredByAppUserId) {
@@ -132,6 +138,8 @@ public class ExecutionServiceImpl implements ExecutionService {
             PreparedExecution prepared = transactionHelper.prepareAndStart(scenarioId, triggeredByAppUserId, scheduleId);
 
             RunningExecutionHandle handle = registry.registerReserved(prepared.executionId(), virtualUsers);
+            // Detail des requetes (echecs + echantillon), plafond memoire global par execution.
+            handle.detailRecorder(new RequestDetailRecorder(prepared.requestDetailMode(), requestDetailMaxMemoryMb * 1024L * 1024L));
             // A partir d'ici, c'est registry.unregister() (voir runAsync,
             // bloc finally) qui a la responsabilite exclusive de liberer
             // cette capacite - jamais les deux a la fois.
@@ -181,7 +189,7 @@ public class ExecutionServiceImpl implements ExecutionService {
             }
 
             Execution finalized = transactionHelper.finalizeExecution(prepared.executionId(), outcome, handle.isCancelled(),
-                    handle.cancellationReason());
+                    handle.cancellationReason(), handle.detailRecorder() != null && handle.detailRecorder().sampleCapReached());
 
             // Transaction courte separee, APRES finalisation (Phase 10) - voir
             // commentaire historique : un echec de generation de Metric ne
@@ -247,10 +255,17 @@ public class ExecutionServiceImpl implements ExecutionService {
     @Override
     @Transactional(readOnly = true)
     public ExecutionDetailResponse getById(UUID id) {
+        return getById(id, true);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ExecutionDetailResponse getById(UUID id, boolean includeResults) {
         Execution execution = executionRepository.findByIdWithScenarioAndApplication(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + id));
 
-        List<ExecutionStepResult> results = executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id);
+        List<ExecutionStepResult> results = includeResults
+                ? executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id) : List.of();
         String applicationBaseUrl = execution.getScenario().getApplication().getUrl();
 
         List<ExecutionStepResultResponse> resultResponses = results.stream()
@@ -261,7 +276,9 @@ public class ExecutionServiceImpl implements ExecutionService {
         return new ExecutionDetailResponse(base.id(), base.scenarioId(), base.scenarioName(), base.startedAt(),
                 base.finishedAt(), base.status(), base.virtualUsers(), base.rampUpSeconds(), base.durationSeconds(),
                 base.iterations(), base.totalSteps(), base.successfulSteps(), base.failedSteps(),
-                base.duration(), base.errorMessage(), resultResponses);
+                base.duration(), base.errorMessage(), resultResponses, execution.getRequestDetailMode(),
+                execution.isDetailSampleCapReached(), requestDetailRepository.countByExecutionIdAndKind(id, "FAILURE"),
+                requestDetailRepository.countByExecutionIdAndKind(id, "SAMPLE"));
     }
 
     @Override

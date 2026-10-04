@@ -49,6 +49,9 @@ public interface ExecutionService {
 
     ExecutionDetailResponse getById(UUID id);
 
+    /** includeResults = false : sans la liste complete des requetes (plusieurs milliers en test de charge). */
+    ExecutionDetailResponse getById(UUID id, boolean includeResults);
+
     /** Vue allegee pour du polling frequent (P0-A) - voir ExecutionStatusResponse. */
     ExecutionStatusResponse getStatus(UUID id);
 

@@ -44,7 +44,7 @@ const draftScenario = (patch: Partial<BackendScenarioResponse> = {}): BackendSce
   id: 'sc-1', applicationId: 'app-1', applicationName: 'Banking', name: 'Brouillon virement', description: null, status: 'DRAFT',
   virtualUsers: 1, rampUpSeconds: 0, durationSeconds: null, iterations: 1, thinkTimeMs: 0, csvData: 'amount\n150', targetRps: null,
   createdBy: 'engineer-test', createdAt: '2026-10-01T10:00:00Z', updatedAt: '2026-10-01T10:00:00Z', archived: false, archivedAt: null,
-  applicationArchived: false, wizardStep: null, draftState: null, pausedSchedules: 0, variables: null, csvDistribution: 'PER_VIRTUAL_USER', ...patch,
+  applicationArchived: false, wizardStep: null, draftState: null, pausedSchedules: 0, variables: null, csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', ...patch,
 })
 
 beforeEach(() => {

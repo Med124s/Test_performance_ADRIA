@@ -1,35 +1,35 @@
 package com.loadpilot.backend.service.execution;
 
+import com.loadpilot.backend.enums.RequestDetailMode;
 import com.loadpilot.backend.service.auth.ApplicationAuthSpec;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Resultat de la preparation transactionnelle courte (voir
- * ExecutionTransactionHelper.prepareAndStart) - donne a l'engine tout ce
- * dont il a besoin sans jamais lui passer d'entite JPA geree.
- * "loadSpec" est la copie figee (deja persistee sur l'Execution) des
- * parametres de charge du Scenario au moment du lancement.
- *
- * P1-B : "triggeredByAppUserId"/"scheduleId" sont de simples UUID (jamais
- * une entite JPA geree transportee hors de sa transaction d'origine - voir
- * ExecutionService.execute) - utilises par runAsync UNIQUEMENT pour
- * construire la Notification emise une fois l'Execution terminee
- * (NotificationServiceImpl.create resout une reference fraiche dans SA
- * PROPRE transaction), jamais pour une nouvelle logique de securite. */
+/**
+ * Tout ce qu'il faut pour lancer reellement une Execution, copie dans la transaction courte de
+ * preparation (voir ExecutionTransactionHelper.prepareAndStart) - jamais une entite JPA geree
+ * transportee hors de sa transaction.
+ */
 public record PreparedExecution(
         UUID executionId,
         List<StepExecutionSpec> steps,
         String applicationBaseUrl,
         ApplicationAuthSpec auth,
         LoadTestSpec loadSpec,
-        /** P1-Q Etape B - une ligne de variables par VU, deja parsee (voir
-         * CsvDataSource) - liste vide = aucune donnee CSV sur ce Scenario. */
         List<Map<String, String>> vuVariableRows,
-        /** Sources de variables completes (CSV + distribution, variables du scenario). */
         VariableSources variableSources,
         String scenarioName,
         UUID triggeredByAppUserId,
-        UUID scheduleId
+        UUID scheduleId,
+        /** Detail des requetes a conserver (voir RequestDetailRecorder). */
+        RequestDetailMode requestDetailMode
 ) {
+    /** Compatibilite : sans detail des requetes. */
+    public PreparedExecution(UUID executionId, List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
+            LoadTestSpec loadSpec, List<Map<String, String>> vuVariableRows, VariableSources variableSources, String scenarioName,
+            UUID triggeredByAppUserId, UUID scheduleId) {
+        this(executionId, steps, applicationBaseUrl, auth, loadSpec, vuVariableRows, variableSources, scenarioName,
+                triggeredByAppUserId, scheduleId, RequestDetailMode.NONE);
+    }
 }

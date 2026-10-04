@@ -16,7 +16,9 @@ import {
 } from 'chart.js'
 import TopBar from '../components/TopBar'
 import { useAuth } from '../context/AuthContext'
-import { BackendExecutionDetailResponse, BackendMetricResponse } from '../types/backendContracts'
+import { BackendExecutionDetailResponse, BackendMetricResponse, BackendStepReportEntry } from '../types/backendContracts'
+import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
+import StepRequestsExplorer from './execution-detail/StepRequestsExplorer'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { metricsBackendApi } from '../services/api/metricsBackend'
 import { ApiError } from '../services/api/httpClient'
@@ -94,6 +96,7 @@ function formatDurationMs(ms: number | null): string {
 // ------------------------------------------------------------
 function SpringExecutionDetail({ id }: { id: string }) {
   const navigate = useNavigate()
+  const monitor = useExecutionMonitor()
   const { authProvider, rawRoles } = useAuth()
   const isKeycloak = authProvider === 'keycloak'
   // POST /api/executions/{id}/retry est reserve a SUPER_ADMIN et
@@ -111,7 +114,9 @@ function SpringExecutionDetail({ id }: { id: string }) {
     let cancelled = false
     setLoading(true)
     setError(null)
-    executionsBackendApi.getById(id)
+    // Résumé sans la liste complète des requêtes (des milliers en test de charge) :
+    // les requêtes s'affichent par étape, paginées côté serveur (StepRequestsExplorer).
+    executionsBackendApi.getSummary(id)
       .then(async (exec) => {
         if (cancelled) return
         setExecution(exec)
@@ -133,17 +138,28 @@ function SpringExecutionDetail({ id }: { id: string }) {
   useEffect(() => {
     if (!isActive) return
     const interval = setInterval(() => {
-      executionsBackendApi.getById(id).then(setExecution).catch(() => {})
+      executionsBackendApi.getSummary(id).then(setExecution).catch(() => {})
     }, 2000)
     return () => clearInterval(interval)
   }, [id, isActive])
+
+  // Étapes (totaux par étape) : rechargées quand le statut change (fin d'exécution comprise).
+  const [steps, setSteps] = useState<BackendStepReportEntry[]>([])
+  useEffect(() => {
+    if (!execution) return
+    let alive = true
+    executionsBackendApi.getReport(id).then((r) => { if (alive) setSteps(r.steps) }).catch(() => {})
+    return () => { alive = false }
+  }, [id, execution?.status])
 
   const handleRetry = async () => {
     if (!canWrite || retrying) return
     setRetrying(true)
     try {
       const result = await executionsBackendApi.retry(id)
-      navigate(`/executions/detail/${result.id}`)
+      // Même écran que « Enregistrer et lancer » : suivi en direct de la nouvelle exécution.
+      monitor.track(result.id, result.scenarioName)
+      navigate(`/executions/live/${result.id}`)
     } catch (err) {
       setError(describeApiError(err, 'Erreur lors de la relance.'))
     } finally {
@@ -247,15 +263,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      {execution.errorMessage && (
-        <div className="pt-alert-banner danger mb-3">
-          <i className="bi bi-exclamation-triangle-fill"></i>
-          {execution.errorMessage}
-        </div>
-      )}
-
       <div className="pt-card mb-3 py-3 px-3 d-flex align-items-center flex-wrap gap-3">
-        <span className={`pt-pill ${meta.cls}`} style={{ fontSize: '13px' }}><i className={`bi ${meta.icon}`}></i> {meta.text}</span>
         <span className="pt-pill success" style={{ fontSize: '13px' }}><i className="bi bi-check-circle-fill"></i> {execution.successfulSteps} étape(s) réussie(s)</span>
         <span className="pt-pill danger" style={{ fontSize: '13px' }}><i className="bi bi-x-circle-fill"></i> {execution.failedSteps} étape(s) échouée(s)</span>
         {execution.totalSteps > executedSteps && (
@@ -274,7 +282,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
       </div>
 
       <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)' }}>
-        <i className="bi bi-speedometer2" style={{ color: 'var(--pt-primary)' }}></i> PERFORMANCE (données réelles Spring Boot)
+        <i className="bi bi-speedometer2" style={{ color: 'var(--pt-primary)' }}></i> PERFORMANCE
       </div>
       <div className="row g-3 mb-4">
         {[
@@ -296,47 +304,15 @@ function SpringExecutionDetail({ id }: { id: string }) {
         ))}
       </div>
 
-      <div className="pt-card mb-4">
-        <div className="pt-card-title mb-3"><i className="bi bi-list-check me-2 text-primary"></i>Résultat de chaque étape</div>
-        <div className="pt-table-wrapper">
-          <table className="pt-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Méthode & Endpoint</th>
-                <th>Code HTTP</th>
-                <th>Temps de réponse</th>
-                <th>Résultat</th>
-                <th>Horodatage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {execution.results.length === 0 ? (
-                <tr><td colSpan={6} className="text-center text-muted py-3">Aucun résultat pour cette exécution.</td></tr>
-              ) : execution.results.map((r, i) => (
-                <tr key={i}>
-                  <td>{i + 1}</td>
-                  <td>
-                    <span className={`badge me-2 ${r.method === 'GET' ? 'bg-primary-subtle text-primary' : 'bg-success-subtle text-success'}`} style={{ minWidth: '45px' }}>{r.method}</span>
-                    <span className="font-monospace fw-medium" style={{ fontSize: '13px' }}>{r.url}</span>
-                    <div className="text-muted" style={{ fontSize: '11px' }}>{r.stepName}</div>
-                  </td>
-                  <td><span className="badge bg-light text-dark border">{r.httpStatus ?? '—'}</span></td>
-                  <td className={!r.success ? 'fw-bold text-danger' : 'fw-bold'}>{r.responseTime} ms</td>
-                  <td>
-                    <span className={`pt-pill ${r.success ? 'success' : 'danger'}`}>
-                      <i className={`bi ${r.success ? 'bi-check-circle-fill' : 'bi-x-circle-fill'} me-1`}></i>
-                      {r.success ? 'Réussi' : 'Échec'}
-                    </span>
-                    {r.error && <div className="text-danger" style={{ fontSize: '11.5px', marginTop: '2px' }}>{r.error}</div>}
-                  </td>
-                  <td style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>{formatDate(r.timestamp)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <StepRequestsExplorer
+        executionId={id}
+        virtualUsers={execution.virtualUsers}
+        steps={steps}
+        requestDetailMode={execution.requestDetailMode}
+        detailSampleCapReached={!!execution.detailSampleCapReached}
+        detailedFailures={execution.detailedFailures ?? 0}
+        detailedSamples={execution.detailedSamples ?? 0}
+      />
     </div>
   )
 }

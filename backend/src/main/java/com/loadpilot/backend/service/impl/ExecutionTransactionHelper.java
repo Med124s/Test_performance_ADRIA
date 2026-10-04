@@ -2,7 +2,9 @@ package com.loadpilot.backend.service.impl;
 
 import com.loadpilot.backend.entity.AppUser;
 import com.loadpilot.backend.entity.Execution;
+import com.loadpilot.backend.entity.ExecutionRequestDetail;
 import com.loadpilot.backend.entity.ExecutionStepResult;
+import com.loadpilot.backend.service.execution.RequestDetail;
 import com.loadpilot.backend.entity.Scenario;
 import com.loadpilot.backend.entity.Step;
 import com.loadpilot.backend.enums.ExecutionStatus;
@@ -66,6 +68,8 @@ public class ExecutionTransactionHelper {
     private final ExecutionStepResultRepository executionStepResultRepository;
     private final com.loadpilot.backend.repository.AppUserRepository appUserRepository;
     private final ApplicationAuthSupport authSupport;
+    private final com.loadpilot.backend.repository.ExecutionRequestDetailRepository requestDetailRepository;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     /**
      * Cree reellement l'Execution en base avec le statut QUEUED (P0-A) -
@@ -124,6 +128,7 @@ public class ExecutionTransactionHelper {
                 .successfulSteps(0)
                 .failedSteps(0)
                 .triggeredBy(triggeredByRef)
+                .requestDetailMode(scenario.getRequestDetailMode())
                 .build();
         Execution saved = executionRepository.saveAndFlush(execution);
 
@@ -147,7 +152,7 @@ public class ExecutionTransactionHelper {
                 ScenarioVariables.parse(scenario.getVariables()), specs);
 
         return new PreparedExecution(saved.getId(), specs, applicationBaseUrl, auth, loadSpec, vuVariableRows, variableSources,
-                scenario.getName(), triggeredByAppUserId, scheduleId);
+                scenario.getName(), triggeredByAppUserId, scheduleId, scenario.getRequestDetailMode());
     }
 
     /**
@@ -199,6 +204,13 @@ public class ExecutionTransactionHelper {
     @Transactional
     public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
             String cancellationReason) {
+        return finalizeExecution(executionId, outcome, wasCancelled, cancellationReason, false);
+    }
+
+    /** "detailSampleCapReached" : plafond memoire du detail des requetes atteint pendant l'execution. */
+    @Transactional
+    public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
+            String cancellationReason, boolean detailSampleCapReached) {
         Execution execution = executionRepository.findByIdForUpdate(executionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + executionId));
 
@@ -231,8 +243,12 @@ public class ExecutionTransactionHelper {
                     .iteration(stepOutcome.iteration())
                     .requestUrl(stepOutcome.requestUrl())
                     .build();
-            executionStepResultRepository.save(result);
+            ExecutionStepResult savedResult = executionStepResultRepository.save(result);
+            if (stepOutcome.detail() != null) {
+                requestDetailRepository.save(toDetailEntity(stepOutcome.detail(), savedResult, execution));
+            }
         }
+        execution.setDetailSampleCapReached(detailSampleCapReached);
 
         long successCount = outcome.stepOutcomes().stream().filter(StepOutcome::success).count();
         long failCount = outcome.stepOutcomes().size() - successCount;
@@ -369,6 +385,52 @@ public class ExecutionTransactionHelper {
         closePause(execution, Instant.now());
         execution.setStatus(ExecutionStatus.RUNNING);
         return executionRepository.saveAndFlush(execution);
+    }
+
+    // ------------------------------------------------------------ detail des requetes
+
+    private static final int HEADERS_MAX = 16000;
+    private static final int CHECKS_MAX = 8000;
+
+    private ExecutionRequestDetail toDetailEntity(RequestDetail d, ExecutionStepResult result, Execution execution) {
+        return ExecutionRequestDetail.builder()
+                .result(result)
+                .execution(execution)
+                .kind(d.kind().name())
+                .requestMethod(d.method())
+                .requestUrl(d.url())
+                .requestHeaders(headersJson(d.requestHeaders()))
+                .requestBody(d.requestBody())
+                .requestBodyTruncated(d.requestBodyTruncated())
+                .responseStatus(d.responseStatus())
+                .responseHeaders(headersJson(d.responseHeaders()))
+                .responseBody(d.responseBody())
+                .responseBodyTruncated(d.responseBodyTruncated())
+                .responseSizeBytes(d.responseSizeBytes())
+                .checks(d.checks() == null ? null : limit(writeJson(d.checks()), CHECKS_MAX))
+                .build();
+    }
+
+    /** En-tetes en JSON ; valeurs raccourcies si l'ensemble depasse la colonne (jamais d'echec d'ecriture). */
+    private String headersJson(Map<String, String> headers) {
+        if (headers == null) return null;
+        String json = writeJson(headers);
+        if (json.length() <= HEADERS_MAX) return json;
+        Map<String, String> shortened = new java.util.LinkedHashMap<>();
+        headers.forEach((k, v) -> shortened.put(k, v != null && v.length() > 200 ? v.substring(0, 200) + "…" : v));
+        return limit(writeJson(shortened), HEADERS_MAX);
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private static String limit(String s, int max) {
+        return s == null || s.length() <= max ? s : s.substring(0, max);
     }
 
     /** Termine la pause en cours (s'il y en a une) en cumulant sa duree. */

@@ -365,6 +365,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       draft: true,
       variables: variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
+      requestDetailMode: info.requestDetailMode ?? null,
     }
     let id = scenarioId
     if (id) {
@@ -420,6 +421,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       // Variables invalides : conservées dans l'état du brouillon, base inchangée.
       variables: scenarioVariableErrors.length ? null : variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
+      requestDetailMode: info.requestDetailMode ?? null,
       wizardStep: current,
       draftState: serializeDraft({ info: savedInfo, steps, load, maxReached: Math.max(maxReached, current), csvFileName, testedSignature: testPassed ? signature : null }),
     }
@@ -998,6 +1000,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
               csvRows={csvAnalysis.error || csvAnalysis.columns.length === 0 ? null : csvAnalysis.rows.length}
               onChange={(patch) => setLoad((p) => ({ ...p, ...patch }))}
               onGoTo={goTo}
+              onRequestDetailModeChange={(requestDetailMode) => setInfo((p) => ({ ...p, requestDetailMode }))}
             />
             {!isEdit && finalError && <div className="sw-inline-alert ko mt-3"><i className="bi bi-exclamation-octagon"></i><span>{finalError}</span></div>}
           </>

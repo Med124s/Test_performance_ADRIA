@@ -167,6 +167,14 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             return new ScenarioExecutionOutcome(List.of(), ExecutionStatus.FAILED, "Authentification : " + e.getMessage());
         }
 
+        // Detail des requetes : secrets d'authentification connus des maintenant, toujours masques.
+        RequestDetailRecorder recorder = handle.detailRecorder();
+        if (recorder != null && recorder.enabled()) {
+            List<String> secrets = new ArrayList<>(StepTestRunner.configuredSecrets(auth));
+            secrets.addAll(StepTestRunner.resolvedSecrets(resolvedAuth));
+            recorder.baseSecrets(secrets);
+        }
+
         int virtualUsers = Math.max(1, loadSpec.virtualUsers());
         // Etalement reel du ramp-up : chaque VU demarre staggerMs apres le
         // precedent, jamais tous instantanement (voir rapport P0-A section 8).
@@ -317,7 +325,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 if (!handle.awaitIfPaused()) break;
                 HttpClient client = Boolean.FALSE.equals(step.followRedirects()) ? clientNotFollowing : clientFollowing;
                 StepOutcome outcome = executeStep(client, step, stepIndex + 1, applicationBaseUrl, resolvedAuth, variables,
-                        sources, virtualUser, iteration);
+                        sources, virtualUser, iteration, handle.detailRecorder());
                 results.add(outcome);
                 if (live != null) live.record(stepIndex, outcome);
                 // P1-Q Etape B - pause specifique a CETTE etape, en plus du
@@ -349,17 +357,23 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
     }
 
     private StepOutcome executeStep(HttpClient client, StepExecutionSpec step, int stepNumber, String applicationBaseUrl,
-            ResolvedAuth resolvedAuth, VariableContext variables, VariableSources sources, int virtualUser, int iteration) {
+            ResolvedAuth resolvedAuth, VariableContext variables, VariableSources sources, int virtualUser, int iteration,
+            RequestDetailRecorder recorder) {
         // Requete reelle construite depuis les gabarits de l'etape (voir RequestBuilder) :
         // variables de chemin / query encodees, priorite capture > CSV > scenario > authToken.
         RequestBuilder.BuiltRequest built = RequestBuilder.build(step, applicationBaseUrl, variables::get, objectMapper);
         String requestUrl = traceableUrl(built.url());
         long effectiveTimeoutSeconds = step.timeoutSeconds() != null ? step.timeoutSeconds() : timeoutSeconds;
+        // Detail des requetes (echecs + echantillon) : voir RequestDetailRecorder. Desactive (NONE ou
+        // aucune politique), le comportement historique est strictement inchange.
+        boolean detailOn = recorder != null && recorder.enabled();
+        DetailContext detail = detailOn ? new DetailContext(recorder, step, stepNumber, iteration, variables, resolvedAuth) : null;
         if (!built.missing().isEmpty()) {
             // Jamais de requete envoyee avec un ${...} brut : echec explicite avant l'envoi.
-            return new StepOutcome(step.stepId(), null, 0, false,
+            StepOutcome outcome = new StepOutcome(step.stepId(), null, 0, false,
                     RequestBuilder.missingMessage(built.missing(), stepNumber, sources.captureStepByVariable()),
                     Instant.now(), virtualUser, iteration, requestUrl);
+            return detailOn ? detail.attach(outcome, built.url(), built.headers(), built.body(), null, null, null, null) : outcome;
         }
         String url = resolvedAuth.applyToUrl(built.url());
         long startedAt = System.nanoTime();
@@ -368,47 +382,146 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 && step.captureJsonPath() != null && !step.captureJsonPath().isBlank();
         boolean hasAssertion = step.assertionBodyContains() != null && !step.assertionBodyContains().isBlank();
 
+        HttpRequest request = null;
         try {
-            HttpRequest request = buildRequest(step, url, built, resolvedAuth, effectiveTimeoutSeconds);
+            request = buildRequest(step, url, built, resolvedAuth, effectiveTimeoutSeconds);
             boolean readBody = hasAssertion || captureConfigured;
-            // P0-B : corps jamais lu ni stocke par defaut (discarding) ; lu uniquement si l'etape
-            // configure une assertion de contenu ou une capture de variable.
-            HttpResponse<String> response = client.send(request,
-                    readBody ? HttpResponse.BodyHandlers.ofString() : discardingAsString());
+            int statusCode;
+            java.net.http.HttpHeaders responseHeaders;
+            String body = null;
+            CappedBody keptBody = null;
+            if (readBody) {
+                // Assertion de contenu ou capture : corps complet necessaire.
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                statusCode = response.statusCode();
+                responseHeaders = response.headers();
+                body = response.body();
+                if (detailOn) keptBody = CappedBody.of(body, RequestDetailRecorder.BODY_LIMIT_BYTES);
+            } else if (detailOn) {
+                // Detail actif : seuls les 10 premiers Ko du corps sont gardes en memoire.
+                HttpResponse<CappedBody> response = client.send(request, CappedBody.handler(RequestDetailRecorder.BODY_LIMIT_BYTES));
+                statusCode = response.statusCode();
+                responseHeaders = response.headers();
+                keptBody = response.body();
+            } else {
+                // P0-B : corps jamais lu ni stocke par defaut (discarding).
+                HttpResponse<String> response = client.send(request, discardingAsString());
+                statusCode = response.statusCode();
+                responseHeaders = response.headers();
+            }
             long elapsed = elapsedMs(startedAt);
-            boolean statusOk = evaluateSuccess(step, response.statusCode());
-            boolean assertionOk = !hasAssertion || response.body().contains(step.assertionBodyContains());
+            boolean statusOk = evaluateSuccess(step, statusCode);
+            boolean assertionOk = !hasAssertion || body.contains(step.assertionBodyContains());
             boolean success = statusOk && assertionOk;
             String error = !statusOk
-                    ? "Reponse HTTP " + response.statusCode() + " (attendu " + describeExpectation(step) + ")"
+                    ? "Reponse HTTP " + statusCode + " (attendu " + describeExpectation(step) + ")"
                     : !assertionOk
                     ? "Assertion echouee : la reponse ne contient pas le contenu attendu."
                     : null;
             // Capture apres evaluation, quel que soit le resultat de l'assertion ; propre a ce VU
             // et a l'iteration en cours (VariableContext, videe au debut de chaque iteration).
+            String captured = null;
             if (captureConfigured) {
-                String captured = JsonPathExtractor.extract(objectMapper, response.body(), step.captureJsonPath());
+                captured = JsonPathExtractor.extract(objectMapper, body, step.captureJsonPath());
                 if (captured != null) {
                     variables.capture(step.captureVariableName().trim(), captured);
                 }
             }
-            return new StepOutcome(step.stepId(), response.statusCode(), elapsed, success, error, Instant.now(),
+            StepOutcome outcome = new StepOutcome(step.stepId(), statusCode, elapsed, success, error, Instant.now(),
                     virtualUser, iteration, requestUrl);
+            if (!detailOn) return outcome;
+            RequestDetail.Checks checks = new RequestDetail.Checks(describeExpectation(step), statusOk,
+                    hasAssertion ? step.assertionBodyContains() : null, hasAssertion ? assertionOk : null,
+                    captureConfigured ? step.captureVariableName().trim() : null, captureConfigured ? step.captureJsonPath() : null,
+                    captured, captureConfigured ? captured != null : null);
+            return detail.attach(outcome, url, headerMap(request.headers()), built.body(), statusCode, headerMap(responseHeaders),
+                    keptBody, checks);
         } catch (HttpTimeoutException e) {
-            return new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false,
+            StepOutcome outcome = new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false,
                     "Delai d'attente depasse (" + effectiveTimeoutSeconds + "s)", Instant.now(), virtualUser, iteration, requestUrl);
+            return detailOn ? detail.attach(outcome, url, sentHeaders(request, built), built.body(), null, null, null, null) : outcome;
         } catch (IOException e) {
             String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.debug("Etape '{}' echouee (technique) : {}", step.name(), e.getClass().getSimpleName());
-            return new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false, message, Instant.now(),
+            StepOutcome outcome = new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false, message, Instant.now(),
                     virtualUser, iteration, requestUrl);
+            return detailOn ? detail.attach(outcome, url, sentHeaders(request, built), built.body(), null, null, null, null) : outcome;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false, "Execution interrompue.", Instant.now(),
                     virtualUser, iteration, requestUrl);
         } catch (IllegalArgumentException e) {
-            return new StepOutcome(step.stepId(), null, 0, false, "URL invalide : " + e.getClass().getSimpleName(), Instant.now(),
-                    virtualUser, iteration, requestUrl);
+            StepOutcome outcome = new StepOutcome(step.stepId(), null, 0, false, "URL invalide : " + e.getClass().getSimpleName(),
+                    Instant.now(), virtualUser, iteration, requestUrl);
+            return detailOn ? detail.attach(outcome, url, built.headers(), built.body(), null, null, null, null) : outcome;
+        }
+    }
+
+    private static Map<String, String> headerMap(java.net.http.HttpHeaders headers) {
+        Map<String, String> map = new java.util.LinkedHashMap<>();
+        headers.map().forEach((name, values) -> map.put(name, String.join(", ", values)));
+        return map;
+    }
+
+    private static Map<String, String> sentHeaders(HttpRequest request, RequestBuilder.BuiltRequest built) {
+        return request != null ? headerMap(request.headers()) : built.headers();
+    }
+
+    /**
+     * Construction du detail d'UNE requete, seulement si la politique le retient (echec dans les
+     * quotas, ou echantillon) : secrets masques (authentification, variables au nom sensible,
+     * en-tetes sensibles, champs JSON sensibles), corps limites a 10 Ko.
+     */
+    private record DetailContext(RequestDetailRecorder recorder, StepExecutionSpec step, int stepNumber, int iteration,
+            VariableContext variables, ResolvedAuth resolvedAuth) {
+
+        StepOutcome attach(StepOutcome outcome, String url, Map<String, String> requestHeaders, String requestBody,
+                Integer status, Map<String, String> responseHeaders, CappedBody responseBody, RequestDetail.Checks checks) {
+            String failureType = outcome.success() ? null : RequestDetailRecorder.failureType(outcome.httpStatus(), outcome.error());
+            boolean wanted = outcome.success() ? recorder.wantsSample(iteration) : recorder.wantsFailure(stepNumber, failureType);
+            if (!wanted) return outcome;
+
+            java.util.Set<String> secrets = new java.util.LinkedHashSet<>(recorder.baseSecrets());
+            secrets.addAll(RequestDetailRecorder.sensitiveValues(variables.snapshot()));
+            CappedBody sentBody = CappedBody.of(requestBody, RequestDetailRecorder.BODY_LIMIT_BYTES);
+            String maskedUrl = TestRunMasking.maskUrl(url, resolvedAuth.queryParams().keySet(), secrets);
+            RequestDetail detail = new RequestDetail(
+                    outcome.success() ? RequestDetail.Kind.SAMPLE : RequestDetail.Kind.FAILURE,
+                    step.method().name(),
+                    maskedUrl != null && maskedUrl.length() > 2048 ? maskedUrl.substring(0, 2048) : maskedUrl,
+                    requestHeaders == null ? Map.of() : TestRunMasking.maskHeaders(requestHeaders, sensitiveHeaderNames(requestHeaders), secrets),
+                    TestRunMasking.maskBody(sentBody.text(), secrets),
+                    sentBody.truncated(),
+                    status,
+                    responseHeaders == null ? null : TestRunMasking.maskHeaders(responseHeaders, sensitiveHeaderNames(responseHeaders), secrets),
+                    responseBody == null ? null : TestRunMasking.maskBody(responseBody.text(), secrets),
+                    responseBody != null && responseBody.truncated(),
+                    responseBody == null ? null : responseBody.totalBytes(),
+                    checks == null ? null : maskChecks(checks, secrets));
+            boolean accepted = outcome.success()
+                    ? recorder.acceptSample(detail.approxBytes())
+                    : recorder.acceptFailure(stepNumber, failureType, detail.approxBytes());
+            return accepted ? outcome.withDetail(detail) : outcome;
+        }
+
+        /** En-tetes d'authentification de l'application et en-tetes au nom sensible (X-Auth-Token…), en minuscules. */
+        private java.util.Set<String> sensitiveHeaderNames(Map<String, String> headers) {
+            java.util.Set<String> names = new java.util.HashSet<>();
+            resolvedAuth.headers().keySet().forEach(n -> names.add(n.toLowerCase(java.util.Locale.ROOT)));
+            headers.keySet().forEach(n -> {
+                if (TestRunMasking.isSensitiveName(n)) names.add(n.toLowerCase(java.util.Locale.ROOT));
+            });
+            return names;
+        }
+
+        private static RequestDetail.Checks maskChecks(RequestDetail.Checks c, java.util.Set<String> secrets) {
+            String value = c.captureValue();
+            boolean sensitive = value != null && (TestRunMasking.isSensitiveName(c.captureName())
+                    || TestRunMasking.isSensitiveName(c.capturePath()) || secrets.contains(value));
+            return new RequestDetail.Checks(c.expectedStatus(), c.statusOk(),
+                    c.assertionText() == null ? null : TestRunMasking.maskSecrets(c.assertionText(), secrets), c.assertionOk(),
+                    c.captureName(), c.capturePath(),
+                    sensitive ? TestRunMasking.MASK : TestRunMasking.maskSecrets(value, secrets), c.captureFound());
         }
     }
 

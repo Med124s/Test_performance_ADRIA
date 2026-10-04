@@ -23,7 +23,7 @@ const scenario = (patch: Partial<BackendScenarioResponse> = {}): BackendScenario
   id: 'sc-1', applicationId: 'app-1', applicationName: 'Banking', name: 'Parcours virement', description: null, status: 'ACTIVE',
   virtualUsers: 5, rampUpSeconds: 0, durationSeconds: null, iterations: 1, thinkTimeMs: 0, csvData: null, targetRps: null,
   createdBy: 'admin-test', createdAt: '2026-10-01T10:00:00Z', updatedAt: '2026-10-01T10:00:00Z', archived: false, archivedAt: null,
-  applicationArchived: false, wizardStep: null, draftState: null, pausedSchedules: 0, variables: null, csvDistribution: 'PER_VIRTUAL_USER', ...patch,
+  applicationArchived: false, wizardStep: null, draftState: null, pausedSchedules: 0, variables: null, csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', ...patch,
 })
 
 /** Sert une page comme le backend (filtre de statut, 12 éléments au total pour vérifier la pagination serveur). */

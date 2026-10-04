@@ -86,6 +86,7 @@ export function stateFromBackend(scenario: BackendScenarioResponse, steps: Backe
     info: {
       applicationId: scenario.applicationId, name: scenario.name, description: scenario.description ?? '', csvData: scenario.csvData ?? '',
       variables: variablesFromJson(scenario.variables), csvDistribution: scenario.csvDistribution ?? 'PER_VIRTUAL_USER',
+      requestDetailMode: scenario.requestDetailMode ?? 'FAILURES_AND_SAMPLE',
     },
     steps: steps.map(stepFromBackend),
     load: loadFromScenario(scenario),
@@ -121,6 +122,7 @@ export function fullRequest(scenarioId: string, info: ScenarioInfo, steps: Draft
       ...loadToRequest(load),
       variables: variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
+      requestDetailMode: info.requestDetailMode ?? null,
     },
     steps: steps.map((s, i) => ({ id: s.backendId, step: stepToRequest(s, scenarioId, i + 1) })),
   }
@@ -131,6 +133,7 @@ export function savedInfo(scenario: BackendScenarioResponse): ScenarioInfo {
   return {
     applicationId: scenario.applicationId, name: scenario.name, description: scenario.description ?? '', csvData: scenario.csvData ?? '',
     variables: variablesFromJson(scenario.variables), csvDistribution: scenario.csvDistribution ?? 'PER_VIRTUAL_USER',
+    requestDetailMode: scenario.requestDetailMode ?? 'FAILURES_AND_SAMPLE',
   }
 }
 
@@ -149,7 +152,7 @@ export function workSnapshot(info: ScenarioInfo, steps: DraftStep[], load: LoadC
   return JSON.stringify([info, steps.filter((s) => !isBlankStep(s)).map(({ uid, backendId, ...rest }) => rest), load])
 }
 
-export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER' }
+export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE' }
 
 function parseJson<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback

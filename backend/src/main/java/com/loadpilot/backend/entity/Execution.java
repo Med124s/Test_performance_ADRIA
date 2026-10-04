@@ -104,6 +104,16 @@ public class Execution {
     @Column(name = "paused_duration_ms", nullable = false)
     private Long pausedDurationMs = 0L;
 
+    /** Detail des requetes conserve (mode du scenario fige au lancement) ; null = aucun detail. */
+    @jakarta.persistence.Enumerated(EnumType.STRING)
+    @Column(name = "request_detail_mode", length = 30)
+    private com.loadpilot.backend.enums.RequestDetailMode requestDetailMode;
+
+    /** Plafond memoire atteint : l'echantillon des requetes reussies a ete arrete (echecs conserves). */
+    @Builder.Default
+    @Column(name = "detail_sample_cap_reached", nullable = false)
+    private boolean detailSampleCapReached = false;
+
     /**
      * P1-B — utilisateur reellement a l'origine de cette Execution (celui
      * qui a clique "Lancer", ou le proprietaire de la ScheduledExecution qui

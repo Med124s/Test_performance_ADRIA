@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Detail des requetes d'une execution (type Postman) - voir RequestDetailRecorder.
+
+        scenario.request_detail_mode   : NONE, FAILURES ou FAILURES_AND_SAMPLE (defaut).
+        execution.request_detail_mode  : mode fige au lancement (null = execution anterieure, aucun detail).
+        execution.detail_sample_cap_reached : plafond memoire atteint, echantillon des reussites arrete.
+        execution_request_detail       : une ligne par requete detaillee (echec ou echantillon), liee a
+                                         sa ligne de resume ; secrets masques, corps limites a 10 Ko ;
+                                         supprimee avec le resultat / l'execution (ON DELETE CASCADE).
+        Index (execution_id, step_id) : liste paginee des requetes d'une etape.
+    -->
+    <changeSet id="023-execution-request-detail" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="request_detail_mode" type="VARCHAR(30)" defaultValue="FAILURES_AND_SAMPLE">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="execution">
+            <column name="request_detail_mode" type="VARCHAR(30)"/>
+            <column name="detail_sample_cap_reached" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <createTable tableName="execution_request_detail">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="result_id" type="UUID">
+                <constraints nullable="false" unique="true" foreignKeyName="fk_request_detail_result"
+                             references="execution_step_result(id)" deleteCascade="true"/>
+            </column>
+            <column name="execution_id" type="UUID">
+                <constraints nullable="false" foreignKeyName="fk_request_detail_execution"
+                             references="execution(id)" deleteCascade="true"/>
+            </column>
+            <column name="kind" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="request_method" type="VARCHAR(10)"/>
+            <column name="request_url" type="VARCHAR(2048)"/>
+            <column name="request_headers" type="VARCHAR(16000)"/>
+            <column name="request_body" type="VARCHAR(11000)"/>
+            <column name="request_body_truncated" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="response_status" type="INT"/>
+            <column name="response_headers" type="VARCHAR(16000)"/>
+            <column name="response_body" type="VARCHAR(11000)"/>
+            <column name="response_body_truncated" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="response_size_bytes" type="BIGINT"/>
+            <column name="checks" type="VARCHAR(8000)"/>
+        </createTable>
+        <createIndex indexName="idx_request_detail_execution" tableName="execution_request_detail">
+            <column name="execution_id"/>
+        </createIndex>
+        <createIndex indexName="idx_execution_step_result_execution_step" tableName="execution_step_result">
+            <column name="execution_id"/>
+            <column name="step_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

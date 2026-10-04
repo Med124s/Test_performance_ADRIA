@@ -1,0 +1,25 @@
+/* Détail d'une exécution : résultats par étape et détail d'une requête (préfixes ed-, rd-). */
+
+.ed-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.ed-steps > li { border: 1px solid var(--pt-border); border-radius: 10px; background: var(--pt-card-bg); }
+.ed-steps > li.open { border-color: color-mix(in srgb, var(--pt-primary) 40%, var(--pt-border)); }
+.ed-step-head {
+  width: 100%; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; text-align: left;
+  border: none; background: none; padding: 0.65rem 0.85rem; color: var(--pt-text); font-size: 13.5px; cursor: pointer;
+}
+.ed-step-head:focus-visible { outline: 2px solid var(--pt-primary); outline-offset: -2px; border-radius: 10px; }
+.ed-step-name { font-weight: 600; flex: 1 1 220px; min-width: 0; }
+.ed-step-stats { font-size: 12.5px; color: var(--pt-text-muted); }
+.ed-step-panel { border-top: 1px solid var(--pt-border); padding: 0.75rem 0.85rem; }
+.ed-row-clickable { cursor: pointer; }
+.ed-row-clickable:hover td { background: var(--pt-sidebar-item-hover); }
+
+.rd-body {
+  max-height: 320px; overflow: auto; margin: 0; padding: 0.6rem 0.75rem; border-radius: 8px;
+  background: var(--pt-bg); border: 1px solid var(--pt-border); color: var(--pt-text);
+  font-size: 12px; white-space: pre-wrap; word-break: break-word;
+}
+
+@media (max-width: 576px) {
+  .ed-step-stats { flex-basis: 100%; padding-left: 1.4rem; }
+}

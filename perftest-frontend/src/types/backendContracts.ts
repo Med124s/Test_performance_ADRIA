@@ -178,6 +178,8 @@ export interface BackendScenarioRequest {
   /** Variables du scénario : objet JSON {"nom": "valeur"} ; null/absent = inchangées, "{}" = aucune. */
   variables?: string | null
   csvDistribution?: BackendCsvDistribution | null
+  /** Détail des requêtes conservé à l'exécution ; null/absent = inchangé. */
+  requestDetailMode?: BackendRequestDetailMode | null
 }
 
 /** PUT /api/scenarios/{id}/full : informations + étapes (avec id = modifiée, sans id = créée, absente = supprimée ; ordre = position). */
@@ -193,6 +195,9 @@ export interface BackendScenarioFullResponse {
 
 /** Distribution du CSV : une ligne par utilisateur virtuel, ou une nouvelle ligne à chaque itération. */
 export type BackendCsvDistribution = 'PER_VIRTUAL_USER' | 'PER_ITERATION'
+
+/** Détail des requêtes d'une exécution : aucun, échecs seulement, échecs + échantillon des réussites. */
+export type BackendRequestDetailMode = 'NONE' | 'FAILURES' | 'FAILURES_AND_SAMPLE'
 
 export interface BackendScenarioResponse {
   id: string
@@ -225,6 +230,7 @@ export interface BackendScenarioResponse {
   pausedSchedules: number
   variables: string | null
   csvDistribution: BackendCsvDistribution
+  requestDetailMode: BackendRequestDetailMode
 }
 
 // ---- Steps ----
@@ -592,6 +598,52 @@ export interface BackendExecutionStepResultResponse {
 
 export interface BackendExecutionDetailResponse extends BackendExecutionResponse {
   results: BackendExecutionStepResultResponse[]
+  /** Détail des requêtes conservé (null : exécution antérieure, aucun détail). */
+  requestDetailMode?: BackendRequestDetailMode | null
+  /** Plafond mémoire atteint : l'échantillon des requêtes réussies a été arrêté (échecs conservés). */
+  detailSampleCapReached?: boolean
+  detailedFailures?: number
+  detailedSamples?: number
+}
+
+/** GET /api/executions/{id}/results : une requête (ligne de résumé, toujours présente). */
+export interface BackendExecutionRequestRow {
+  resultId: string
+  stepId: string | null
+  stepName: string
+  method: BackendHttpMethod | null
+  virtualUser: number | null
+  iteration: number | null
+  timestamp: string
+  httpStatus: number | null
+  responseTime: number | null
+  success: boolean
+  error: string | null
+  requestUrl: string | null
+  /** FAILURE / SAMPLE si le détail complet a été conservé, sinon null. */
+  detailKind: 'FAILURE' | 'SAMPLE' | null
+}
+
+export interface ExecutionResultsQuery {
+  stepId?: string
+  stepName?: string
+  virtualUser?: number
+  iteration?: number
+  failedOnly?: boolean
+  page: number
+  size: number
+}
+
+/** GET /api/executions/{id}/results/{resultId}/detail : secrets masqués, corps limités à 10 Ko. */
+export interface BackendExecutionRequestDetail {
+  summary: BackendExecutionRequestRow
+  kind: 'FAILURE' | 'SAMPLE'
+  request: { method: string | null; url: string | null; headers: Record<string, string> | null; body: string | null; bodyTruncated: boolean }
+  response: { status: number | null; timeMs: number | null; sizeBytes: number | null; headers: Record<string, string> | null; body: string | null; bodyTruncated: boolean } | null
+  checks: {
+    expectedStatus: string | null; statusOk: boolean | null; assertionText: string | null; assertionOk: boolean | null
+    captureName: string | null; capturePath: string | null; captureValue: string | null; captureFound: boolean | null
+  } | null
 }
 
 // ---- Metrics ----

@@ -73,6 +73,10 @@ app:
     max-concurrent-executions: ${LOADPILOT_MAX_CONCURRENT_EXECUTIONS:10}
     # Une execution restee en pause plus longtemps est annulee automatiquement.
     max-pause-minutes: ${LOADPILOT_MAX_PAUSE_MINUTES:15}
+    # Detail des requetes (echecs + echantillon) : plafond memoire par execution. Au-dela,
+    # l'echantillon des requetes reussies s'arrete ; les echecs continuent d'etre enregistres.
+    request-detail:
+      max-memory-mb: ${LOADPILOT_REQUEST_DETAIL_MAX_MEMORY_MB:50}
   keycloak:
     admin:
       # Phase 25 - compte de service DEDIE a l'administration des

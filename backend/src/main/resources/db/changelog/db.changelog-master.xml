@@ -122,5 +122,9 @@
         Index sur execution_id (resultats, metriques) - voir changes/022-execution-foreign-key-indexes.xml.
     -->
     <include file="db/changelog/changes/022-execution-foreign-key-indexes.xml"/>
+    <!--
+        Detail des requetes d'une execution (echecs + echantillon) - voir changes/023-execution-request-detail.xml.
+    -->
+    <include file="db/changelog/changes/023-execution-request-detail.xml"/>
 
 </databaseChangeLog>

@@ -340,6 +340,12 @@ public class ScenarioServiceImpl implements ScenarioService {
         } else if (scenario.getCsvDistribution() == null) {
             scenario.setCsvDistribution(com.loadpilot.backend.enums.CsvDistribution.PER_VIRTUAL_USER);
         }
+        // Detail des requetes : null = inchange (defaut a la creation : echecs + echantillon).
+        if (request.requestDetailMode() != null) {
+            scenario.setRequestDetailMode(request.requestDetailMode());
+        } else if (scenario.getRequestDetailMode() == null) {
+            scenario.setRequestDetailMode(com.loadpilot.backend.enums.RequestDetailMode.FAILURES_AND_SAMPLE);
+        }
     }
 
     private void checkCsv(String csvData) {

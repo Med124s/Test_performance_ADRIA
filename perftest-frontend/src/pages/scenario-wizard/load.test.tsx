@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import LoadSummaryPanel from './LoadSummaryPanel'
 import { EMPTY_INFO } from './draftModel'
 import { INITIAL_TEST_RUN } from './TestRunPanel'
@@ -34,5 +34,18 @@ describe('Charge — mêmes règles que le moteur', () => {
     expect(screen.getByText(/Pause d’un utilisateur entre deux itérations/)).toBeTruthy()
     expect(screen.getByText(/un nouvel utilisateur toutes les 2 s/)).toBeTruthy()
     expect(screen.getByText(/partagée par tous les utilisateurs/)).toBeTruthy()
+  })
+
+  it('réglage « Détail des requêtes » : défaut « Échecs + échantillon », 3 choix', () => {
+    const onMode = vi.fn()
+    render(<LoadSummaryPanel info={EMPTY_INFO} application={undefined} steps={[newStep()]} errors={{}} showErrors
+      load={load({ virtualUsers: '5' })} testRun={INITIAL_TEST_RUN} testStale={false} testPassed={false} csvRows={null}
+      onChange={() => {}} onGoTo={() => {}} onRequestDetailModeChange={onMode} />)
+    const select = screen.getByLabelText('Détail des requêtes') as HTMLSelectElement
+    expect(select.value).toBe('FAILURES_AND_SAMPLE')
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['FAILURES_AND_SAMPLE', 'FAILURES', 'NONE'])
+    fireEvent.change(select, { target: { value: 'NONE' } })
+    expect(onMode).toHaveBeenCalledWith('NONE')
+    expect(screen.getByText(/20 par type d’erreur et 100 par étape/)).toBeTruthy()
   })
 })
