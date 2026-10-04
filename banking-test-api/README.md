@@ -10,7 +10,30 @@ npm start     # http://localhost:8888
 
 Le port peut être changé avec la variable d'environnement `PORT`.
 
-La latence est simulée, et 7 % d'erreurs 409/500 aléatoires sont injectées sur les requêtes valides (voir `src/config.js`) : quelques échecs pendant un test de charge sont donc normaux.
+La latence est simulée, et 7 % d'erreurs 409/500 aléatoires sont injectées sur les requêtes d'écriture valides (voir `src/config.js`) : quelques échecs pendant un test de charge sont donc normaux.
+
+### Régler les erreurs aléatoires
+
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `ERROR_RATE` | Taux total d'erreurs aléatoires, réparti 5/7 en 409 et 2/7 en 500 | `0.07` |
+| `CONFLICT_RATE` | Taux de 409 seul (prioritaire) | 5 % |
+| `SERVER_ERROR_RATE` | Taux de 500 seul (prioritaire) | 2 % |
+
+Une valeur s'écrit `0.07`, `7` ou `7%`. Le taux appliqué est affiché au démarrage.
+
+```powershell
+# Démo sans aucune erreur aléatoire
+$env:ERROR_RATE = '0'; npm start
+
+# Démo avec plus d'erreurs (20 %)
+$env:ERROR_RATE = '20'; npm start
+
+# Revenir au comportement par défaut
+Remove-Item Env:ERROR_RATE; npm start
+```
+
+Les erreurs 400 (validation) et 401 (authentification) ne sont pas concernées : elles restent déterministes.
 
 ## Routes
 

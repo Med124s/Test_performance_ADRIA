@@ -8,7 +8,7 @@
 import express from 'express'
 import cors from 'cors'
 import { db, nextId, resetDatabase } from './db.js'
-import { latencyConfig, rollSimulatedOutcome } from './config.js'
+import { latencyConfig, rollSimulatedOutcome, errorSimulationConfig } from './config.js'
 
 const app = express()
 
@@ -425,4 +425,7 @@ app.post('/api/reset', (_req, res) => {
 const PORT = process.env.PORT || 8888
 app.listen(PORT, () => {
   console.log(`Banking Test API prêt sur http://localhost:${PORT}`)
+  const pct = (v) => `${Math.round(v * 1000) / 10} %`
+  console.log(`Erreurs aléatoires : ${pct(errorSimulationConfig.conflict409Probability)} de 409, `
+    + `${pct(errorSimulationConfig.serverError500Probability)} de 500 (réglable avec ERROR_RATE)`)
 })
