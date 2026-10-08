@@ -21,6 +21,7 @@ public record ApplicationResponse(
         Instant updatedAt,
         ApplicationAuthResponse auth,
         boolean archived,
-        Instant archivedAt
+        Instant archivedAt,
+        ApplicationMonitoringResponse monitoring
 ) {
 }

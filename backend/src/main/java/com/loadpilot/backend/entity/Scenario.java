@@ -131,6 +131,15 @@ public class Scenario {
     @Column(name = "target_rps")
     private Integer targetRps;
 
+    /** Seuil de reussite : taux d'erreurs maximal en % (defaut 1 %). Au-dela : « Seuils depasses ». */
+    @Column(name = "max_error_rate_percent", nullable = false)
+    @Builder.Default
+    private Double maxErrorRatePercent = 1.0;
+
+    /** Seuil de reussite optionnel : P95 maximal (ms) sur l'ensemble des requetes ; null = pas de seuil. */
+    @Column(name = "max_p95_ms")
+    private Long maxP95Ms;
+
     /** Archivage logique : masque des listes par defaut, historique conserve,
      * restaurable (voir migration 017). */
     @Column(name = "archived", nullable = false)

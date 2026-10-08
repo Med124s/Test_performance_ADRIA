@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Resume d'une execution terminee, calcule UNE fois (a la fin de l'execution, ou a la premiere
+        consultation du Dashboard pour les executions anterieures) avec exactement le calcul du
+        rapport (PerformanceStatisticsService) : P95 et debit globaux, P95 par etape en JSON
+        [{"name","method","p95","total"}]. stats_computed_at null = pas encore calcule.
+
+        Index (scenario_id, started_at) : derniere execution par scenario et execution precedente
+        du meme scenario (Dashboard) sans parcourir toutes les executions.
+    -->
+    <changeSet id="026-execution-stats-dashboard" author="loadpilot">
+        <addColumn tableName="execution">
+            <column name="p95_ms" type="BIGINT"/>
+            <column name="throughput_rps" type="DOUBLE PRECISION"/>
+            <column name="step_stats_json" type="VARCHAR(50000)"/>
+            <column name="stats_computed_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </addColumn>
+        <createIndex indexName="idx_execution_scenario_started" tableName="execution">
+            <column name="scenario_id"/>
+            <column name="started_at"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

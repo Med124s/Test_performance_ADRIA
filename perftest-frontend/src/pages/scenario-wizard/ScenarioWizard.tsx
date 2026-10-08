@@ -32,6 +32,7 @@ import {
   describeApiError,
   draftSignature,
   duplicateStep,
+  hasContentCheck,
   hasErrors,
   loadToRequest,
   newStep,
@@ -39,6 +40,8 @@ import {
   validateCsv,
   validateInfo,
   validateLoad,
+  validateThresholds,
+  thresholdsToRequest,
   validateStep,
 } from './wizardModel'
 import './scenarioWizard.css'
@@ -75,7 +78,9 @@ function sectionSnapshots(info: ScenarioInfo, steps: DraftStep[], load: LoadConf
     JSON.stringify([info.applicationId, info.name.trim(), info.description.trim()]),
     JSON.stringify([steps.map(({ uid, backendId, ...rest }) => rest), info.csvData, info.csvDistribution, info.variables]),
     '',
-    JSON.stringify(loadValues),
+    // Étape « Charge & résumé » : charge, mais aussi détail des requêtes et seuils de réussite (sinon un seuil
+    // modifié ne compterait pas comme modification et « Enregistrer » resterait désactivé).
+    JSON.stringify([loadValues, info.requestDetailMode ?? null, info.maxErrorRatePercent ?? null, info.maxP95Ms ?? null]),
   ]
 }
 
@@ -144,7 +149,8 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
   const scenarioVariableErrors = useMemo(() => validateScenarioVariables(info.variables, csvColumns).errors, [info.variables, csvColumns])
   const scenarioVariableNames = info.variables.map((v) => v.key.trim()).filter(Boolean)
   const stepErrors = useMemo(() => Object.fromEntries(steps.map((s) => [s.uid, validateStep(s)])), [steps])
-  const loadErrors = useMemo(() => validateLoad(load), [load])
+  const loadErrors = useMemo(() => ({ ...validateLoad(load), ...validateThresholds(info) }),
+    [load, info.maxErrorRatePercent, info.maxP95Ms]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const signature = draftSignature(info, steps)
   const testStale = testedSignature !== null && testedSignature !== signature
@@ -366,6 +372,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       variables: variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
+      ...thresholdsToRequest(info),
     }
     let id = scenarioId
     if (id) {
@@ -422,6 +429,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       variables: scenarioVariableErrors.length ? null : variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
+      ...thresholdsToRequest(info),
       wizardStep: current,
       draftState: serializeDraft({ info: savedInfo, steps, load, maxReached: Math.max(maxReached, current), csvFileName, testedSignature: testPassed ? signature : null }),
     }
@@ -892,6 +900,11 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
                             <span className="sw-step-name">{s.name || 'Sans nom'}</span>
                           </span>
                           <span className="sw-step-url">{s.url || '—'}</span>
+                          {s.url.trim() && !hasContentCheck(s) && (
+                            <span className="sw-step-nocheck" title="Seul le code HTTP est vérifié : ajoutez « La réponse doit contenir » dans l’onglet Validation.">
+                              <i className="bi bi-shield-exclamation" aria-hidden="true"></i> Sans vérification de contenu
+                            </span>
+                          )}
                         </span>
                         {invalid ? (
                           <i className="bi bi-exclamation-circle-fill sw-step-flag ko" title="À compléter"></i>
@@ -1001,6 +1014,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
               onChange={(patch) => setLoad((p) => ({ ...p, ...patch }))}
               onGoTo={goTo}
               onRequestDetailModeChange={(requestDetailMode) => setInfo((p) => ({ ...p, requestDetailMode }))}
+              onThresholdsChange={(patch) => setInfo((p) => ({ ...p, ...patch }))}
             />
             {!isEdit && finalError && <div className="sw-inline-alert ko mt-3"><i className="bi bi-exclamation-octagon"></i><span>{finalError}</span></div>}
           </>

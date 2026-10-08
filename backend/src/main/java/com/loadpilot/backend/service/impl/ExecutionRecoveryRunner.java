@@ -1,5 +1,8 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.service.audit.AuditEvent;
+import com.loadpilot.backend.service.audit.AuditTargetType;
+import com.loadpilot.backend.service.audit.AuditTargets;
 import com.loadpilot.backend.entity.Execution;
 import com.loadpilot.backend.enums.AuditAction;
 import com.loadpilot.backend.enums.AuditModule;
@@ -103,8 +106,11 @@ public class ExecutionRecoveryRunner implements ApplicationRunner {
             execution.setDuration(Duration.between(execution.getStartedAt(), now).toMillis());
             executionRepository.save(execution);
 
-            auditLogService.record(AuditAction.EXECUTE, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Execution " + execution.getId() + " recovered as FAILED after backend restart");
+            auditLogService.record(AuditEvent.of(AuditAction.FINISH, AuditModule.EXECUTION)
+                    .target(AuditTargetType.EXECUTION, execution.getId(), AuditTargets.executionLabel(execution))
+                    .system("Redémarrage du serveur")
+                    .result(AuditResult.FAILURE)
+                    .description("Exécution interrompue par un redémarrage du serveur : marquée échouée"));
 
             // P1-B - notifie reellement l'utilisateur a l'origine. Seul
             // getId() est appele sur le proxy lazy triggeredBy (jamais une

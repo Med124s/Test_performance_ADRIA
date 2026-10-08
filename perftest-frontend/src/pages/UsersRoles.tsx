@@ -1,398 +1,356 @@
-import { useEffect, useMemo, useState } from 'react'
-import TopBar from '../components/TopBar'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { usePagination } from '../hooks/usePagination'
 import Pagination from '../components/Pagination'
-import { BackendUserSummaryResponse, BackendAppRole } from '../types/backendContracts'
+import type { BackendAppRole, BackendUserCreatedResponse, BackendUserSummaryResponse } from '../types/backendContracts'
 import { usersBackendApi } from '../services/api/usersBackend'
-import { ApiError } from '../services/api/httpClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
+import RowActionsMenu from './executions/RowActionsMenu'
+import UserDrawer from './users/UserDrawer'
+import CreateUserModal from './users/CreateUserModal'
+import ResetPasswordDialog from './users/ResetPasswordDialog'
+import { LastLogin, RoleBadge, StatusLabel, UserAvatar, UserDialog, describeUserApiError, displayNameOf } from './users/userParts'
+import { APP_ROLES, roleMeta } from '../utils/appRoles'
+import './users/users.css'
 
 // ============================================================
-// Phase 25 — cette page administre désormais les VRAIS comptes Keycloak
-// (identité/statut activé-désactivé/rôle), via le backend Spring Boot
-// (voir services/api/usersBackend.ts), qui parle lui-même à l'Admin REST
-// API de Keycloak via un compte de service dédié — jamais le compte admin
-// Keycloak, jamais un mot de passe transmis par ce frontend, jamais un
-// second système d'utilisateurs en base.
+// Onglet « Utilisateurs » : les VRAIS comptes Keycloak (identité, statut,
+// rôle), administrés via le backend Spring Boot (services/api/usersBackend.ts),
+// qui parle lui-même à l'Admin REST API de Keycloak avec un compte de service
+// dédié — jamais un mot de passe transmis par ce frontend : création et
+// réinitialisation passent par un e-mail Keycloak.
 //
-// Avant cette phase, /users-roles affichait 8 utilisateurs ENTIÈREMENT
-// FICTIFS codés en dur dans le composant (tableau `usersData`), avec des
-// attributions rôle↔utilisateur persistées dans le localStorage du
-// navigateur — rien de tout cela n'existait côté serveur. Tout a été
-// retiré : plus aucune donnée inventée (2FA, dernière connexion, avatar,
-// liste de permissions détaillées) n'est affichée, faute d'équivalent réel
-// simple côté Keycloak/Admin API sans étendre le périmètre de cette phase.
-//
-// P1-O — `services/api/users.ts` (JSON Server, login mock) et
-// `services/api/roles.ts` (catalogue JSON Server de descriptions de
-// permissions) ont tous deux été retirés (n'avaient de toute façon aucun
-// rapport avec cette page) : les rôles affichés ici sont les 3 rôles RÉELS
-// Keycloak (ROLE_SUPER_ADMIN/ROLE_PERFORMANCE_ENGINEER/ROLE_VIEWER).
-//
-// Accès réservé à SUPER_ADMIN (voir @PreAuthorize sur UserController) :
-// l'administration des comptes/rôles est l'opération la plus sensible du
-// système (elle peut accorder ROLE_SUPER_ADMIN à n'importe qui) — aucun
-// autre rôle n'y a accès, contrairement à Audit Logs (SUPER_ADMIN +
-// PERFORMANCE_ENGINEER).
-//
-// Pagination et recherche : `GET /api/users` ne supporte aucun filtre ni
-// pagination côté backend (liste complète du realm) — la recherche/tri/
-// pagination ci-dessous sont donc 100% frontend, sur les données déjà
-// entièrement chargées (volume réaliste pour un realm Keycloak de ce
-// projet), jamais un filtre backend imaginaire.
+// Accès réservé à SUPER_ADMIN (voir @PreAuthorize sur UserController).
+// `GET /api/users` renvoie tout le realm : recherche, filtres et pagination
+// sont faits ici, sur la liste complète.
 // ============================================================
 
-const ROLES: BackendAppRole[] = ['SUPER_ADMIN', 'PERFORMANCE_ENGINEER', 'VIEWER']
+type RoleFilter = 'all' | BackendAppRole | 'none'
+type StatusFilter = 'all' | 'active' | 'disabled'
 
-const roleBadgeStyle: Record<BackendAppRole, { bg: string; color: string }> = {
-  SUPER_ADMIN: { bg: 'var(--pt-primary-light)', color: 'var(--pt-primary)' },
-  PERFORMANCE_ENGINEER: { bg: 'var(--pt-success-light)', color: 'var(--pt-success)' },
-  VIEWER: { bg: 'var(--pt-warning-light)', color: 'var(--pt-warning)' },
+type PendingAction =
+  | { kind: 'role'; user: BackendUserSummaryResponse; role: BackendAppRole }
+  | { kind: 'status'; user: BackendUserSummaryResponse; enabled: boolean }
+
+const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`
+const ROLE_COUNT_LABEL: Record<BackendAppRole, [string, string]> = {
+  SUPER_ADMIN: ['administrateur', 'administrateurs'],
+  PERFORMANCE_ENGINEER: ['ingénieur', 'ingénieurs'],
+  VIEWER: ['lecteur', 'lecteurs'],
 }
 
-function describeApiError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    switch (err.status) {
-      case 0:
-        return err.message
-      case 401:
-        return 'Vous devez être connecté (Keycloak) pour administrer les utilisateurs.'
-      case 403:
-        return "Action refusée : l'administration des utilisateurs est réservée au rôle Administrateur."
-      case 404:
-        return 'Utilisateur introuvable (il a peut-être été supprimé côté Keycloak).'
-      case 502:
-        return err.message
-      default:
-        return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
-    }
-  }
-  return err instanceof Error ? err.message : fallback
+function normalize(s: string) {
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 }
 
-function formatDate(iso: string | null) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+export interface UsersRolesProps {
+  /** Affichée dans l'onglet de « Utilisateurs et rôles », sans son propre en-tête. */
+  embedded?: boolean
+  /** Fenêtre « Ajouter un utilisateur » ouverte depuis l'en-tête de la page parente. */
+  createOpen?: boolean
+  onCreateClose?: () => void
 }
 
-function RoleBadge({ role }: { role: BackendAppRole | null }) {
-  if (!role) return <span style={{ fontSize: '11.5px', color: 'var(--pt-text-light)', fontStyle: 'italic' }}>Aucun rôle</span>
-  const badge = roleBadgeStyle[role]
-  return <span className="pt-pill" style={{ background: badge.bg, color: badge.color, fontSize: '11.5px' }}>{role}</span>
-}
-
-function UsersRoles() {
-  const { authProvider, rawRoles } = useAuth()
+function UsersRoles({ embedded = false, createOpen, onCreateClose }: UsersRolesProps = {}) {
+  const { authProvider, rawRoles, user: me } = useAuth()
   const { showToast } = useToast()
-  const isKeycloak = authProvider === 'keycloak'
-  // GET/PUT /api/users sont reserves a SUPER_ADMIN au niveau de la classe
-  // du controleur (voir UserController.java).
-  const canAdminister = isKeycloak && rawRoles.includes('ROLE_SUPER_ADMIN')
+  const canAdminister = authProvider === 'keycloak' && rawRoles.includes('ROLE_SUPER_ADMIN')
 
   const [users, setUsers] = useState<BackendUserSummaryResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedUser, setSelectedUser] = useState<BackendUserSummaryResponse | null>(null)
+  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // `?user=<id>` (lien depuis le journal d'audit) ouvre directement la fiche.
+  const [searchParams] = useSearchParams()
+  const [openUserId, setOpenUserId] = useState<string | null>(() => searchParams.get('user'))
+  const [pending, setPending] = useState<PendingAction | null>(null)
+  const [resetUser, setResetUser] = useState<BackendUserSummaryResponse | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [localCreateOpen, setLocalCreateOpen] = useState(false)
+  const showCreate = createOpen ?? localCreateOpen
+  const closeCreate = useCallback(() => { setLocalCreateOpen(false); onCreateClose?.() }, [onCreateClose])
 
-  const [showRoleModal, setShowRoleModal] = useState(false)
-  const [modalUser, setModalUser] = useState<BackendUserSummaryResponse | null>(null)
-  const [pendingRole, setPendingRole] = useState<BackendAppRole>('VIEWER')
-  const [saving, setSaving] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [togglingId, setTogglingId] = useState<string | null>(null)
-
-  const loadUsers = () => {
+  const loadUsers = useCallback(() => {
     if (!canAdminister) return
     setLoading(true)
     setError(null)
     usersBackendApi.list()
-      .then((list) => {
-        setUsers(list)
-        setSelectedUser((prev) => list.find((u) => u.id === prev?.id) ?? list[0] ?? null)
-      })
-      .catch((err) => setError(describeApiError(err, 'Impossible de charger les utilisateurs.')))
+      .then((list) => setUsers(list))
+      .catch((err) => setError(describeUserApiError(err, 'Impossible de charger les utilisateurs.')))
       .finally(() => setLoading(false))
-  }
-
-  useEffect(() => {
-    loadUsers()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canAdminister])
 
-  const filteredUsers = useMemo(
-    () => users.filter((u) =>
-      u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (u.email ?? '').toLowerCase().includes(searchQuery.toLowerCase())
-    ),
-    [users, searchQuery]
+  useEffect(() => { loadUsers() }, [loadUsers])
+
+  const sorted = useMemo(
+    () => [...users].sort((a, b) => displayNameOf(a).localeCompare(displayNameOf(b), 'fr', { sensitivity: 'base' })),
+    [users],
   )
+  const filtered = useMemo(() => {
+    const q = normalize(search.trim())
+    return sorted.filter((u) =>
+      (!q || [displayNameOf(u), u.username, u.email ?? ''].some((v) => normalize(v).includes(q)))
+      && (roleFilter === 'all' || (roleFilter === 'none' ? u.role === null : u.role === roleFilter))
+      && (statusFilter === 'all' || (statusFilter === 'active') === u.enabled))
+  }, [sorted, search, roleFilter, statusFilter])
 
-  const { page, setPage, totalPages, pageItems, startIndex, endIndex, totalItems } = usePagination(filteredUsers, 10)
+  const { page, setPage, totalPages, pageItems, startIndex, endIndex, totalItems } = usePagination(filtered, 10)
+  const filtersActive = search.trim() !== '' || roleFilter !== 'all' || statusFilter !== 'all'
+  const resetFilters = () => { setSearch(''); setRoleFilter('all'); setStatusFilter('all') }
 
-  const activeCount = users.filter((u) => u.enabled).length
-  const noRoleCount = users.filter((u) => u.role === null).length
+  const counts = useMemo(() => ({
+    total: users.length,
+    active: users.filter((u) => u.enabled).length,
+    disabled: users.filter((u) => !u.enabled).length,
+    none: users.filter((u) => u.role === null).length,
+    byRole: Object.fromEntries(APP_ROLES.map((r) => [r.role, users.filter((u) => u.role === r.role).length])) as Record<BackendAppRole, number>,
+  }), [users])
 
-  const openRoleModal = (user: BackendUserSummaryResponse) => {
-    setModalUser(user)
-    setPendingRole(user.role ?? 'VIEWER')
-    setActionError(null)
-    setShowRoleModal(true)
-  }
+  const openUser = users.find((u) => u.id === openUserId) ?? null
+  const isSelf = (u: BackendUserSummaryResponse) => !!me?.id && u.id === me.id
+  const replaceUser = (updated: BackendUserSummaryResponse) => setUsers((prev) => prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)))
 
-  const saveRole = async () => {
-    if (!modalUser || saving) return
-    setSaving(true)
-    setActionError(null)
+  const confirmPending = async () => {
+    if (!pending || busy) return
+    setBusy(true)
+    const name = displayNameOf(pending.user)
     try {
-      const updated = await usersBackendApi.updateRole(modalUser.id, pendingRole)
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
-      setSelectedUser((prev) => (prev?.id === updated.id ? updated : prev))
-      showToast(`Rôle de « ${updated.username} » mis à jour : ${updated.role ?? 'aucun'}.`, 'success')
-      setShowRoleModal(false)
+      if (pending.kind === 'role') {
+        replaceUser(await usersBackendApi.updateRole(pending.user.id, pending.role))
+        showToast(`${name} est maintenant ${roleMeta(pending.role).label.toLowerCase()}.`, 'success')
+      } else {
+        replaceUser(await usersBackendApi.updateStatus(pending.user.id, pending.enabled))
+        showToast(pending.enabled ? `Compte de ${name} réactivé.` : `Compte de ${name} désactivé.`, 'success')
+      }
+      setPending(null)
     } catch (err) {
-      const message = describeApiError(err, 'Erreur lors de la mise à jour du rôle.')
-      setActionError(message)
-      showToast(message, 'danger')
+      showToast(describeUserApiError(err, 'L’opération a échoué.'), 'danger')
     } finally {
-      setSaving(false)
+      setBusy(false)
     }
   }
 
-  const toggleEnabled = async (user: BackendUserSummaryResponse) => {
-    if (togglingId) return
-    setTogglingId(user.id)
-    try {
-      const updated = await usersBackendApi.updateStatus(user.id, !user.enabled)
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
-      setSelectedUser((prev) => (prev?.id === updated.id ? updated : prev))
-      showToast(`Utilisateur « ${updated.username} » ${updated.enabled ? 'activé' : 'désactivé'} avec succès.`, 'success')
-    } catch (err) {
-      showToast(describeApiError(err, 'Erreur lors du changement de statut.'), 'danger')
-    } finally {
-      setTogglingId(null)
-    }
+  const onCreated = (result: BackendUserCreatedResponse) => {
+    setUsers((prev) => [...prev.filter((u) => u.id !== result.user.id), result.user])
+    closeCreate()
+    const name = displayNameOf(result.user)
+    if (result.passwordSet) showToast(`${name} a été ajouté avec le mot de passe défini.`, 'success')
+    else if (result.invitationSent) showToast(`${name} a été ajouté. Un lien pour choisir son mot de passe a été envoyé à ${result.user.email}.`, 'success')
+    else showToast(`${name} a été ajouté, mais l’e-mail n’a pas pu partir : utilisez « Réinitialiser le mot de passe ».`, 'warning')
+    setOpenUserId(result.user.id)
   }
+
+  const rowActions = (u: BackendUserSummaryResponse) => [
+    { label: 'Modifier le rôle', icon: 'bi-shield-check', onSelect: () => setOpenUserId(u.id) },
+    { label: 'Réinitialiser le mot de passe', icon: 'bi-key', onSelect: () => setResetUser(u) },
+    u.enabled
+      ? { label: 'Désactiver', icon: 'bi-person-slash', danger: true, onSelect: () => setPending({ kind: 'status', user: u, enabled: false }),
+          disabled: isSelf(u), reason: 'Vous ne pouvez pas désactiver votre propre compte.' }
+      : { label: 'Réactiver', icon: 'bi-person-check', onSelect: () => setPending({ kind: 'status', user: u, enabled: true }) },
+  ]
+
+  const header = !embedded && (
+    <div className="pt-page-header ur-header">
+      <div className="page-title">
+        <h1>Utilisateurs et rôles</h1>
+        <p>Gérez qui accède à LoadPilot et ce que chacun peut faire</p>
+      </div>
+      {canAdminister && (
+        <button type="button" className="pt-btn-primary" onClick={() => setLocalCreateOpen(true)}>
+          <i className="bi bi-person-plus" aria-hidden="true"></i> Ajouter un utilisateur
+        </button>
+      )}
+    </div>
+  )
 
   if (!canAdminister) {
     return (
-      <div className="pt-content">
-        <div className="pt-page-header">
-          <div className="page-title">
-            <h1>Users &amp; Roles</h1>
-            <p>Gérez les utilisateurs et leurs permissions</p>
-          </div>
-        </div>
+      <div className={embedded ? undefined : 'pt-content'}>
+        {header}
         <div className="pt-card">
           <div className="pt-empty-state" style={{ padding: '4rem 1.5rem' }}>
             <i className="bi bi-shield-lock" style={{ fontSize: '40px', color: 'var(--pt-text-light)' }}></i>
             <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--pt-text)' }}>Accès restreint</p>
-            <p>L'administration des utilisateurs est réservée au rôle Administrateur (réellement appliqué côté backend).</p>
+            <p>La gestion des utilisateurs est réservée aux administrateurs.</p>
           </div>
         </div>
       </div>
     )
   }
 
+  const summaryItem = (key: string, label: string, pressed: boolean, onClick: () => void) => (
+    <button key={key} type="button" className="ur-summary-item" aria-pressed={pressed} onClick={onClick}>
+      <strong>{label.split(' ')[0]}</strong> {label.split(' ').slice(1).join(' ')}
+    </button>
+  )
+  const summary = [
+    summaryItem('total', plural(counts.total, 'utilisateur', 'utilisateurs'), false, resetFilters),
+    summaryItem('active', plural(counts.active, 'actif', 'actifs'), statusFilter === 'active' && roleFilter === 'all',
+      () => { setRoleFilter('all'); setStatusFilter(statusFilter === 'active' ? 'all' : 'active') }),
+    ...(counts.disabled > 0 ? [summaryItem('disabled', plural(counts.disabled, 'désactivé', 'désactivés'), statusFilter === 'disabled' && roleFilter === 'all',
+      () => { setRoleFilter('all'); setStatusFilter(statusFilter === 'disabled' ? 'all' : 'disabled') })] : []),
+    ...APP_ROLES.map((r) => summaryItem(r.role, plural(counts.byRole[r.role], ...ROLE_COUNT_LABEL[r.role]), roleFilter === r.role && statusFilter === 'all',
+      () => { setStatusFilter('all'); setRoleFilter(roleFilter === r.role ? 'all' : r.role) })),
+    ...(counts.none > 0 ? [summaryItem('none', plural(counts.none, 'sans rôle', 'sans rôle'), roleFilter === 'none',
+      () => { setStatusFilter('all'); setRoleFilter(roleFilter === 'none' ? 'all' : 'none') })] : []),
+  ]
+
   return (
-    <div className="pt-content">
-      <div className="pt-page-header">
-        <div className="page-title">
-          <h1>Users &amp; Roles</h1>
-          <p>Gérez les utilisateurs et leurs rôles réels (Keycloak)</p>
-        </div>
-        <TopBar searchPlaceholder="Rechercher un utilisateur..." />
-      </div>
+    <div className={embedded ? undefined : 'pt-content'}>
+      {header}
 
       {error && (
-        <div className="pt-alert-banner danger mb-3">
-          <i className="bi bi-exclamation-triangle-fill"></i>
-          {error}
+        <div className="pt-alert-banner danger mb-3" role="alert">
+          <i className="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>{error}
           <button className="pt-btn-outline ms-auto" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={loadUsers}>Réessayer</button>
         </div>
       )}
 
-      <div className="row g-3 mb-4">
-        {[
-          { label: 'Utilisateurs totaux', value: users.length, icon: 'bi-people', color: 'blue' },
-          { label: 'Actifs', value: activeCount, icon: 'bi-check-circle', color: 'green' },
-          { label: 'Rôles applicatifs', value: ROLES.length, icon: 'bi-shield', color: 'purple' },
-          { label: 'Sans rôle assigné', value: noRoleCount, icon: 'bi-question-circle', color: 'orange' },
-        ].map((card, i) => (
-          <div key={i} className="col-12 col-sm-6 col-xl-3">
-            <div className="pt-stat-card">
-              <div className="stat-header">
-                <div><div className="stat-label">{card.label}</div><div className="stat-value">{loading ? '—' : card.value}</div></div>
-                <div className={`stat-icon ${card.color}`}><i className={`bi ${card.icon}`}></i></div>
-              </div>
-            </div>
-          </div>
-        ))}
+      {!loading && users.length > 0 && (
+        <nav className="ur-summary" aria-label="Résumé des utilisateurs (cliquer pour filtrer)">
+          {summary.flatMap((item, i) => (i === 0 ? [item] : [<span key={`sep-${i}`} className="ur-summary-sep" aria-hidden="true">·</span>, item]))}
+        </nav>
+      )}
+
+      <div className="ur-filters">
+        <div className="pt-search">
+          <i className="bi bi-search" aria-hidden="true"></i>
+          <input type="search" placeholder="Rechercher par nom, nom d’utilisateur ou e-mail…" aria-label="Rechercher un utilisateur"
+            value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <select className="pt-form-control" aria-label="Filtrer par rôle" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}>
+          <option value="all">Tous les rôles</option>
+          {APP_ROLES.map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
+          <option value="none">Sans rôle</option>
+        </select>
+        <select className="pt-form-control" aria-label="Filtrer par statut" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
+          <option value="all">Tous les statuts</option>
+          <option value="active">Actifs</option>
+          <option value="disabled">Désactivés</option>
+        </select>
+        {filtersActive && (
+          <button type="button" className="pt-btn-ghost ur-reset" onClick={resetFilters}><i className="bi bi-x-lg" aria-hidden="true"></i> Effacer les filtres</button>
+        )}
       </div>
 
-      <div className="row g-3">
-        <div className="col-12 col-lg-8">
-          <div className="pt-card" style={{ padding: 0 }}>
-            <div className="d-flex justify-content-between align-items-center p-3 flex-wrap gap-2" style={{ borderBottom: '1px solid var(--pt-border)' }}>
-              <div className="pt-search" style={{ width: '260px' }}>
-                <i className="bi bi-search"></i>
-                <input type="text" placeholder="Rechercher par username, email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="pt-empty-state">
-                <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }}></i>
-                <p>Chargement des utilisateurs...</p>
-              </div>
-            ) : filteredUsers.length === 0 ? (
-              <div className="pt-empty-state">
-                <i className="bi bi-inbox" style={{ fontSize: '28px', color: 'var(--pt-text-light)' }}></i>
-                <p>Aucune donnée disponible.</p>
-              </div>
-            ) : (
-              <div className="pt-table-wrapper">
-                <table className="pt-table">
-                  <thead>
-                    <tr>
-                      <th>Utilisateur</th>
-                      <th>Rôle</th>
-                      <th>Statut</th>
-                      <th>Créé le</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageItems.map((user) => {
-                      const isSelected = selectedUser?.id === user.id
-                      return (
-                        <tr key={user.id} style={{ cursor: 'pointer', background: isSelected ? 'var(--pt-primary-light)' : undefined }} onClick={() => setSelectedUser(user)}>
-                          <td>
-                            <div className="d-flex align-items-center gap-2">
-                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--pt-primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '12px', flexShrink: 0 }}>
-                                {user.username.slice(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: '13.5px' }}>{user.username}</div>
-                                <div style={{ fontSize: '11.5px', color: 'var(--pt-text-muted)' }}>{user.email ?? '—'}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td onClick={(e) => e.stopPropagation()}>
-                            <div className="d-flex align-items-center gap-2">
-                              <RoleBadge role={user.role} />
-                              <button className="topbar-icon" style={{ width: '26px', height: '26px', border: '1px solid var(--pt-border)' }} title="Modifier le rôle" onClick={() => openRoleModal(user)}>
-                                <i className="bi bi-pencil" style={{ fontSize: '11px' }}></i>
-                              </button>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`pt-pill ${user.enabled ? 'success' : 'neutral'}`}>
-                              <i className={`bi ${user.enabled ? 'bi-check-circle-fill' : 'bi-dash-circle-fill'}`} style={{ fontSize: '10px' }}></i>
-                              {user.enabled ? 'Actif' : 'Inactif'}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>{formatDate(user.createdAt)}</td>
-                          <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                            <button
-                              className="topbar-icon"
-                              disabled={togglingId === user.id}
-                              style={{ width: '30px', height: '30px', border: `1px solid ${user.enabled ? 'var(--pt-danger)' : 'var(--pt-success)'}` }}
-                              title={user.enabled ? 'Désactiver' : 'Activer'}
-                              onClick={() => toggleEnabled(user)}
-                            >
-                              <i className={`bi ${togglingId === user.id ? 'bi-arrow-repeat pt-spin' : user.enabled ? 'bi-slash-circle' : 'bi-check-circle'}`} style={{ fontSize: '13px', color: user.enabled ? 'var(--pt-danger)' : 'var(--pt-success)' }}></i>
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} startIndex={startIndex} endIndex={endIndex} totalItems={totalItems} itemLabel="utilisateurs" />
+      <div className="pt-card ur-card">
+        {loading ? (
+          <table className="ur-table" aria-busy="true"><tbody>
+            {[0, 1, 2].map((i) => <tr key={i} className="ur-skeleton-row"><td colSpan={5}><div className="ex-skeleton" style={{ width: `${70 - i * 12}%` }}></div></td></tr>)}
+          </tbody></table>
+        ) : filtered.length === 0 ? (
+          <div className="ur-empty">
+            <i className="bi bi-people" aria-hidden="true"></i>
+            <p>{users.length === 0 ? 'Aucun utilisateur pour le moment.' : 'Aucun utilisateur ne correspond à ces filtres.'}</p>
+            {filtersActive && <button type="button" className="pt-btn-outline" onClick={resetFilters}>Effacer les filtres</button>}
           </div>
-        </div>
-
-        <div className="col-12 col-lg-4">
-          <div className="pt-card">
-            <div className="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
-              <h6 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>Détails de l'utilisateur</h6>
-            </div>
-            {!selectedUser ? (
-              <p className="text-muted mb-0" style={{ fontSize: '13px' }}>Sélectionnez un utilisateur.</p>
-            ) : (
-              <>
-                <div className="text-center pb-3 border-bottom mb-3">
-                  <div className="mx-auto mb-2" style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--pt-primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '18px' }}>
-                    {selectedUser.username.slice(0, 2).toUpperCase()}
-                  </div>
-                  <h5 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 2px 0' }}>{selectedUser.username}</h5>
-                  <div style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)', marginBottom: '10px' }}>{selectedUser.email ?? '—'}</div>
-                  <div className="d-flex justify-content-center gap-1 mb-3">
-                    <RoleBadge role={selectedUser.role} />
-                    <span className={`pt-pill ${selectedUser.enabled ? 'success' : 'neutral'}`} style={{ fontSize: '11px' }}>{selectedUser.enabled ? 'Actif' : 'Inactif'}</span>
-                  </div>
-                  <button className="pt-btn-outline" style={{ fontSize: '12px', width: '100%' }} onClick={() => openRoleModal(selectedUser)}>
-                    <i className="bi bi-shield-plus me-1"></i> Modifier le rôle
-                  </button>
-                </div>
-                <div className="d-flex justify-content-between py-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted">ID Keycloak :</span>
-                  <span style={{ fontFamily: 'monospace', fontSize: '11.5px' }}>{selectedUser.id.slice(0, 13)}…</span>
-                </div>
-                <div className="d-flex justify-content-between py-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted">Créé le :</span>
-                  <span style={{ fontWeight: 600 }}>{formatDate(selectedUser.createdAt)}</span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        ) : (
+          <table className="ur-table">
+            <thead>
+              <tr>
+                <th scope="col">Utilisateur</th>
+                <th scope="col">Rôle</th>
+                <th scope="col">Statut</th>
+                <th scope="col">Dernière connexion</th>
+                <th scope="col"><span className="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageItems.map((u) => {
+                const name = displayNameOf(u)
+                return (
+                  <tr key={u.id} className={`ur-row ${openUserId === u.id ? 'selected' : ''}`} tabIndex={0}
+                    aria-label={`${name}, ouvrir le détail`}
+                    onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a, [role="menu"]')) setOpenUserId(u.id) }}
+                    onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); setOpenUserId(u.id) } }}>
+                    <td>
+                      <div className="ur-person">
+                        <UserAvatar user={u} />
+                        <div className="ur-person-text">
+                          <span className="ur-person-name">{name}{isSelf(u) && <span className="ur-you">vous</span>}</span>
+                          <span className="ur-person-mail">{u.email ?? u.username}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="ur-cell-role"><RoleBadge role={u.role} /></td>
+                    <td className="ur-cell-status"><StatusLabel enabled={u.enabled} /></td>
+                    <td className="ur-cell-last"><LastLogin iso={u.lastLoginAt} /></td>
+                    <td><RowActionsMenu actions={rowActions(u)} label={`Actions pour ${name}`} width={240} /></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+        {!loading && filtered.length > 0 && (
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} startIndex={startIndex} endIndex={endIndex} totalItems={totalItems} itemLabel="utilisateurs" />
+        )}
       </div>
 
-      {showRoleModal && modalUser && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: 'var(--pt-card-bg)', borderRadius: 'var(--pt-radius)', width: '420px', maxWidth: '95vw', border: '1px solid var(--pt-border)', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-            <div className="d-flex justify-content-between align-items-center" style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--pt-border)' }}>
-              <h5 style={{ fontWeight: 700, margin: 0, fontSize: '16px' }}>Rôle — {modalUser.username}</h5>
-              <button onClick={() => setShowRoleModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--pt-text-muted)' }}><i className="bi bi-x"></i></button>
-            </div>
-            <div style={{ padding: '1.5rem' }}>
-              {actionError && (
-                <div className="pt-alert-banner danger mb-3"><i className="bi bi-exclamation-triangle-fill"></i>{actionError}</div>
-              )}
-              <p style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)', marginBottom: '0.75rem' }}>
-                Cette opération modifie réellement le rôle réalm Keycloak de l'utilisateur.
-              </p>
-              <div className="d-flex flex-column gap-2">
-                {ROLES.map((role) => {
-                  const badge = roleBadgeStyle[role]
-                  const isChecked = pendingRole === role
-                  return (
-                    <label key={role} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.65rem 0.85rem', borderRadius: 'var(--pt-radius-sm)', border: `1px solid ${isChecked ? 'var(--pt-primary)' : 'var(--pt-border)'}`, background: isChecked ? 'var(--pt-primary-light)' : 'var(--pt-bg)', cursor: 'pointer' }}>
-                      <input type="radio" name="role" checked={isChecked} onChange={() => setPendingRole(role)} style={{ width: '16px', height: '16px' }} />
-                      <span className="pt-pill" style={{ background: badge.bg, color: badge.color, fontSize: '11.5px' }}>{role}</span>
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-            <div className="d-flex justify-content-end gap-2" style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--pt-border)' }}>
-              <button className="pt-btn-outline" style={{ fontSize: '13px' }} onClick={() => setShowRoleModal(false)} disabled={saving}>Annuler</button>
-              <button className="pt-btn-primary" style={{ fontSize: '13px' }} onClick={saveRole} disabled={saving}>
-                {saving ? <><i className="bi bi-arrow-repeat me-1 pt-spin"></i>Enregistrement...</> : <><i className="bi bi-check-lg me-1"></i>Enregistrer</>}
-              </button>
-            </div>
-          </div>
-        </div>
+      {openUser && (
+        <UserDrawer user={openUser} isSelf={isSelf(openUser)} busy={busy} onClose={() => setOpenUserId(null)}
+          onRequestRole={(role) => setPending({ kind: 'role', user: openUser, role })}
+          onRequestReset={() => setResetUser(openUser)}
+          onRequestStatus={(enabled) => setPending({ kind: 'status', user: openUser, enabled })} />
+      )}
+
+      {pending && <ConfirmAction action={pending} busy={busy} onCancel={() => setPending(null)} onConfirm={confirmPending} />}
+
+      {showCreate && <CreateUserModal onClose={closeCreate} onCreated={onCreated} />}
+
+      {resetUser && (
+        <ResetPasswordDialog user={resetUser} onClose={() => setResetUser(null)}
+          onDone={(message) => { setResetUser(null); showToast(message, 'success') }} />
       )}
     </div>
+  )
+}
+
+function ConfirmAction({ action, busy, onCancel, onConfirm }: {
+  action: PendingAction
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const name = displayNameOf(action.user)
+  let title: string
+  let confirmLabel: string
+  let danger = false
+  let body: JSX.Element
+  if (action.kind === 'role') {
+    const next = roleMeta(action.role)
+    title = 'Changer le rôle'
+    confirmLabel = 'Changer le rôle'
+    body = (<>
+      <p>Le rôle de <strong>{name}</strong> passera de {action.user.role ? <RoleBadge role={action.user.role} /> : 'aucun rôle'} à <RoleBadge role={action.role} />.</p>
+      <p className="ur-hint">{next.summary} Le changement s’applique à sa prochaine connexion ou au renouvellement de sa session (5 minutes au plus).</p>
+    </>)
+  } else if (action.kind === 'status' && !action.enabled) {
+    title = 'Désactiver le compte'
+    confirmLabel = 'Désactiver'
+    danger = true
+    body = (<>
+      <p><strong>{name}</strong> ne pourra plus se connecter à LoadPilot.</p>
+      <p className="ur-hint">Ses exécutions, rapports et planifications sont conservés. Vous pourrez réactiver le compte à tout moment.</p>
+    </>)
+  } else {
+    title = 'Réactiver le compte'
+    confirmLabel = 'Réactiver'
+    body = <p><strong>{name}</strong> pourra de nouveau se connecter à LoadPilot avec son mot de passe actuel.</p>
+  }
+  return (
+    <UserDialog title={title} titleId="ur-confirm-title" onClose={onCancel} busy={busy}
+      footer={<>
+        <button type="button" className="pt-btn-outline" onClick={onCancel} disabled={busy}>Annuler</button>
+        <button type="button" className={danger ? 'ur-btn-danger' : 'pt-btn-primary'} onClick={onConfirm} disabled={busy}>
+          {busy && <i className="bi bi-arrow-repeat pt-spin me-1" aria-hidden="true"></i>}{confirmLabel}
+        </button>
+      </>}>
+      {body}
+    </UserDialog>
   )
 }
 

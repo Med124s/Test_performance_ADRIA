@@ -91,6 +91,16 @@ public interface ExecutionRepository extends JpaRepository<Execution, UUID>, Jpa
     @Query("SELECT COUNT(e) FROM Execution e WHERE e.scenario.application.id = :applicationId AND e.status = :status")
     long countByApplicationIdAndStatus(@Param("applicationId") UUID applicationId, @Param("status") ExecutionStatus status);
 
+    /** Nombre d'executions lancees par utilisateur (sujet Keycloak -> nombre), en une seule requete
+     * (page Utilisateurs et roles). Les executions anterieures a P1-B, sans lanceur connu, ne sont pas comptees. */
+    @Query("SELECT u.keycloakSubject AS subject, COUNT(e) AS total FROM Execution e JOIN e.triggeredBy u GROUP BY u.keycloakSubject")
+    List<ExecutionCountBySubject> countExecutionsBySubject();
+
+    interface ExecutionCountBySubject {
+        String getSubject();
+        long getTotal();
+    }
+
     // ---- P1-C - Dashboard enrichi (plage temporelle 24h/7j/30j/personnalisee,
     // voir DashboardServiceImpl) - "from"/"to" sont TOUJOURS non-null au
     // moment de l'appel (resolus par le service : from = Instant.EPOCH si
@@ -120,4 +130,27 @@ public interface ExecutionRepository extends JpaRepository<Execution, UUID>, Jpa
     List<ScenarioExecutionCountProjection> findTopScenariosByExecutionCount(
             @Param("from") Instant from, @Param("to") Instant to,
             @Param("successStatus") ExecutionStatus successStatus, Pageable pageable);
+
+    /** Executions encore actives (en attente, en cours, en pause) d'un scenario. */
+    @Query("SELECT COUNT(e) FROM Execution e WHERE e.scenario.id = :scenarioId AND e.status IN "
+            + "(com.loadpilot.backend.enums.ExecutionStatus.QUEUED, com.loadpilot.backend.enums.ExecutionStatus.RUNNING, "
+            + "com.loadpilot.backend.enums.ExecutionStatus.PAUSED)")
+    long countActiveByScenarioId(@Param("scenarioId") UUID scenarioId);
+
+    /** Executions lancees par une planification, de la plus recente a la plus ancienne. */
+    @Query("SELECT e FROM Execution e WHERE e.scheduleId = :scheduleId ORDER BY e.startedAt DESC")
+    List<Execution> findByScheduleIdRecentFirst(@Param("scheduleId") UUID scheduleId, Pageable pageable);
+
+    /** Derniere execution terminee (reussie ou echouee) d'une planification lancee avant "before". */
+    @Query("SELECT e FROM Execution e WHERE e.scheduleId = :scheduleId AND e.startedAt < :before AND e.status IN "
+            + "(com.loadpilot.backend.enums.ExecutionStatus.SUCCESS, com.loadpilot.backend.enums.ExecutionStatus.THRESHOLDS_EXCEEDED, "
+            + "com.loadpilot.backend.enums.ExecutionStatus.FAILED) "
+            + "ORDER BY e.startedAt DESC")
+    List<Execution> findPreviousFinishedBySchedule(@Param("scheduleId") UUID scheduleId, @Param("before") Instant before, Pageable pageable);
+
+    /** Derniere execution terminee (reussie, seuils depasses ou echouee) du scenario lancee avant "before". */
+    @Query("SELECT e FROM Execution e WHERE e.scenario.id = :scenarioId AND e.startedAt < :before AND e.status IN "
+            + "(com.loadpilot.backend.enums.ExecutionStatus.SUCCESS, com.loadpilot.backend.enums.ExecutionStatus.THRESHOLDS_EXCEEDED, "
+            + "com.loadpilot.backend.enums.ExecutionStatus.FAILED) ORDER BY e.startedAt DESC")
+    List<Execution> findPreviousFinishedByScenario(@Param("scenarioId") UUID scenarioId, @Param("before") Instant before, Pageable pageable);
 }

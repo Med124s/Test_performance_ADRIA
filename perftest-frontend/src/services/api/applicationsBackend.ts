@@ -19,6 +19,8 @@ import {
   BackendApplicationTestResponse,
   BackendBulkActionResponse,
   BackendDeletionImpact,
+  BackendMonitoringRequest,
+  BackendMonitoringTestResponse,
   BackendPagedResponse,
 } from '../../types/backendContracts'
 
@@ -54,4 +56,7 @@ export const applicationsBackendApi = {
   /** Lance un vrai test HTTP cote serveur (voir ApplicationServiceImpl) -
    * jamais un fetch() direct depuis le frontend pour cette action. */
   test: (id: string) => springHttp.post<BackendApplicationTestResponse>(`${RESOURCE}/${id}/test`),
+  /** « Tester le monitoring » avec la configuration saisie (rien n'est enregistré) ; applicationId : secret enregistré réutilisé. */
+  testMonitoring: (monitoring: BackendMonitoringRequest, applicationId?: string) =>
+    springHttp.post<BackendMonitoringTestResponse>(`${RESOURCE}/monitoring/test`, { applicationId: applicationId ?? null, monitoring }),
 }

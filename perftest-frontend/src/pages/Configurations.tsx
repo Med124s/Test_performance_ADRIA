@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext'
 import { systemConfigBackendApi } from '../services/api/systemConfigBackend'
 import { BackendSystemConfigResponse } from '../types/backendContracts'
 import { ApiError } from '../services/api/httpClient'
+import AuditSettingsCard from './audit/AuditSettingsCard'
+import './audit/audit.css'
 
 // ============================================================
 // P1-D — page RÉELLE (remplace l'ancien ComingSoonPage), mais
@@ -21,7 +23,7 @@ function describeApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     switch (err.status) {
       case 0: return err.message
-      case 401: return 'Vous devez être connecté (Keycloak) pour consulter la configuration système.'
+      case 401: return 'Vous devez être connecté pour consulter la configuration système.'
       case 403: return "Réservé aux Super Administrateurs."
       default: return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
     }
@@ -29,7 +31,8 @@ function describeApiError(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
 }
 
-function Configurations() {
+/** embedded : affichée dans un onglet (Paramètres, Utilisateurs et rôles), sans son propre en-tête. */
+function Configurations({ embedded = false }: { embedded?: boolean } = {}) {
   const { authProvider, rawRoles } = useAuth()
   const isKeycloak = authProvider === 'keycloak'
   const isSuperAdmin = isKeycloak && rawRoles.includes('ROLE_SUPER_ADMIN')
@@ -60,14 +63,16 @@ function Configurations() {
   ] : []
 
   return (
-    <div className="pt-content">
-      <div className="pt-page-header">
-        <div className="page-title">
-          <h1>Configurations</h1>
-          <p>Limites opérationnelles réellement actives sur ce backend</p>
+    <div className={embedded ? undefined : 'pt-content'}>
+      {!embedded && (
+        <div className="pt-page-header">
+          <div className="page-title">
+            <h1>Configuration système</h1>
+            <p>Limites opérationnelles réellement actives sur ce backend</p>
+          </div>
+          <TopBar searchPlaceholder="" />
         </div>
-        <TopBar searchPlaceholder="" />
-      </div>
+      )}
 
       {!isSuperAdmin ? (
         <div className="pt-empty-state">
@@ -112,6 +117,8 @@ function Configurations() {
               </div>
             )}
           </div>
+
+          <AuditSettingsCard />
         </>
       )}
     </div>

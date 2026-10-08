@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Journal d'audit enrichi (aucune donnee existante modifiee ni supprimee) :
+        - acteur : USER (utilisateur connecte) ou SYSTEM (action automatique) et sa source
+          (ex. "Planification : Test nocturne") ;
+        - objet concerne (type, identifiant, nom lisible) pour afficher un lien ;
+        - changements avant -> apres (JSON, jamais de secret) ;
+        - navigateur (User-Agent) ;
+        - identifiant de l'evenement externe (evenements Keycloak importes) pour ne jamais
+          importer deux fois le meme evenement.
+        Les lignes existantes gardent actor_type = USER et des colonnes nouvelles nulles.
+
+        app_setting : reglages modifiables depuis Parametres (journalisation des consultations,
+        duree de conservation du journal, curseur de lecture des evenements Keycloak).
+    -->
+    <changeSet id="030-audit-enrichment" author="loadpilot">
+        <addColumn tableName="audit_log">
+            <column name="actor_type" type="VARCHAR(10)" defaultValue="USER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="actor_source" type="VARCHAR(255)"/>
+            <column name="target_type" type="VARCHAR(30)"/>
+            <column name="target_id" type="VARCHAR(64)"/>
+            <column name="target_label" type="VARCHAR(255)"/>
+            <column name="changes" type="VARCHAR(4000)"/>
+            <column name="user_agent" type="VARCHAR(300)"/>
+            <column name="external_id" type="VARCHAR(100)"/>
+        </addColumn>
+        <createIndex indexName="idx_audit_log_target" tableName="audit_log">
+            <column name="target_type"/>
+            <column name="target_id"/>
+        </createIndex>
+        <addUniqueConstraint tableName="audit_log" columnNames="external_id" constraintName="uq_audit_log_external_id"/>
+    </changeSet>
+
+    <changeSet id="030-app-setting" author="loadpilot">
+        <createTable tableName="app_setting">
+            <column name="setting_key" type="VARCHAR(100)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="setting_value" type="VARCHAR(1000)"/>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_by" type="VARCHAR(255)"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

@@ -2,6 +2,8 @@ package com.loadpilot.backend.entity;
 
 import com.loadpilot.backend.enums.ApplicationAuthType;
 import com.loadpilot.backend.enums.ApplicationStatus;
+import com.loadpilot.backend.enums.MonitoringAuthType;
+import com.loadpilot.backend.enums.MonitoringType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -85,6 +87,33 @@ public class Application {
      * Peut contenir des secrets : jamais expose tel quel par l'API. */
     @Column(name = "auth_config")
     private String authConfig;
+
+    /** Monitoring optionnel du processus de l'application (CPU / RAM pendant les executions). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "monitoring_type", nullable = false)
+    @Builder.Default
+    private MonitoringType monitoringType = MonitoringType.NONE;
+
+    /** Prometheus : URL complete des metriques (ex : http://hote/metrics) ; Actuator : URL de base (ex : http://hote/actuator). */
+    @Column(name = "monitoring_url")
+    private String monitoringUrl;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "monitoring_auth_type", nullable = false)
+    @Builder.Default
+    private MonitoringAuthType monitoringAuthType = MonitoringAuthType.NONE;
+
+    /** Nom de l'en-tete (authentification HEADER). */
+    @Column(name = "monitoring_header_name")
+    private String monitoringHeaderName;
+
+    /** Jeton ou valeur d'en-tete : secret, jamais expose par l'API. */
+    @Column(name = "monitoring_secret")
+    private String monitoringSecret;
+
+    @Column(name = "monitoring_interval_seconds", nullable = false)
+    @Builder.Default
+    private int monitoringIntervalSeconds = 5;
 
     /** Utilisateur (projection locale, voir AppUser) ayant cree cette application. */
     @ManyToOne(fetch = FetchType.LAZY)

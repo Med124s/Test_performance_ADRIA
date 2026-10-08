@@ -14,6 +14,9 @@ import java.util.UUID;
  * l'Application, ou l'id (UUID) de l'Execution (voir section 6 du prompt
  * P1-A) - executee cote base (LIKE), jamais apres avoir charge la table en
  * memoire.
+ *
+ * "finishedOnly" : seulement les executions terminees (SUCCESS, FAILED, CANCELLED) -
+ * la page Rapports (un rapport n'a de sens que sur une execution terminee).
  */
 public record ExecutionHistoryFilterRequest(
         ExecutionStatus status,
@@ -21,6 +24,12 @@ public record ExecutionHistoryFilterRequest(
         UUID applicationId,
         Instant dateFrom,
         Instant dateTo,
-        String search
+        String search,
+        boolean finishedOnly
 ) {
+
+    public ExecutionHistoryFilterRequest(ExecutionStatus status, UUID scenarioId, UUID applicationId, Instant dateFrom,
+                                         Instant dateTo, String search) {
+        this(status, scenarioId, applicationId, dateFrom, dateTo, search, false);
+    }
 }

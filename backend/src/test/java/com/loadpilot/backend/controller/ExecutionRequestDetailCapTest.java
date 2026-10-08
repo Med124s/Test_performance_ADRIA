@@ -87,7 +87,7 @@ class ExecutionRequestDetailCapTest {
         do {
             Thread.sleep(150);
             summary = call(get("/api/executions/" + executionId + "?includeResults=false"), null);
-        } while (System.currentTimeMillis() < deadline && !List.of("SUCCESS", "FAILED", "CANCELLED").contains(summary.get("status").asText()));
+        } while (System.currentTimeMillis() < deadline && !List.of("SUCCESS", "THRESHOLDS_EXCEEDED", "FAILED", "CANCELLED").contains(summary.get("status").asText()));
         Thread.sleep(300);
         summary = call(get("/api/executions/" + executionId + "?includeResults=false"), null);
 

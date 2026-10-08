@@ -28,4 +28,14 @@ public class KeycloakAdminProperties {
     private String clientId = "loadpilot-backend-admin";
     private String clientSecret = "";
     private long timeoutSeconds = 5;
+    /** Client public vers lequel renvoient les liens des e-mails d'actions
+     * (reinitialisation du mot de passe, invitation). */
+    private String actionsClientId = "loadpilot-frontend";
+    /** Adresse de l'application ouverte apres l'action (doit faire partie des
+     * redirectUris du client ci-dessus). */
+    private String actionsRedirectUri = "http://localhost:3000/";
+    /** Duree de validite du lien envoye par e-mail (12 h). */
+    private int actionsLifespanSeconds = 43200;
+    /** Nombre maximal d'evenements LOGIN lus pour calculer les dernieres connexions. */
+    private int loginEventsMax = 2000;
 }

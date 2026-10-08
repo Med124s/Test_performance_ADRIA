@@ -312,8 +312,7 @@ public class StepTestRunner {
         String error = !statusOk
                 ? "Réponse HTTP " + status + (statusText.isEmpty() ? "" : " " + statusText) + " (attendu " + expected + ")."
                 : Boolean.FALSE.equals(assertionOk)
-                ? "Assertion échouée : la réponse ne contient pas « "
-                        + TestRunMasking.maskSecrets(step.assertionBodyContains(), secrets) + " »."
+                ? HttpClientExecutionEngine.missingContentMessage(TestRunMasking.maskSecrets(step.assertionBodyContains(), secrets))
                 : null;
         Checks checks = new Checks(new StatusCheck(expected, status, statusOk),
                 hasAssertion ? new AssertionCheck(TestRunMasking.maskSecrets(step.assertionBodyContains(), secrets), assertionOk) : null,

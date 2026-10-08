@@ -37,6 +37,8 @@ import {
   BackendExecutionRequestDetail,
   BackendExecutionTimeline,
   BackendExecutionRequestRow,
+  BackendExecutionExtremes,
+  BackendExecutionComparison,
   ExecutionResultsQuery,
   ExecutionHistoryFilters,
 } from '../../types/backendContracts'
@@ -55,6 +57,7 @@ function buildHistoryQuery(filters: ExecutionHistoryFilters): string {
   if (filters.page != null) params.set('page', String(filters.page))
   if (filters.size != null) params.set('size', String(filters.size))
   if (filters.sort) params.set('sort', filters.sort)
+  if (filters.finished) params.set('finished', 'true')
   const qs = params.toString()
   return qs ? `?${qs}` : ''
 }
@@ -100,8 +103,14 @@ export const executionsBackendApi = {
     if (q.virtualUser != null) params.set('virtualUser', String(q.virtualUser))
     if (q.iteration != null) params.set('iteration', String(q.iteration))
     if (q.failedOnly) params.set('failedOnly', 'true')
+    if (q.sort && q.sort !== 'TIME') params.set('sort', q.sort)
     return springHttp.get<BackendPagedResponse<BackendExecutionRequestRow>>(`${RESOURCE}/${id}/results?${params}`)
   },
+  /** Comparaison de 2 à 4 exécutions terminées (mêmes calculs que leurs rapports). */
+  compare: (ids: string[]) => springHttp.get<BackendExecutionComparison>(`${RESOURCE}/compare?ids=${ids.map(encodeURIComponent).join(',')}`),
+  /** Les 10 requêtes les plus rapides (MIN) ou les plus lentes (MAX) : d'où viennent les cartes Minimum / Maximum. */
+  getExtremes: (id: string, kind: 'MIN' | 'MAX') =>
+    springHttp.get<BackendExecutionExtremes>(`${RESOURCE}/${id}/extremes?kind=${kind}`),
   /** Analyse dans le temps (calculée côté serveur, en cache pour une exécution terminée). */
   getTimeline: (id: string) => springHttp.get<BackendExecutionTimeline>(`${RESOURCE}/${id}/timeline`),
   /** Détail complet d'une requête (404 si non conservé). */

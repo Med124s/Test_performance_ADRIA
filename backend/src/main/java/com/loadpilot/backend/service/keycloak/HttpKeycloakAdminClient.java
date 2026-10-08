@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.loadpilot.backend.config.KeycloakAdminProperties;
 import com.loadpilot.backend.enums.AppRole;
+import com.loadpilot.backend.exception.BadRequestException;
+import com.loadpilot.backend.exception.ConflictException;
 import com.loadpilot.backend.exception.KeycloakAdminException;
 import com.loadpilot.backend.exception.ResourceNotFoundException;
 import java.io.IOException;
@@ -18,8 +20,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -150,6 +154,135 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
         }
     }
 
+    @Override
+    public Map<String, Instant> lastLoginByUser() {
+        // Evenements renvoyes du plus recent au plus ancien : le premier vu
+        // pour un utilisateur est sa derniere connexion.
+        JsonNode events = get("/admin/realms/" + properties.getRealm() + "/events?type=LOGIN&first=0&max=" + properties.getLoginEventsMax());
+        Map<String, Instant> result = new HashMap<>();
+        if (events.isArray()) {
+            for (JsonNode event : events) {
+                String userId = event.path("userId").asText(null);
+                long time = event.path("time").asLong(0);
+                if (userId != null && time > 0) {
+                    result.merge(userId, Instant.ofEpochMilli(time), (a, b) -> a.isAfter(b) ? a : b);
+                }
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public String createUser(NewKeycloakUser user) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("username", user.username());
+        body.put("email", user.email());
+        if (user.firstName() != null) body.put("firstName", user.firstName());
+        if (user.lastName() != null) body.put("lastName", user.lastName());
+        body.put("enabled", true);
+        body.put("emailVerified", false);
+        if (user.password() != null) {
+            // Mot de passe initial : verifie par Keycloak selon la politique du realm ;
+            // "temporary" ajoute l'action requise UPDATE_PASSWORD (changement a la 1re connexion).
+            body.putArray("credentials").add(passwordCredential(user.password(), user.temporaryPassword()));
+        }
+        String path = "/admin/realms/" + properties.getRealm() + "/users";
+        HttpResponse<String> response = send(newRequest(path, "POST")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(writeJson(body)))
+                .build());
+        if (response.statusCode() == 409) {
+            throw new ConflictException("Un utilisateur avec ce nom d'utilisateur ou cet e-mail existe déjà.");
+        }
+        rejectPasswordPolicyViolation(response);
+        requireSuccess(response, path);
+        // Keycloak renvoie l'adresse du compte cree : .../users/{id}
+        String location = response.headers().firstValue("Location")
+                .orElseThrow(() -> new KeycloakAdminException("Le service d'authentification n'a pas renvoyé l'identifiant du compte créé."));
+        return location.substring(location.lastIndexOf('/') + 1);
+    }
+
+    @Override
+    public void setPassword(String userId, String password, boolean temporary) {
+        String path = "/admin/realms/" + properties.getRealm() + "/users/" + encode(userId) + "/reset-password";
+        HttpResponse<String> response = send(newRequest(path, "PUT")
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(writeJson(passwordCredential(password, temporary))))
+                .build());
+        if (response.statusCode() == 404) {
+            throw new ResourceNotFoundException("Utilisateur introuvable : " + userId);
+        }
+        rejectPasswordPolicyViolation(response);
+        requireSuccess(response, path);
+    }
+
+    /** Types lus pour le journal d'audit (categorie Securite). */
+    static final List<String> SECURITY_EVENT_TYPES = List.of("LOGIN", "LOGIN_ERROR", "LOGOUT", "UPDATE_PASSWORD",
+            "SEND_RESET_PASSWORD", "RESET_PASSWORD", "USER_DISABLED_BY_TEMPORARY_LOCKOUT", "USER_DISABLED_BY_PERMANENT_LOCKOUT");
+
+    @Override
+    public List<KeycloakSecurityEvent> securityEvents(int first, int max) {
+        StringBuilder path = new StringBuilder("/admin/realms/").append(properties.getRealm()).append("/events?first=").append(first).append("&max=").append(max);
+        SECURITY_EVENT_TYPES.forEach(t -> path.append("&type=").append(t));
+        JsonNode events = get(path.toString());
+        List<KeycloakSecurityEvent> result = new ArrayList<>();
+        if (events.isArray()) {
+            for (JsonNode e : events) {
+                result.add(new KeycloakSecurityEvent(
+                        e.path("id").asText(null),
+                        e.path("type").asText(""),
+                        e.path("time").asLong(0),
+                        e.hasNonNull("userId") ? e.get("userId").asText() : null,
+                        e.path("details").hasNonNull("username") ? e.path("details").get("username").asText() : null,
+                        e.hasNonNull("ipAddress") ? e.get("ipAddress").asText() : null,
+                        e.hasNonNull("error") ? e.get("error").asText() : null));
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public String getPasswordPolicy() {
+        // Necessite le role realm-management "view-realm" pour le compte de service.
+        JsonNode realm = get("/admin/realms/" + properties.getRealm());
+        return realm.path("passwordPolicy").asText("");
+    }
+
+    private ObjectNode passwordCredential(String password, boolean temporary) {
+        ObjectNode credential = objectMapper.createObjectNode();
+        credential.put("type", "password");
+        credential.put("value", password);
+        credential.put("temporary", temporary);
+        return credential;
+    }
+
+    /** 400 de Keycloak pour un mot de passe refuse -> message francais (sans jamais le mot de passe). */
+    private void rejectPasswordPolicyViolation(HttpResponse<String> response) {
+        if (response.statusCode() == 400) {
+            String message = PasswordPolicyMessages.fromKeycloakError(response.body(), objectMapper);
+            if (message != null) {
+                throw new BadRequestException(message);
+            }
+        }
+    }
+
+    @Override
+    public void deleteUser(String userId) {
+        String path = "/admin/realms/" + properties.getRealm() + "/users/" + encode(userId);
+        requireSuccess(send(newRequest(path, "DELETE").DELETE().build()), path);
+    }
+
+    @Override
+    public void sendActionsEmail(String userId, List<String> actions) {
+        String path = "/admin/realms/" + properties.getRealm() + "/users/" + encode(userId) + "/execute-actions-email"
+                + "?client_id=" + encode(properties.getActionsClientId())
+                + "&redirect_uri=" + encode(properties.getActionsRedirectUri())
+                + "&lifespan=" + properties.getActionsLifespanSeconds();
+        ArrayNode body = objectMapper.createArrayNode();
+        actions.forEach(body::add);
+        put(path, body);
+    }
+
     private JsonNode findAvailableRole(String availableRolesPath, String keycloakRoleName, String userId) {
         JsonNode available = getOrThrowNotFound(availableRolesPath, "Utilisateur introuvable : " + userId);
         if (available.isArray()) {
@@ -160,7 +293,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
             }
         }
         throw new ResourceNotFoundException(
-                "Role Keycloak introuvable ou deja assigne autrement : " + keycloakRoleName + " (provisionnement du realm incomplet ?)");
+                "Rôle introuvable dans le service d'authentification : " + keycloakRoleName + " (configuration incomplète ?).");
     }
 
     private boolean isAppRoleName(String name) {
@@ -178,6 +311,8 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
                 node.path("id").asText(null),
                 node.path("username").asText(null),
                 node.hasNonNull("email") ? node.get("email").asText() : null,
+                node.hasNonNull("firstName") ? node.get("firstName").asText() : null,
+                node.hasNonNull("lastName") ? node.get("lastName").asText() : null,
                 node.path("enabled").asBoolean(false),
                 createdTimestamp != null ? Instant.ofEpochMilli(createdTimestamp) : null);
     }
@@ -189,8 +324,9 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
             return cachedToken;
         }
         if (properties.getClientSecret() == null || properties.getClientSecret().isBlank()) {
+            log.warn("Compte de service Keycloak non configure : app.keycloak.admin.client-secret (KEYCLOAK_ADMIN_CLIENT_SECRET) manquant.");
             throw new KeycloakAdminException(
-                    "Administration Keycloak indisponible : compte de service non configure (app.keycloak.admin.client-secret manquant).");
+                    "Gestion des utilisateurs indisponible : compte de service non configuré.");
         }
         String form = "grant_type=client_credentials"
                 + "&client_id=" + encode(properties.getClientId())
@@ -203,7 +339,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
-                throw new KeycloakAdminException("Administration Keycloak indisponible (authentification du compte de service refusee).");
+                throw new KeycloakAdminException("Gestion des utilisateurs indisponible (authentification du compte de service refusée).");
             }
             JsonNode body = objectMapper.readTree(response.body());
             cachedToken = body.path("access_token").asText();
@@ -211,10 +347,10 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
             cachedTokenExpiry = Instant.now().plusSeconds(expiresIn);
             return cachedToken;
         } catch (IOException e) {
-            throw new KeycloakAdminException("Administration Keycloak injoignable.");
+            throw new KeycloakAdminException("Service d'authentification injoignable.");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new KeycloakAdminException("Administration Keycloak injoignable (interrompu).");
+            throw new KeycloakAdminException("Service d'authentification injoignable (interrompu).");
         }
     }
 
@@ -268,10 +404,10 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
         try {
             return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
-            throw new KeycloakAdminException("Administration Keycloak injoignable.");
+            throw new KeycloakAdminException("Service d'authentification injoignable.");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new KeycloakAdminException("Administration Keycloak injoignable (interrompu).");
+            throw new KeycloakAdminException("Service d'authentification injoignable (interrompu).");
         }
     }
 
@@ -280,14 +416,14 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
         try {
             return response.body() == null || response.body().isBlank() ? objectMapper.createArrayNode() : objectMapper.readTree(response.body());
         } catch (IOException e) {
-            throw new KeycloakAdminException("Reponse Keycloak illisible.");
+            throw new KeycloakAdminException("Réponse du service d'authentification illisible.");
         }
     }
 
     private void requireSuccess(HttpResponse<String> response, String path) {
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             log.warn("Appel Admin API Keycloak {} a echoue avec le statut {}", path, response.statusCode());
-            throw new KeycloakAdminException("Administration Keycloak a refuse l'operation (statut " + response.statusCode() + ").");
+            throw new KeycloakAdminException("Le service d'authentification a refusé l'opération (statut " + response.statusCode() + ").");
         }
     }
 

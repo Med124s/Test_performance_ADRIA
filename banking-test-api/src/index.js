@@ -7,6 +7,7 @@
 
 import express from 'express'
 import cors from 'cors'
+import promClient from 'prom-client'
 import { db, nextId, resetDatabase } from './db.js'
 import { latencyConfig, rollSimulatedOutcome, errorSimulationConfig } from './config.js'
 
@@ -100,6 +101,19 @@ function agentAccountFor(userId) {
 // ============================================================
 app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok' })
+})
+
+// ============================================================
+// GET /metrics — métriques Prometheus du PROCESSUS Node (prom-client,
+// métriques par défaut : process_cpu_seconds_total, process_resident_memory_bytes,
+// tas, boucle d'événements...). Lu par LoadPilot pendant une exécution
+// (monitoring de l'application « Banking ») pour tracer le CPU et la RAM de
+// ce serveur. Sans latence simulée, sans authentification, sans erreur aléatoire.
+// ============================================================
+promClient.collectDefaultMetrics()
+app.get('/metrics', async (_req, res) => {
+  res.set('Content-Type', promClient.register.contentType)
+  res.end(await promClient.register.metrics())
 })
 
 // ============================================================

@@ -1,0 +1,821 @@
+/* ============================================================
+   LoadPilot — thème de connexion Keycloak
+   Mêmes jetons que l'application (perftest-frontend/src/styles/global.css).
+   ============================================================ */
+
+:root {
+  --lp-primary: #4F46E5;
+  --lp-primary-dark: #4338CA;
+  --lp-primary-hover: #3730A3;
+  --lp-primary-light: #E0E7FF;
+  --lp-link: #4F46E5;
+  --lp-focus: rgba(79, 70, 229, 0.25);
+
+  --lp-danger: #DC2626;
+  --lp-danger-bg: #FEF2F2;
+  --lp-danger-border: #FECACA;
+  --lp-warning: #B45309;
+  --lp-warning-bg: #FFFBEB;
+  --lp-warning-border: #FDE68A;
+  --lp-success: #15803D;
+  --lp-success-bg: #F0FDF4;
+  --lp-success-border: #BBF7D0;
+  --lp-info: #1D4ED8;
+  --lp-info-bg: #EFF6FF;
+  --lp-info-border: #BFDBFE;
+
+  --lp-bg: #F9FAFB;
+  --lp-card-bg: #FFFFFF;
+  --lp-input-bg: #FFFFFF;
+  --lp-border: #E5E7EB;
+  --lp-border-strong: #D1D5DB;
+  --lp-text: #111827;
+  --lp-text-muted: #6B7280;
+  --lp-text-light: #9CA3AF;
+
+  --lp-shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06), 0 12px 32px -12px rgba(15, 23, 42, 0.14);
+  --lp-radius: 12px;
+  --lp-radius-sm: 8px;
+  --lp-radius-lg: 16px;
+  --lp-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Pages PatternFly héritées (OTP, conditions…) : couleur principale LoadPilot. */
+  --pf-v5-global--primary-color--100: var(--lp-primary);
+  --pf-v5-global--primary-color--200: var(--lp-primary-dark);
+  --pf-v5-global--link--Color: var(--lp-link);
+  --pf-v5-global--link--Color--hover: var(--lp-primary-hover);
+  --pf-v5-global--FontFamily--text: var(--lp-font);
+  --pf-v5-global--FontFamily--heading: var(--lp-font);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lp-link: #A5B4FC;
+    --lp-focus: rgba(129, 140, 248, 0.35);
+    --lp-primary-light: #312E81;
+
+    --lp-danger: #FCA5A5;
+    --lp-danger-bg: rgba(127, 29, 29, 0.35);
+    --lp-danger-border: #7F1D1D;
+    --lp-warning: #FCD34D;
+    --lp-warning-bg: rgba(120, 53, 15, 0.35);
+    --lp-warning-border: #78350F;
+    --lp-success: #86EFAC;
+    --lp-success-bg: rgba(20, 83, 45, 0.35);
+    --lp-success-border: #14532D;
+    --lp-info: #93C5FD;
+    --lp-info-bg: rgba(30, 58, 95, 0.45);
+    --lp-info-border: #1E3A5F;
+
+    --lp-bg: #111827;
+    --lp-card-bg: #1F2937;
+    --lp-input-bg: #111827;
+    --lp-border: #374151;
+    --lp-border-strong: #4B5563;
+    --lp-text: #F9FAFB;
+    --lp-text-muted: #9CA3AF;
+    --lp-text-light: #6B7280;
+    --lp-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4), 0 12px 32px -12px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* ---------- Base ---------- */
+
+html.lp-html,
+.lp-body {
+  height: auto;
+  min-height: 100%;
+}
+
+.lp-body {
+  margin: 0;
+  font-family: var(--lp-font);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--lp-text);
+  background: var(--lp-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.lp-body *,
+.lp-body *::before,
+.lp-body *::after {
+  box-sizing: border-box;
+}
+
+.lp-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  vertical-align: -0.125em;
+}
+
+.lp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  white-space: nowrap;
+}
+
+/* ---------- Mise en page deux colonnes ---------- */
+
+.lp-page {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.lp-brand {
+  position: relative;
+  flex: 1.05;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(145deg, #4338CA 0%, #4F46E5 55%, #1e3a8a 100%);
+}
+
+.lp-brand::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.10) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(255, 255, 255, 0.08) 0%, transparent 40%);
+  pointer-events: none;
+}
+
+.lp-brand-inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 460px;
+  margin-bottom: 6rem;
+}
+
+.lp-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.lp-logo-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--lp-radius);
+  font-size: 24px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(6px);
+}
+
+.lp-logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.lp-logo-name {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.lp-logo-sub {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.lp-tagline {
+  margin: 2.75rem 0 2rem;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.lp-features {
+  display: grid;
+  gap: 1.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lp-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.lp-features strong {
+  display: block;
+  margin-bottom: 0.1rem;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.lp-feature-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  font-size: 17px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  flex: none;
+}
+
+/* Graphique décoratif discret en bas du panneau. */
+.lp-chart {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 34%;
+  max-height: 260px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.lp-chart-grid line {
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+  vector-effect: non-scaling-stroke;
+}
+
+.lp-chart-area {
+  fill: url(#lp-chart-fill);
+}
+
+.lp-chart-line {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.lp-chart-p95 {
+  fill: none;
+  stroke: rgba(253, 224, 71, 0.6);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 6;
+  vector-effect: non-scaling-stroke;
+}
+
+.lp-chart-dot {
+  fill: #fff;
+}
+
+/* ---------- Colonne formulaire ---------- */
+
+.lp-panel {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 2rem 1.5rem;
+  background: var(--lp-bg);
+}
+
+.lp-locale {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.5rem;
+}
+
+.lp-locale-select {
+  appearance: none;
+  padding: 0.35rem 1.8rem 0.35rem 0.7rem;
+  font: inherit;
+  font-size: 13px;
+  color: var(--lp-text-muted);
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%239CA3AF'%3E%3Cpath d='M4.5 6l3.5 4 3.5-4z'/%3E%3C/svg%3E") no-repeat right 0.5rem center / 12px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius-sm);
+  cursor: pointer;
+}
+
+.lp-locale-select:focus-visible {
+  outline: none;
+  border-color: var(--lp-primary);
+  box-shadow: 0 0 0 3px var(--lp-focus);
+}
+
+.lp-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 2.25rem 2rem 1.75rem;
+  background: var(--lp-card-bg);
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius-lg);
+  box-shadow: var(--lp-shadow-card);
+}
+
+.lp-mobile-logo {
+  display: none;
+}
+
+.lp-card-header {
+  margin-bottom: 1.5rem;
+}
+
+.lp-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--lp-text);
+}
+
+.lp-subtitle {
+  margin: 0.4rem 0 0;
+  font-size: 14px;
+  color: var(--lp-text-muted);
+}
+
+.lp-muted {
+  margin: 0.75rem 0 0;
+  font-size: 13px;
+  color: var(--lp-text-muted);
+}
+
+.lp-legal {
+  margin: 1.5rem 0 0;
+  font-size: 12px;
+  color: var(--lp-text-light);
+  text-align: center;
+}
+
+/* Utilisateur déjà saisi (étapes suivantes de la connexion). */
+.lp-attempted {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--lp-bg);
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius-sm);
+}
+
+.lp-attempted-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lp-attempted-change {
+  flex: none;
+  font-size: 13px;
+}
+
+/* ---------- Messages ---------- */
+
+.lp-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0 0 1.25rem;
+  padding: 0.75rem 0.9rem;
+  font-size: 13.5px;
+  line-height: 1.45;
+  border: 1px solid;
+  border-radius: var(--lp-radius-sm);
+}
+
+.lp-alert .lp-icon {
+  margin-top: 0.1rem;
+  font-size: 16px;
+}
+
+.lp-alert--error { color: var(--lp-danger); background: var(--lp-danger-bg); border-color: var(--lp-danger-border); }
+.lp-alert--warning { color: var(--lp-warning); background: var(--lp-warning-bg); border-color: var(--lp-warning-border); }
+.lp-alert--success { color: var(--lp-success); background: var(--lp-success-bg); border-color: var(--lp-success-border); }
+.lp-alert--info { color: var(--lp-info); background: var(--lp-info-bg); border-color: var(--lp-info-border); }
+
+.lp-alert-text {
+  color: var(--lp-text);
+}
+
+/* ---------- Formulaires ---------- */
+
+.lp-form {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.lp-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.lp-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lp-text);
+}
+
+.lp-required {
+  color: var(--lp-danger);
+}
+
+.lp-required-hint {
+  margin: -0.75rem 0 1rem;
+  font-size: 12px;
+  color: var(--lp-text-muted);
+}
+
+.lp-input,
+.lp-card .pf-v5-c-form-control > input,
+.lp-card .pf-v5-c-form-control > textarea,
+.lp-card .pf-v5-c-form-control > select {
+  width: 100%;
+  height: 44px;
+  padding: 0 0.85rem;
+  font: inherit;
+  font-size: 14px;
+  color: var(--lp-text);
+  background: var(--lp-input-bg);
+  border: 1px solid var(--lp-border-strong);
+  border-radius: var(--lp-radius-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lp-input::placeholder {
+  color: var(--lp-text-light);
+}
+
+.lp-input:hover {
+  border-color: var(--lp-text-light);
+}
+
+.lp-input:focus,
+.lp-card .pf-v5-c-form-control > input:focus,
+.lp-card .pf-v5-c-form-control > textarea:focus,
+.lp-card .pf-v5-c-form-control > select:focus {
+  outline: none;
+  border-color: var(--lp-primary);
+  box-shadow: 0 0 0 3px var(--lp-focus);
+}
+
+.lp-input--error,
+.lp-input--error:hover,
+.lp-card .pf-v5-c-form-control > input[aria-invalid='true'] {
+  border-color: var(--lp-danger);
+}
+
+.lp-input--error:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+
+.lp-input-wrap {
+  position: relative;
+}
+
+.lp-input--password {
+  padding-right: 2.9rem;
+}
+
+.lp-reveal {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 17px;
+  color: var(--lp-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.lp-reveal:hover {
+  color: var(--lp-text);
+  background: var(--lp-bg);
+}
+
+.lp-reveal:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--lp-focus);
+}
+
+.lp-reveal [hidden] {
+  display: none;
+}
+
+.lp-reveal > span {
+  display: inline-flex;
+}
+
+.lp-field-error {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--lp-danger);
+}
+
+.lp-field-error-list {
+  padding-left: 1.1rem;
+}
+
+.lp-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: -0.2rem;
+}
+
+.lp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 13.5px;
+  color: var(--lp-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.lp-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--lp-primary);
+  cursor: pointer;
+}
+
+.lp-link,
+.lp-card a:not(.lp-btn):not(.lp-back) {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--lp-link);
+  text-decoration: none;
+}
+
+.lp-link:hover,
+.lp-card a:not(.lp-btn):not(.lp-back):hover {
+  text-decoration: underline;
+}
+
+.lp-link:focus-visible,
+.lp-back:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: 0 0 0 3px var(--lp-focus);
+}
+
+/* ---------- Boutons (mêmes formes que .pt-btn-primary / .pt-btn-outline) ---------- */
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.6rem 1.1rem;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  border-radius: var(--lp-radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.lp-btn:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.lp-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--lp-focus);
+}
+
+.lp-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  transform: none;
+}
+
+.lp-btn-primary {
+  color: #fff;
+  background: linear-gradient(180deg, #5B54EA 0%, var(--lp-primary) 100%);
+  border: 1px solid var(--lp-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.lp-btn-primary:hover:not(:disabled) {
+  color: #fff;
+  background: var(--lp-primary-dark);
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.28);
+}
+
+.lp-btn-secondary {
+  color: var(--lp-text);
+  background: var(--lp-card-bg);
+  border: 1px solid var(--lp-border-strong);
+}
+
+.lp-btn-secondary:hover:not(:disabled) {
+  color: var(--lp-link);
+  border-color: var(--lp-primary);
+}
+
+.lp-btn-block {
+  width: 100%;
+}
+
+.lp-mt {
+  margin-top: 0.75rem;
+}
+
+.lp-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.lp-actions .lp-btn:not(.lp-btn-block) {
+  flex: 1;
+}
+
+.lp-state {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.lp-state .lp-alert {
+  margin-bottom: 0.5rem;
+}
+
+.lp-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--lp-text-muted);
+  text-decoration: none;
+}
+
+.lp-back:hover {
+  color: var(--lp-link);
+}
+
+.lp-hint {
+  margin: 1rem 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--lp-text-muted);
+  text-align: center;
+}
+
+.lp-secure {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 1.25rem 0 0;
+  padding-top: 1rem;
+  font-size: 12.5px;
+  color: var(--lp-text-muted);
+  border-top: 1px solid var(--lp-border);
+}
+
+.lp-secure .lp-icon {
+  color: var(--lp-success);
+}
+
+.lp-info {
+  margin-top: 1.25rem;
+  font-size: 13.5px;
+  color: var(--lp-text-muted);
+  text-align: center;
+}
+
+/* ---------- Champs PatternFly générés par Keycloak (profil utilisateur, pages héritées) ---------- */
+
+.lp-card .pf-v5-c-form-control {
+  --pf-v5-c-form-control--before--BorderStyle: none;
+  --pf-v5-c-form-control--after--BorderStyle: none;
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: none;
+}
+
+.lp-card .pf-v5-c-form__group {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.lp-card .pf-v5-c-form__label-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lp-text);
+}
+
+.lp-card .pf-v5-c-helper-text__item.pf-m-error,
+.lp-card .pf-v5-c-helper-text__item-text.pf-m-error {
+  font-size: 12.5px;
+  color: var(--lp-danger);
+}
+
+.lp-card .pf-v5-c-form__actions {
+  margin-top: 0.5rem;
+}
+
+.lp-card .pf-v5-c-button.pf-m-primary {
+  border-radius: var(--lp-radius-sm);
+  font-weight: 600;
+}
+
+/* ---------- Mobile : formulaire seul, logo en haut ---------- */
+
+@media (max-width: 960px) {
+  .lp-brand {
+    display: none;
+  }
+
+  .lp-panel {
+    justify-content: flex-start;
+    padding: 4.5rem 1rem 1.5rem;
+  }
+
+  .lp-locale {
+    top: 1rem;
+    right: 1rem;
+  }
+
+  .lp-mobile-logo {
+    display: block;
+    margin-bottom: 1.75rem;
+  }
+
+  .lp-mobile-logo .lp-logo-mark {
+    width: 42px;
+    height: 42px;
+    font-size: 21px;
+    background: linear-gradient(145deg, #4338CA 0%, #4F46E5 100%);
+    border: 0;
+  }
+
+  .lp-mobile-logo .lp-logo-name {
+    font-size: 19px;
+    color: var(--lp-text);
+  }
+
+  .lp-mobile-logo .lp-logo-sub {
+    color: var(--lp-text-muted);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .lp-card {
+    padding: 1.75rem 1.25rem 1.5rem;
+  }
+
+  .lp-title {
+    font-size: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-body * {
+    transition: none !important;
+  }
+}

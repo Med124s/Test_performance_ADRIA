@@ -143,10 +143,18 @@ class AuditTrailIntegrationTest {
         throw new AssertionError("Execution " + executionId + " n'a pas atteint le statut " + expectedStatus + " a temps.");
     }
 
-    private boolean hasAuditEntry(AuditAction action, AuditModule module, AuditResult result, String descriptionContains) {
+    /** Entree existante pour cette action ; "text" est cherche dans la description, le nom ou l'id de l'objet et les changements. */
+    private boolean hasAuditEntry(AuditAction action, AuditModule module, AuditResult result, String text) {
         return auditLogRepository.findAll().stream().anyMatch(a ->
                 a.getAction() == action && a.getModule() == module && a.getResult() == result
-                        && (descriptionContains == null || (a.getDescription() != null && a.getDescription().contains(descriptionContains))));
+                        && (text == null || String.join("|", String.valueOf(a.getDescription()), String.valueOf(a.getTargetLabel()),
+                                String.valueOf(a.getTargetId()), String.valueOf(a.getChanges())).contains(text)));
+    }
+
+    private AuditLog auditEntry(AuditAction action, AuditModule module, String targetId) {
+        return auditLogRepository.findAll().stream()
+                .filter(a -> a.getAction() == action && a.getModule() == module && targetId.equals(a.getTargetId()))
+                .findFirst().orElseThrow(() -> new AssertionError("Aucune entree " + action + " pour " + targetId));
     }
 
     /**
@@ -220,6 +228,27 @@ class AuditTrailIntegrationTest {
                 .andExpect(status().isOk());
 
         assertThat(hasAuditEntry(AuditAction.UPDATE, AuditModule.APPLICATION, AuditResult.SUCCESS, newName)).isTrue();
+        // Avant -> apres des champs importants.
+        AuditLog update = auditEntry(AuditAction.UPDATE, AuditModule.APPLICATION, appId);
+        assertThat(update.getChanges()).contains("\"label\":\"Nom\"").contains(newName).contains("\"label\":\"Description\"");
+    }
+
+    @Test
+    void reportViewAndHistory_areNotRecorded_byDefault_butCsvExportIs() throws Exception {
+        String appId = createApplicationAndGetId("audit-trail-view-app-" + UUID.randomUUID());
+        String scenarioId = createScenarioAndGetId(appId, "view-scenario");
+        createStepAndGetId(scenarioId, "step", 1, "/ok", 200);
+        String executionId = submitExecutionWithoutWaiting(scenarioId);
+        waitForTerminalStatus(executionId);
+
+        mockMvc.perform(get("/api/executions/" + executionId + "/report").with(AS_SUPER_ADMIN)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/executions/history").with(AS_SUPER_ADMIN)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/executions/" + executionId + "/report/export").with(AS_SUPER_ADMIN)).andExpect(status().isOk());
+
+        assertThat(hasAuditEntry(AuditAction.VIEW_REPORT, AuditModule.EXECUTION, AuditResult.SUCCESS, executionId)).isFalse();
+        assertThat(hasAuditEntry(AuditAction.EXPORT_REPORT, AuditModule.EXECUTION, AuditResult.SUCCESS, executionId)).isFalse();
+        assertThat(auditLogRepository.findAll()).noneMatch(a -> a.getAction() == AuditAction.VIEW_HISTORY);
+        assertThat(hasAuditEntry(AuditAction.EXPORT_CSV, AuditModule.EXECUTION, AuditResult.SUCCESS, executionId)).isTrue();
     }
 
     @Test
@@ -364,7 +393,14 @@ class AuditTrailIntegrationTest {
         String executionId = submitExecutionWithoutWaiting(scenarioId);
         waitForTerminalStatus(executionId);
 
-        waitForAuditEntry(AuditAction.EXECUTE, AuditModule.EXECUTION, AuditResult.SUCCESS, executionId);
+        // Lancement par l'utilisateur, puis fin automatique (acteur Systeme).
+        assertThat(hasAuditEntry(AuditAction.EXECUTE, AuditModule.EXECUTION, AuditResult.SUCCESS, executionId)).isTrue();
+        waitForAuditEntry(AuditAction.FINISH, AuditModule.EXECUTION, AuditResult.SUCCESS, executionId);
+        AuditLog finish = auditEntry(AuditAction.FINISH, AuditModule.EXECUTION, executionId);
+        assertThat(finish.getActorType()).isEqualTo("SYSTEM");
+        assertThat(finish.getActorSource()).isEqualTo("Fin d’exécution");
+        assertThat(finish.getTargetLabel()).startsWith("exec-scenario-ok du ");
+        assertThat(finish.getDescription()).isEqualTo("Exécution terminée : Réussie");
     }
 
     @Test
@@ -376,7 +412,7 @@ class AuditTrailIntegrationTest {
         String executionId = submitExecutionWithoutWaiting(scenarioId);
         waitForTerminalStatus(executionId);
 
-        waitForAuditEntry(AuditAction.EXECUTE, AuditModule.EXECUTION, AuditResult.FAILURE, executionId);
+        waitForAuditEntry(AuditAction.FINISH, AuditModule.EXECUTION, AuditResult.FAILURE, executionId);
     }
 
     @Test
@@ -433,7 +469,7 @@ class AuditTrailIntegrationTest {
         List<String> forbidden = List.of("authorization", "bearer ", "password", "refreshtoken", "clientsecret");
 
         for (AuditLog entry : all) {
-            String description = entry.getDescription() != null ? entry.getDescription().toLowerCase() : "";
+            String description = (entry.getDescription() + "|" + entry.getTargetLabel() + "|" + entry.getChanges() + "|" + entry.getActorSource()).toLowerCase();
             for (String word : forbidden) {
                 assertThat(description).as("AuditLog %s ne doit jamais contenir '%s'", entry.getId(), word)
                         .doesNotContain(word);

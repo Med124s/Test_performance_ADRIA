@@ -1,6 +1,10 @@
 package com.loadpilot.backend.enums;
 
-/** Module fonctionnel concerne par un AuditLog. */
+/**
+ * Module fonctionnel d'une entree d'audit. Les categories affichees (filtre
+ * « Catégorie » de la page Journal d'audit) regroupent ces modules : voir
+ * service.audit.AuditCategory.
+ */
 public enum AuditModule {
     AUTH,
     USER,
@@ -11,6 +15,9 @@ public enum AuditModule {
     METRIC,
     DASHBOARD,
     ADMIN,
-    // P1-B - planification reelle d'executions (voir ScheduledExecution).
-    SCHEDULING
+    SCHEDULING,
+    /** Connexions, blocages, mots de passe, roles, activation des comptes. */
+    SECURITY,
+    /** Reglages de LoadPilot (Parametres). */
+    SETTINGS
 }

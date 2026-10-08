@@ -17,24 +17,28 @@ const PAGE_SIZE = 20
 
 const typeIcon: Record<BackendNotificationType, string> = {
   EXECUTION_SUCCESS: 'bi-check-circle-fill',
+  EXECUTION_THRESHOLDS_EXCEEDED: 'bi-exclamation-triangle-fill',
   EXECUTION_FAILED: 'bi-x-circle-fill',
   EXECUTION_CANCELLED: 'bi-slash-circle-fill',
   SCHEDULE_TRIGGERED: 'bi-calendar-check-fill',
   SCHEDULE_FAILED: 'bi-calendar-x-fill',
+  SCHEDULE_REGRESSION: 'bi-graph-up-arrow',
 }
 const typeColorVar: Record<BackendNotificationType, string> = {
   EXECUTION_SUCCESS: 'var(--pt-success)',
+  EXECUTION_THRESHOLDS_EXCEEDED: 'var(--pt-warning)',
   EXECUTION_FAILED: 'var(--pt-danger)',
   EXECUTION_CANCELLED: 'var(--pt-text-muted)',
   SCHEDULE_TRIGGERED: 'var(--pt-primary)',
   SCHEDULE_FAILED: 'var(--pt-danger)',
+  SCHEDULE_REGRESSION: 'var(--pt-warning)',
 }
 
 function describeApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     switch (err.status) {
       case 0: return err.message
-      case 401: return 'Vous devez être connecté (Keycloak) pour consulter vos notifications.'
+      case 401: return 'Vous devez être connecté pour consulter vos notifications.'
       default: return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
     }
   }
@@ -153,7 +157,7 @@ function NotificationsPage() {
               const link = relatedLink(n)
               const content = (
                 <div className="d-flex align-items-start gap-3 p-3" style={{ borderBottom: '1px solid var(--pt-border)', background: n.read ? 'transparent' : 'var(--pt-primary-light)' }}>
-                  <i className={`bi ${typeIcon[n.type]}`} style={{ fontSize: '18px', color: typeColorVar[n.type], marginTop: '2px' }}></i>
+                  <i className={`bi ${typeIcon[n.type] ?? 'bi-bell-fill'}`} style={{ fontSize: '18px', color: typeColorVar[n.type] ?? 'var(--pt-text-muted)', marginTop: '2px' }}></i>
                   <div className="flex-grow-1">
                     <div className="d-flex align-items-center gap-2">
                       <span style={{ fontSize: '13.5px', fontWeight: n.read ? 500 : 700 }}>{n.title}</span>

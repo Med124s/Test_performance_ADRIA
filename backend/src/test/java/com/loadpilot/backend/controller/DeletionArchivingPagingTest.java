@@ -118,7 +118,8 @@ class DeletionArchivingPagingTest {
 
     private boolean audited(AuditAction action, AuditModule module, AuditResult result, String text) {
         return auditLogRepository.findAll().stream().anyMatch(a -> a.getAction() == action && a.getModule() == module
-                && a.getResult() == result && a.getDescription() != null && a.getDescription().contains(text));
+                && a.getResult() == result && ((a.getDescription() != null && a.getDescription().contains(text))
+                        || (a.getTargetLabel() != null && a.getTargetLabel().contains(text))));
     }
 
     // ------------------------------------------------------------------ etapes

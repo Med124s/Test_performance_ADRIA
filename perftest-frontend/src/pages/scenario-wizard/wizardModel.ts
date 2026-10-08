@@ -61,6 +61,10 @@ export interface ScenarioInfo {
   csvDistribution: BackendCsvDistribution
   /** Détail des requêtes conservé à l'exécution (absent des anciens brouillons : défaut serveur). */
   requestDetailMode?: BackendRequestDetailMode
+  /** Seuils de réussite (saisie texte) : taux d'erreurs maximal en % (défaut « 1 »), P95 maximal en ms (vide = aucun).
+   * Absents des anciens brouillons : valeurs du serveur conservées. */
+  maxErrorRatePercent?: string
+  maxP95Ms?: string
 }
 
 /**
@@ -128,6 +132,23 @@ export const TEST_RUN_LOAD: Pick<
 let uidCounter = 0
 const nextUid = () => `step-${Date.now().toString(36)}-${(uidCounter++).toString(36)}`
 
+/** Code HTTP attendu proposé selon la méthode (modifiable) : création = 201, le reste = 200. */
+export const DEFAULT_EXPECTED_STATUS: Record<BackendHttpMethod, string> = {
+  GET: '200', POST: '201', PUT: '200', PATCH: '200', DELETE: '200',
+}
+
+/**
+ * Nouveau code attendu quand la méthode change : suit la méthode tant que l'utilisateur ne l'a pas
+ * personnalisé (vide ou égal à la valeur proposée pour l'ancienne méthode), sinon conservé.
+ */
+export function expectedStatusAfterMethodChange(step: Pick<DraftStep, 'method' | 'expectedStatus'>, method: BackendHttpMethod): string {
+  const current = step.expectedStatus.trim()
+  return current === '' || current === DEFAULT_EXPECTED_STATUS[step.method] ? DEFAULT_EXPECTED_STATUS[method] : step.expectedStatus
+}
+
+/** Vrai si l'étape vérifie le contenu de la réponse (« La réponse doit contenir »). */
+export const hasContentCheck = (step: Pick<DraftStep, 'assertionBodyContains'>) => step.assertionBodyContains.trim() !== ''
+
 export function newStep(partial: Partial<DraftStep> = {}): DraftStep {
   return {
     uid: nextUid(),
@@ -137,7 +158,7 @@ export function newStep(partial: Partial<DraftStep> = {}): DraftStep {
     url: '',
     headers: [],
     body: '',
-    expectedStatus: '',
+    expectedStatus: DEFAULT_EXPECTED_STATUS[partial.method ?? 'GET'],
     assertionBodyContains: '',
     captureVariableName: '',
     captureJsonPath: '',
@@ -304,6 +325,35 @@ export function loadWarnings(load: LoadConfig): string[] {
   if (vu > 200) warnings.push('Au-delà de 200 utilisateurs simultanés (toutes exécutions confondues), le serveur refusera le lancement.')
   if (!load.durationSeconds.trim() && !load.iterations.trim()) warnings.push('Ni durée ni itérations : chaque utilisateur jouera le scénario une seule fois.')
   return warnings
+}
+
+/** Seuils de réussite : taux d'erreurs maximal obligatoire (0 à 100, virgule acceptée), P95 maximal optionnel (ms). */
+export function validateThresholds(info: Pick<ScenarioInfo, 'maxErrorRatePercent' | 'maxP95Ms'>): FieldErrors {
+  const errors: FieldErrors = {}
+  if (info.maxErrorRatePercent !== undefined) {
+    const raw = info.maxErrorRatePercent.trim().replace(',', '.')
+    const n = Number(raw)
+    if (!raw) errors.maxErrorRatePercent = 'Indiquez le taux d’erreurs maximal (ex. 1).'
+    else if (!/^\d+(\.\d+)?$/.test(raw) || n > 100) errors.maxErrorRatePercent = 'Le taux d’erreurs maximal doit être un nombre entre 0 et 100.'
+  }
+  if (info.maxP95Ms !== undefined && info.maxP95Ms.trim()) {
+    const p = intField(info.maxP95Ms, { min: 1, label: 'Le P95 maximal' })
+    if (p) errors.maxP95Ms = p
+  }
+  return errors
+}
+
+/** Seuils pour le serveur : P95 vide = 0 (« aucun seuil ») ; champs absents (ancien brouillon) = inchangés. */
+export function thresholdsToRequest(info: Pick<ScenarioInfo, 'maxErrorRatePercent' | 'maxP95Ms'>): { maxErrorRatePercent?: number; maxP95Ms?: number } {
+  const out: { maxErrorRatePercent?: number; maxP95Ms?: number } = {}
+  if (info.maxErrorRatePercent !== undefined && info.maxErrorRatePercent.trim()) out.maxErrorRatePercent = Number(info.maxErrorRatePercent.trim().replace(',', '.'))
+  if (info.maxP95Ms !== undefined) out.maxP95Ms = info.maxP95Ms.trim() ? Number(info.maxP95Ms.trim()) : 0
+  return out
+}
+
+/** Valeurs texte des seuils d'un scénario enregistré (défaut 1 %). */
+export function thresholdsFromScenario(s: { maxErrorRatePercent?: number | null; maxP95Ms?: number | null }): Pick<ScenarioInfo, 'maxErrorRatePercent' | 'maxP95Ms'> {
+  return { maxErrorRatePercent: String(s.maxErrorRatePercent ?? 1).replace('.', ','), maxP95Ms: s.maxP95Ms == null ? '' : String(s.maxP95Ms) }
 }
 
 export const hasErrors = (errors: FieldErrors) => Object.values(errors).some(Boolean)

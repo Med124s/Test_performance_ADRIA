@@ -1,30 +1,54 @@
 package com.loadpilot.backend.security;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 /**
- * Resolution de l'IP "reelle" d'une requete (voir Phase 12, section 17) -
- * volontairement minimaliste, aucune dependance supplementaire.
+ * Resolution de l'IP reelle du client d'une requete (journal d'audit).
  *
- * Renvoie {@link HttpServletRequest#getRemoteAddr()} : l'adresse du PAIR TCP
- * DIRECT de la connexion. En local (sans reverse proxy), c'est bien l'IP
- * reelle du client (ex: "127.0.0.1" ou "0:0:0:0:0:0:0:1" en IPv6).
+ * Par defaut : l'adresse du PAIR TCP direct ({@link HttpServletRequest#getRemoteAddr()}),
+ * qui est bien l'IP du client sans reverse proxy.
  *
- * Deliberement PAS de lecture de "X-Forwarded-For" ici : ce header est
- * entierement controle par le client final et donc usurpable a volonte tant
- * qu'aucun reverse proxy de confiance ne le reecrit - le lire aveuglement
- * permettrait a n'importe qui d'inscrire une IP arbitraire dans l'audit. Si
- * ce backend est un jour deploye derriere un reverse proxy de confiance, la
- * bonne approche est d'activer explicitement le support Spring
- * (ForwardedHeaderFilter) cote configuration serveur - pas de le
- * reimplementer partiellement ici.
+ * Derriere un reverse proxy : declarer son adresse dans
+ * {@code app.audit.trusted-proxies} (ex. "10.0.0.5,127.0.0.1"). Seulement
+ * dans ce cas, l'en-tete X-Forwarded-For est lu, de droite a gauche, en
+ * ignorant les proxies de confiance : la premiere adresse non fiable est celle
+ * du client. Un client qui forge lui-meme X-Forwarded-For sans passer par un
+ * proxy declare ne peut donc jamais inscrire une fausse IP dans l'audit.
  */
-public final class RequestIpResolver {
+@Component
+public class RequestIpResolver {
 
-    private RequestIpResolver() {
+    private final Set<String> trustedProxies;
+
+    public RequestIpResolver(@Value("${app.audit.trusted-proxies:}") List<String> trustedProxies) {
+        this.trustedProxies = trustedProxies == null ? Set.of()
+                : trustedProxies.stream().map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toUnmodifiableSet());
     }
 
-    public static String resolve(HttpServletRequest request) {
-        return request != null ? request.getRemoteAddr() : null;
+    public String resolve(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String remote = request.getRemoteAddr();
+        if (trustedProxies.isEmpty() || !trustedProxies.contains(remote)) {
+            return remote;
+        }
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded == null || forwarded.isBlank()) {
+            return remote;
+        }
+        String[] hops = forwarded.split(",");
+        for (int i = hops.length - 1; i >= 0; i--) {
+            String hop = hops[i].trim();
+            if (!hop.isEmpty() && !trustedProxies.contains(hop)) {
+                return hop.length() > 45 ? hop.substring(0, 45) : hop;
+            }
+        }
+        return remote;
     }
 }

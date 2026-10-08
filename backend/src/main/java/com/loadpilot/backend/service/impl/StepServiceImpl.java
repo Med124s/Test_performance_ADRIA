@@ -1,5 +1,8 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.service.audit.AuditEvent;
+import com.loadpilot.backend.service.audit.AuditSnapshots;
+import com.loadpilot.backend.service.audit.AuditTargetType;
 import com.loadpilot.backend.exception.ConflictException;
 import com.loadpilot.backend.dto.request.StepRequest;
 import com.loadpilot.backend.dto.response.StepResponse;
@@ -18,6 +21,7 @@ import com.loadpilot.backend.service.AuditLogService;
 import com.loadpilot.backend.service.StepService;
 import com.loadpilot.backend.service.validation.StepRules;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -62,12 +66,15 @@ public class StepServiceImpl implements StepService {
             step.setStatus(StepStatus.ACTIVE);
 
             Step saved = stepRepository.saveAndFlush(step);
-            auditLogService.record(AuditAction.CREATE, AuditModule.STEP, AuditResult.SUCCESS,
-                    "Step created: " + saved.getName());
+            auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.STEP)
+                    .target(AuditTargetType.SCENARIO, scenario.getId(), scenario.getName())
+                    .diff(Map.of(), AuditSnapshots.of(saved))
+                    .description("Étape « " + saved.getName() + " » ajoutée"));
             return stepMapper.toResponse(saved);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.CREATE, AuditModule.STEP, AuditResult.FAILURE,
-                    "Step creation failed: " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.STEP)
+                    .target(AuditTargetType.SCENARIO, request.scenarioId(), scenarioName(request.scenarioId()))
+                    .description("Ajout de l’étape « " + request.name() + " » refusé").failed(e));
             throw e;
         }
     }
@@ -96,6 +103,7 @@ public class StepServiceImpl implements StepService {
     public StepResponse update(UUID id, StepRequest request) {
         try {
             Step step = findOrThrow(id);
+            Map<String, Object> before = AuditSnapshots.of(step);
             Scenario scenario = findScenarioOrThrow(request.scenarioId());
             checkRules(request);
 
@@ -103,12 +111,15 @@ public class StepServiceImpl implements StepService {
             step.setScenario(scenario);
 
             Step saved = stepRepository.saveAndFlush(step);
-            auditLogService.record(AuditAction.UPDATE, AuditModule.STEP, AuditResult.SUCCESS,
-                    "Step updated: " + saved.getName());
+            auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.STEP)
+                    .target(AuditTargetType.SCENARIO, scenario.getId(), scenario.getName())
+                    .diff(before, AuditSnapshots.of(saved))
+                    .description("Étape « " + saved.getName() + " » modifiée"));
             return stepMapper.toResponse(saved);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.UPDATE, AuditModule.STEP, AuditResult.FAILURE,
-                    "Step update failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.STEP)
+                    .target(AuditTargetType.SCENARIO, request.scenarioId(), scenarioName(request.scenarioId()))
+                    .description("Modification de l’étape « " + request.name() + " » refusée").failed(e));
             throw e;
         }
     }
@@ -135,11 +146,13 @@ public class StepServiceImpl implements StepService {
                 }
             }
             stepRepository.saveAll(remaining);
-            auditLogService.record(AuditAction.DELETE, AuditModule.STEP, AuditResult.SUCCESS,
-                    "Step deleted: " + step.getName() + " (" + remaining.size() + " remaining step(s) renumbered)");
+            auditLogService.record(AuditEvent.of(AuditAction.DELETE, AuditModule.STEP)
+                    .target(AuditTargetType.SCENARIO, scenarioId, step.getScenario().getName())
+                    .change("Nombre d’étapes", remaining.size() + 1, remaining.size())
+                    .description("Étape « " + step.getName() + " » supprimée"));
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.DELETE, AuditModule.STEP, AuditResult.FAILURE,
-                    "Step deletion failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.DELETE, AuditModule.STEP)
+                    .description("Suppression d’une étape refusée").failed(e));
             throw e;
         }
     }
@@ -158,5 +171,14 @@ public class StepServiceImpl implements StepService {
     private Scenario findScenarioOrThrow(UUID scenarioId) {
         return scenarioRepository.findById(scenarioId)
                 .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + scenarioId));
+    }
+
+    /** Nom du scenario pour le journal, sans jamais lever d'exception. */
+    private String scenarioName(UUID scenarioId) {
+        try {
+            return scenarioId == null ? null : scenarioRepository.findById(scenarioId).map(Scenario::getName).orElse("Scénario introuvable");
+        } catch (RuntimeException e) {
+            return "Scénario introuvable";
+        }
     }
 }

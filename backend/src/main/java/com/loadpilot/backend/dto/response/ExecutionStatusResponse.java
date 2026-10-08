@@ -42,6 +42,8 @@ public record ExecutionStatusResponse(
         /** Temps total passe en pause (ms), pause en cours comprise. */
         long pausedDurationMs,
         /** Temps de travail reel (ms) : ecoule depuis le demarrage, pauses exclues ; null tant que non demarre. */
-        Long activeElapsedMs
+        Long activeElapsedMs,
+        /** CPU / RAM de l'application testee ; null si aucun monitoring n'est configure. */
+        ExecutionResourcesResponse resources
 ) {
 }

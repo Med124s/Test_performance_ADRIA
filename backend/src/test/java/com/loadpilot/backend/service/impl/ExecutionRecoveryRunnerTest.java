@@ -100,16 +100,16 @@ class ExecutionRecoveryRunnerTest {
         assertThat(reloadedRunning.getStatus()).isEqualTo(ExecutionStatus.FAILED);
         assertThat(reloadedRunning.getErrorMessage()).isEqualTo("Backend restarted while execution was running");
 
-        // Audit reel de la recuperation (jamais silencieuse) - au moins une
-        // entree EXECUTE/FAILURE mentionnant chacune des deux executions.
+        // Audit reel de la recuperation (jamais silencieuse) : une entree FINISH/FAILURE
+        // par execution, faite par le Systeme (source « Redemarrage du serveur »).
         boolean auditedQueued = auditLogRepository.findAll().stream().anyMatch(a ->
-                a.getAction() == AuditAction.EXECUTE && a.getModule() == AuditModule.EXECUTION
-                        && a.getResult() == AuditResult.FAILURE
-                        && a.getDescription() != null && a.getDescription().contains(queuedOrphan.getId().toString()));
+                a.getAction() == AuditAction.FINISH && a.getModule() == AuditModule.EXECUTION
+                        && a.getResult() == AuditResult.FAILURE && "SYSTEM".equals(a.getActorType())
+                        && queuedOrphan.getId().toString().equals(a.getTargetId()));
         boolean auditedRunning = auditLogRepository.findAll().stream().anyMatch(a ->
-                a.getAction() == AuditAction.EXECUTE && a.getModule() == AuditModule.EXECUTION
-                        && a.getResult() == AuditResult.FAILURE
-                        && a.getDescription() != null && a.getDescription().contains(runningOrphan.getId().toString()));
+                a.getAction() == AuditAction.FINISH && a.getModule() == AuditModule.EXECUTION
+                        && a.getResult() == AuditResult.FAILURE && "SYSTEM".equals(a.getActorType())
+                        && runningOrphan.getId().toString().equals(a.getTargetId()));
         assertThat(auditedQueued).isTrue();
         assertThat(auditedRunning).isTrue();
     }

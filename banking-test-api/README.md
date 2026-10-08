@@ -10,6 +10,13 @@ npm start     # http://localhost:8888
 
 Le port peut être changé avec la variable d'environnement `PORT`.
 
+### Monitoring CPU / RAM
+
+`GET /metrics` expose les métriques Prometheus du processus Node (bibliothèque `prom-client`). Dans LoadPilot, l'application
+« Banking » est configurée avec **Monitoring : Prometheus**, URL `http://localhost:8888/metrics` : pendant une exécution,
+LoadPilot y lit le CPU et la RAM **de ce serveur** (pas de la machine entière) toutes les 5 secondes.
+Après une mise à jour, relancez `npm install` puis `npm start`.
+
 La latence est simulée, et 7 % d'erreurs 409/500 aléatoires sont injectées sur les requêtes d'écriture valides (voir `src/config.js`) : quelques échecs pendant un test de charge sont donc normaux.
 
 ### Régler les erreurs aléatoires
@@ -40,6 +47,7 @@ Les erreurs 400 (validation) et 401 (authentification) ne sont pas concernées :
 | Méthode | Route | Authentification |
 |---|---|---|
 | GET | `/`, `/health` | Non |
+| GET | `/metrics` | Non : métriques Prometheus du processus Node (CPU, mémoire), lues par le monitoring de LoadPilot |
 | POST | `/api/auth/login` | Non (renvoie un jeton) |
 | GET | `/api/auth/verify` | Oui : renvoie `{"authenticated":true,"method":"bearer\|api_key\|basic"}`, ou 401. Sans latence ni erreur aléatoire |
 | GET | `/api/account/balance`, `/api/agent/history` | Oui |

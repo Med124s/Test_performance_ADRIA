@@ -157,8 +157,9 @@ class AuditLogServiceImplIntegrationTest {
         String csv = auditLogService.exportCsv(byUser(userId));
         String[] lines = csv.split("\r\n");
 
-        assertThat(lines[0]).isEqualTo("id,userId,username,action,module,date,ip,result,description");
+        assertThat(lines[0]).isEqualTo("\uFEFFDate;Utilisateur;Catégorie;Action;Détail;Avant → après;Résultat;Adresse IP");
         assertThat(lines).hasSize(2);
-        assertThat(lines[1]).contains(userId).contains("CANCEL").contains("EXECUTION").contains("SUCCESS").contains("cancel-desc");
+        // Libelles francais, jamais les codes bruts.
+        assertThat(lines[1]).contains(";Exécutions;Annulation · Exécutions;cancel-desc;;Réussi;").doesNotContain("CANCEL", "EXECUTION", "SUCCESS");
     }
 }

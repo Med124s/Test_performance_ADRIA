@@ -1,6 +1,9 @@
 package com.loadpilot.backend.controller;
 
+import com.loadpilot.backend.dto.request.SchedulePreviewRequest;
 import com.loadpilot.backend.dto.request.ScheduledExecutionRequest;
+import com.loadpilot.backend.dto.response.ScheduleHistoryResponse;
+import com.loadpilot.backend.dto.response.SchedulePreviewResponse;
 import com.loadpilot.backend.dto.response.ScheduledExecutionResponse;
 import com.loadpilot.backend.entity.AppUser;
 import com.loadpilot.backend.security.CurrentUser;
@@ -57,6 +60,19 @@ public class ScheduledExecutionController {
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Planification introuvable")
     public ScheduledExecutionResponse getById(@PathVariable UUID id) {
         return scheduledExecutionService.getById(id);
+    }
+
+    @GetMapping("/{id}/history")
+    @Operation(summary = "Historique d'une planification", description = "Executions lancees (statut, P95, erreurs, debit) et lancements ignores / manques avec leur raison, du plus recent au plus ancien.")
+    public ScheduleHistoryResponse history(@PathVariable UUID id, @RequestParam(defaultValue = "100") int limit) {
+        return scheduledExecutionService.history(id, limit);
+    }
+
+    @PostMapping("/preview")
+    @Operation(summary = "Apercu des prochains lancements", description = "Valide la configuration et retourne les 3 prochains lancements, calcules comme le declencheur. Rien n'est enregistre.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Configuration invalide (cron/timezone/date)")
+    public SchedulePreviewResponse preview(@Valid @RequestBody SchedulePreviewRequest request) {
+        return scheduledExecutionService.preview(request);
     }
 
     @PostMapping

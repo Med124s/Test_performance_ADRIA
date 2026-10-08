@@ -186,4 +186,12 @@ public class ApplicationController {
     public ApplicationTestResponse testAvailability(@PathVariable UUID id) {
         return applicationService.testAvailability(id);
     }
+
+    @PostMapping("/monitoring/test")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Tester le monitoring CPU / RAM", description = "Lit deux fois (a une seconde d'intervalle) le CPU et la RAM du processus de l'application sur l'endpoint Prometheus ou Actuator saisi. Rien n'est enregistre.")
+    public com.loadpilot.backend.dto.response.MonitoringTestResponse testMonitoring(
+            @Valid @RequestBody com.loadpilot.backend.dto.request.MonitoringTestRequest request) {
+        return applicationService.testMonitoring(request);
+    }
 }

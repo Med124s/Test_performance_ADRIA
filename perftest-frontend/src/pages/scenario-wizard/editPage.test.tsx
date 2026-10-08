@@ -92,6 +92,26 @@ describe('Page « Modifier le scénario »', () => {
     expect(screen.queryByText('Modifié')).toBeNull()
   })
 
+  it('seuils de réussite : pré-remplis, une modification active « Enregistrer » et part au serveur', async () => {
+    scenarios.getById.mockResolvedValue(scenario({ maxErrorRatePercent: 1, maxP95Ms: null }))
+    scenarios.updateFull.mockImplementation((_id, body) => Promise.resolve({ scenario: scenario({ maxErrorRatePercent: body.scenario.maxErrorRatePercent }),
+      steps: [step('st-1', 1, 'Virement', '/api/transfers/national'), step('st-2', 2, 'Modifier', '/api/transfers/:transferId')] }))
+    renderEdit()
+    expect(await screen.findByText('Modifier le scénario')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Charge & résumé/ }))
+    const rate = screen.getByLabelText(/Taux d’erreurs maximal/) as HTMLInputElement
+    expect(rate.value).toBe('1')
+    expect(button(/^.*Enregistrer$/).disabled).toBe(true)
+
+    fireEvent.change(rate, { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText(/P95 maximal/), { target: { value: '800' } })
+    expect(within(screen.getByRole('button', { name: /Charge & résumé/ })).getByText('Modifié')).toBeTruthy()
+    expect(button(/^.*Enregistrer$/).disabled).toBe(false)
+    fireEvent.click(button(/^.*Enregistrer$/))
+    await waitFor(() => expect(scenarios.updateFull).toHaveBeenCalled())
+    expect(scenarios.updateFull.mock.calls[0][1].scenario).toMatchObject({ maxErrorRatePercent: 5, maxP95Ms: 800 })
+  })
+
   it('« Tester » essaie la version affichée sans l’enregistrer', async () => {
     scenarios.testRunDraftStream.mockImplementation(async (_id: string, _draft: unknown, onEvent: (e: BackendTestRunEvent) => void) => {
       onEvent({ type: 'done', result: { success: true, steps: [], variables: {}, auth: { type: 'NONE', success: true, message: 'ok', durationMs: 0 }, totalDurationMs: 10, timedOut: false } as unknown as BackendTestRunResponse })

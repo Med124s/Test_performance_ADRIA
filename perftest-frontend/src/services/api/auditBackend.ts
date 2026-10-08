@@ -1,59 +1,48 @@
 // ============================================================
-// Phase 24 — accès en LECTURE SEULE au vrai backend Spring Boot pour le
-// module Audit Logs. Isolé (comme les services *Backend.ts des phases
-// précédentes) : /audit-logs était jusqu'ici un simple placeholder
-// "Bientôt disponible" (ComingSoonPage) — aucun service front-end
-// (`auditApi`) n'existait avant cette phase, donc aucun risque de casser
-// un autre module en créant celui-ci.
+// Journal d'audit (réservé au Super administrateur, voir AuditLogController.java) :
+//   GET /api/audit-logs          -> PagedResponse<AuditLogResponse> (filtres côté serveur :
+//                                    q, actor, category, result, from, to ; tri date DESC)
+//   GET /api/audit-logs/{id}     -> AuditLogResponse
+//   GET /api/audit-logs/actors   -> utilisateurs présents dans le journal
+//   GET /api/audit-logs/export   -> CSV en français, mêmes filtres que la liste
+//   GET/PUT /api/settings/audit  -> réglages (consultations journalisées, conservation)
+// Aucune écriture d'entrée depuis le frontend : elles ne sont créées que par le backend.
 //
-// Contrat réel (voir AuditLogController.java, lu avant d'écrire ce
-// fichier) : `/api/audit-logs` réservé à SUPER_ADMIN et
-// PERFORMANCE_ENGINEER (@PreAuthorize au niveau de la classe, VIEWER
-// explicitement exclu — 403) :
-//   GET /api/audit-logs        -> PagedResponse<AuditLogResponse> (paginé,
-//                                  filtres combinables userId/username/
-//                                  action/module/result/from/to, tri fixe
-//                                  date DESC côté backend)
-//   GET /api/audit-logs/{id}   -> AuditLogResponse
-//   GET /api/audit-logs/stats  -> AuditStatsResponse
-//   GET /api/audit-logs/export -> CSV (text/csv), mêmes filtres que la liste
-// Aucune écriture (les AuditLog ne sont jamais créés depuis ce frontend).
-//
-// `exportCsv` ne peut pas passer par `springHttp` (qui parse toujours la
-// réponse en JSON, voir httpClient.ts) : un petit fetch() dédié est utilisé
-// ici, réutilisant le MÊME token Keycloak (getAccessToken) et la même
-// gestion d'erreur (ApiError) — jamais un second système d'authentification.
+// `exportCsv` ne peut pas passer par `springHttp` (qui parse toujours la réponse en JSON) :
+// un fetch() dédié réutilise le même jeton (getAccessToken) et la même gestion d'erreur.
 // ============================================================
 
 import { springHttp, ApiError, SPRING_API_URL } from './httpClient'
 import { getAccessToken } from '../auth/keycloakClient'
 import {
   BackendAuditLogResponse,
-  BackendAuditStatsResponse,
-  BackendPagedResponse,
-  BackendAuditAction,
-  BackendAuditModule,
+  BackendAuditCategory,
   BackendAuditResult,
+  BackendAuditSettings,
+  BackendPagedResponse,
 } from '../../types/backendContracts'
 
 const RESOURCE = '/api/audit-logs'
 
 export interface AuditLogFilters {
-  userId?: string
-  username?: string
-  action?: BackendAuditAction
-  module?: BackendAuditModule
+  /** Recherche libre : utilisateur, objet, description. */
+  q?: string
+  /** Nom d'utilisateur, ou "__system" pour les actions automatiques. */
+  actor?: string
+  category?: BackendAuditCategory
   result?: BackendAuditResult
+  /** Instants ISO. */
   from?: string
   to?: string
 }
 
+export const SYSTEM_ACTOR = '__system'
+
 function buildQuery(filters: AuditLogFilters, page?: number, size?: number): string {
   const params = new URLSearchParams()
-  if (filters.userId) params.set('userId', filters.userId)
-  if (filters.username) params.set('username', filters.username)
-  if (filters.action) params.set('action', filters.action)
-  if (filters.module) params.set('module', filters.module)
+  if (filters.q?.trim()) params.set('q', filters.q.trim())
+  if (filters.actor) params.set('actor', filters.actor)
+  if (filters.category) params.set('category', filters.category)
   if (filters.result) params.set('result', filters.result)
   if (filters.from) params.set('from', filters.from)
   if (filters.to) params.set('to', filters.to)
@@ -67,11 +56,10 @@ export const auditBackendApi = {
   list: (filters: AuditLogFilters, page: number, size: number) =>
     springHttp.get<BackendPagedResponse<BackendAuditLogResponse>>(`${RESOURCE}${buildQuery(filters, page, size)}`),
   getById: (id: string) => springHttp.get<BackendAuditLogResponse>(`${RESOURCE}/${id}`),
-  stats: () => springHttp.get<BackendAuditStatsResponse>(`${RESOURCE}/stats`),
-  /** Retourne le CSV brut réel généré par le backend (RFC 4180) — jamais
-   * reconstruit côté frontend à partir des lignes déjà chargées, pour ne
-   * jamais diverger d'un export qui pourrait porter sur d'autres filtres/
-   * une pagination différente. */
+  actors: () => springHttp.get<string[]>(`${RESOURCE}/actors`),
+  settings: () => springHttp.get<BackendAuditSettings>('/api/settings/audit'),
+  updateSettings: (settings: BackendAuditSettings) => springHttp.put<BackendAuditSettings>('/api/settings/audit', settings),
+  /** CSV réel généré par le backend avec les filtres en cours (jamais reconstruit côté frontend). */
   exportCsv: async (filters: AuditLogFilters): Promise<Blob> => {
     const token = await getAccessToken()
     const headers: Record<string, string> = {}
@@ -80,10 +68,10 @@ export const auditBackendApi = {
     try {
       response = await fetch(`${SPRING_API_URL}${RESOURCE}/export${buildQuery(filters)}`, { headers })
     } catch {
-      throw new ApiError('Impossible de joindre le serveur LoadPilot (Spring Boot) pour l\'export.', 0)
+      throw new ApiError('Impossible de joindre le serveur LoadPilot pour l’export.', 0)
     }
     if (!response.ok) {
-      let message = `Erreur ${response.status} sur ${RESOURCE}/export`
+      let message = `Erreur ${response.status} lors de l’export`
       try {
         const body = await response.json()
         if (body?.message) message = body.message

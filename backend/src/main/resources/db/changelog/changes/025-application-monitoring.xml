@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Monitoring (optionnel) du PROCESSUS de l'application testee : CPU et RAM lus pendant
+        l'execution sur un endpoint Prometheus ou Spring Boot Actuator.
+
+        application : type, URL, authentification (le secret n'est jamais renvoye par l'API),
+        intervalle de lecture en secondes.
+        execution : mesures relevees {"source":..., "intervalSeconds":..., "samples":[[epochMs, cpu, ramMo], ...]},
+        resume pour les listes (CPU moyen / max en % d'un coeur, RAM max en Mo) et message si le
+        monitoring n'a pas repondu. Tout est null pour les executions sans monitoring.
+    -->
+    <changeSet id="025-application-monitoring" author="loadpilot">
+        <addColumn tableName="application">
+            <column name="monitoring_type" type="VARCHAR(20)" defaultValue="NONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="monitoring_url" type="VARCHAR(1000)"/>
+            <column name="monitoring_auth_type" type="VARCHAR(20)" defaultValue="NONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="monitoring_header_name" type="VARCHAR(255)"/>
+            <column name="monitoring_secret" type="VARCHAR(4000)"/>
+            <column name="monitoring_interval_seconds" type="INTEGER" defaultValueNumeric="5">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="execution">
+            <column name="resource_json" type="VARCHAR(200000)"/>
+            <column name="cpu_avg_percent" type="DOUBLE PRECISION"/>
+            <column name="cpu_max_percent" type="DOUBLE PRECISION"/>
+            <column name="memory_max_mb" type="DOUBLE PRECISION"/>
+            <column name="monitoring_message" type="VARCHAR(1000)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

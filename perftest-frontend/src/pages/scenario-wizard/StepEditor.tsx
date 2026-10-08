@@ -1,12 +1,15 @@
 import { ChangeEvent, SyntheticEvent, useState } from 'react'
 import { BackendHttpMethod } from '../../types/backendContracts'
 import {
+  DEFAULT_EXPECTED_STATUS,
   DraftStep,
   FieldErrors,
   HTTP_METHODS,
   HeaderRow,
   detectBodyFormat,
+  expectedStatusAfterMethodChange,
   formatJsonBody,
+  hasContentCheck,
   hasHeader,
 } from './wizardModel'
 import { urlMismatch } from './testRunModel'
@@ -211,7 +214,7 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
           value={step.method}
           onChange={(e) => {
             const method = e.target.value as BackendHttpMethod
-            onChange({ method })
+            onChange({ method, expectedStatus: expectedStatusAfterMethodChange(step, method) })
             if (METHODS_WITH_BODY.includes(method) && tab === 'headers' && !step.headers.length) setTab('body')
           }}
           aria-label="Méthode HTTP"
@@ -267,7 +270,18 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
         <div className="sw-inline-alert warn">
           <i className="bi bi-exclamation-triangle"></i>
           <span>Cette étape a un corps mais utilise <strong>GET</strong> : le corps ne sera pas envoyé. Pour envoyer des données (ex : connexion), utilisez POST.</span>
-          <button type="button" className="sw-chip accent" onClick={() => onChange({ method: 'POST' })}>Passer en POST</button>
+          <button type="button" className="sw-chip accent" onClick={() => onChange({ method: 'POST', expectedStatus: expectedStatusAfterMethodChange(step, 'POST') })}>Passer en POST</button>
+        </div>
+      )}
+
+      {step.url.trim() && !hasContentCheck(step) && (
+        <div className="sw-inline-alert warn" data-testid="no-content-check">
+          <i className="bi bi-shield-exclamation"></i>
+          <span>
+            Aucune vérification de contenu : seul le code HTTP {step.expectedStatus.trim() || '2xx–3xx'} est contrôlé.
+            Une réponse {step.expectedStatus.trim() || '200'} avec un message d’erreur serait comptée comme réussie.
+          </span>
+          <button type="button" className="sw-chip accent" onClick={() => setTab('validation')}>Ajouter une vérification</button>
         </div>
       )}
 
@@ -434,11 +448,14 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
               <input
                 className={`pt-form-control ${err('expectedStatus') ? 'is-invalid' : ''}`}
                 inputMode="numeric"
-                placeholder="200–399 par défaut"
+                placeholder="Vide = 200–399 accepté"
                 value={step.expectedStatus}
                 onChange={(e) => onChange({ expectedStatus: e.target.value })}
+                aria-label="Code HTTP attendu"
               />
-              {err('expectedStatus') && <div className="sw-field-error">{err('expectedStatus')}</div>}
+              {err('expectedStatus') ? <div className="sw-field-error">{err('expectedStatus')}</div> : (
+                <div className="sw-field-hint">Proposé selon la méthode ({step.method} → {DEFAULT_EXPECTED_STATUS[step.method]}), modifiable.</div>
+              )}
               <div className="sw-chip-row mt-2">
                 {['200', '201', '204'].map((code) => (
                   <button key={code} type="button" className={`sw-chip ${step.expectedStatus === code ? 'selected' : ''}`} onClick={() => onChange({ expectedStatus: step.expectedStatus === code ? '' : code })}>
@@ -455,11 +472,15 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
                 value={step.assertionBodyContains}
                 maxLength={500}
                 onChange={(e) => onChange({ assertionBodyContains: e.target.value })}
+                aria-label="La réponse doit contenir"
               />
               {err('assertionBodyContains') ? (
                 <div className="sw-field-error">{err('assertionBodyContains')}</div>
               ) : (
-                <div className="sw-field-hint">Optionnel. L’étape échoue si ce texte est absent de la réponse.</div>
+                <div className="sw-field-hint">
+                  Recommandé. L’étape échoue si ce texte est absent de la réponse, même avec le bon code HTTP
+                  (message : « Contenu attendu introuvable : … »).
+                </div>
               )}
             </div>
           </div>

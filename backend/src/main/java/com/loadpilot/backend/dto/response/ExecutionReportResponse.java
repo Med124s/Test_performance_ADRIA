@@ -51,7 +51,11 @@ public record ExecutionReportResponse(
         ExecutionStatistics statistics,
         List<StepReportEntry> steps,
         List<ReportErrorEntry> errors,
-        /** Erreurs regroupees (code + etape + message) : occurrences et premiere apparition. */
-        List<com.loadpilot.backend.service.report.ReportErrorGroup> errorGroups
+        /** Seuils de reussite de cette execution et leur resultat ; null = execution anterieure aux seuils. */
+        Thresholds thresholds
 ) {
+    /** Seuil de taux d'erreurs (toujours present) et seuil de P95 (null = aucun) ; ok = seuil respecte. */
+    public record Thresholds(double maxErrorRatePercent, double errorRatePercent, boolean errorRateOk,
+                             Long maxP95Ms, Long p95Ms, Boolean p95Ok) {
+    }
 }

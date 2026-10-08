@@ -18,4 +18,26 @@ public enum AppRole {
     public String toKeycloakRoleName() {
         return "ROLE_" + name();
     }
+
+    /** Libelle francais affiche (journal d'audit, exports) - jamais le code brut. */
+    public String label() {
+        return switch (this) {
+            case SUPER_ADMIN -> "Administrateur";
+            case PERFORMANCE_ENGINEER -> "Ingénieur performance";
+            case VIEWER -> "Lecteur";
+        };
+    }
+
+    /** Libelle d'un nom de role (ex. "SUPER_ADMIN"), "Aucun rôle" si null ou inconnu. */
+    public static String labelOf(String roleName) {
+        if (roleName == null) {
+            return "Aucun rôle";
+        }
+        for (AppRole role : values()) {
+            if (role.name().equals(roleName) || role.toKeycloakRoleName().equals(roleName)) {
+                return role.label();
+            }
+        }
+        return "Aucun rôle";
+    }
 }

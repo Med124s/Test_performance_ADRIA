@@ -7,7 +7,9 @@
 import { BackendScenarioFullRequest, BackendScenarioResponse, BackendStepResponse } from '../../types/backendContracts'
 import { analyzeCsv } from './csvModel'
 import { QueryParamRow, parseQueryString, splitUrl, urlWithQuery, variablesFromJson, variablesToJson } from './variablesModel'
-import { DEFAULT_LOAD, DraftStep, LoadConfig, ScenarioInfo, loadToRequest, newStep, stepToRequest } from './wizardModel'
+import {
+  DEFAULT_LOAD, DraftStep, LoadConfig, ScenarioInfo, loadToRequest, newStep, stepToRequest, thresholdsFromScenario, thresholdsToRequest,
+} from './wizardModel'
 
 export interface WizardDraftState {
   version: 1
@@ -87,6 +89,7 @@ export function stateFromBackend(scenario: BackendScenarioResponse, steps: Backe
       applicationId: scenario.applicationId, name: scenario.name, description: scenario.description ?? '', csvData: scenario.csvData ?? '',
       variables: variablesFromJson(scenario.variables), csvDistribution: scenario.csvDistribution ?? 'PER_VIRTUAL_USER',
       requestDetailMode: scenario.requestDetailMode ?? 'FAILURES_AND_SAMPLE',
+      ...thresholdsFromScenario(scenario),
     },
     steps: steps.map(stepFromBackend),
     load: loadFromScenario(scenario),
@@ -123,6 +126,7 @@ export function fullRequest(scenarioId: string, info: ScenarioInfo, steps: Draft
       variables: variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
+      ...thresholdsToRequest(info),
     },
     steps: steps.map((s, i) => ({ id: s.backendId, step: stepToRequest(s, scenarioId, i + 1) })),
   }
@@ -134,6 +138,7 @@ export function savedInfo(scenario: BackendScenarioResponse): ScenarioInfo {
     applicationId: scenario.applicationId, name: scenario.name, description: scenario.description ?? '', csvData: scenario.csvData ?? '',
     variables: variablesFromJson(scenario.variables), csvDistribution: scenario.csvDistribution ?? 'PER_VIRTUAL_USER',
     requestDetailMode: scenario.requestDetailMode ?? 'FAILURES_AND_SAMPLE',
+    ...thresholdsFromScenario(scenario),
   }
 }
 
@@ -144,7 +149,7 @@ export function defaultDraftName(now = new Date()): string {
 export const isBlankStep = (s: DraftStep) => {
   const blank = newStep()
   return s.name === blank.name && s.method === blank.method && s.url === blank.url && s.headers.length === 0 && s.body === ''
-    && s.expectedStatus === '' && s.assertionBodyContains === '' && s.captureVariableName === '' && s.captureJsonPath === ''
+    && (s.expectedStatus === '' || s.expectedStatus === blank.expectedStatus) && s.assertionBodyContains === '' && s.captureVariableName === '' && s.captureJsonPath === ''
 }
 
 /** Empreinte du travail saisi (étapes vides ajoutées automatiquement ignorées) pour « modifications non enregistrées ». */
@@ -152,7 +157,7 @@ export function workSnapshot(info: ScenarioInfo, steps: DraftStep[], load: LoadC
   return JSON.stringify([info, steps.filter((s) => !isBlankStep(s)).map(({ uid, backendId, ...rest }) => rest), load])
 }
 
-export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE' }
+export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', maxErrorRatePercent: '1', maxP95Ms: '' }
 
 function parseJson<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback

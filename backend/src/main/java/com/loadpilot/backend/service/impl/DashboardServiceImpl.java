@@ -89,7 +89,9 @@ public class DashboardServiceImpl implements DashboardService {
                 ? buildExecutionsSummary(
                         executionRepository.countByStartedAtBetween(effectiveFrom, effectiveTo),
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.SUCCESS, effectiveFrom, effectiveTo),
-                        executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.FAILED, effectiveFrom, effectiveTo),
+                        // Ancien tableau de bord : « Seuils depasses » compte parmi les executions non reussies.
+                        executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.FAILED, effectiveFrom, effectiveTo)
+                                + executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.THRESHOLDS_EXCEEDED, effectiveFrom, effectiveTo),
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.RUNNING, effectiveFrom, effectiveTo)
                                 + executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.PAUSED, effectiveFrom, effectiveTo),
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.CANCELLED, effectiveFrom, effectiveTo),
@@ -99,7 +101,7 @@ public class DashboardServiceImpl implements DashboardService {
                 : buildExecutionsSummary(
                         executionRepository.count(),
                         executionRepository.countByStatus(ExecutionStatus.SUCCESS),
-                        executionRepository.countByStatus(ExecutionStatus.FAILED),
+                        executionRepository.countByStatus(ExecutionStatus.FAILED) + executionRepository.countByStatus(ExecutionStatus.THRESHOLDS_EXCEEDED),
                         executionRepository.countByStatus(ExecutionStatus.RUNNING) + executionRepository.countByStatus(ExecutionStatus.PAUSED),
                         executionRepository.countByStatus(ExecutionStatus.CANCELLED),
                         executionStepResultRepository.count(),
@@ -170,7 +172,8 @@ public class DashboardServiceImpl implements DashboardService {
         ExecutionsSummaryResponse executions = buildExecutionsSummary(
                 executionRepository.countByApplicationId(applicationId),
                 executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.SUCCESS),
-                executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.FAILED),
+                executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.FAILED)
+                        + executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.THRESHOLDS_EXCEEDED),
                 executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.RUNNING)
                         + executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.PAUSED),
                 executionRepository.countByApplicationIdAndStatus(applicationId, ExecutionStatus.CANCELLED),

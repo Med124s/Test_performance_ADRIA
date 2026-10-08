@@ -14,6 +14,7 @@ public record ExecutionPageResponse(
         int totalPages,
         Counts counts
 ) {
-    public record Counts(long total, long queued, long running, long paused, long success, long failed, long cancelled) {
+    public record Counts(long total, long queued, long running, long paused, long success, long failed, long cancelled,
+                         long thresholdsExceeded) {
     }
 }

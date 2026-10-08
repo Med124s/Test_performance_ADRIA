@@ -27,7 +27,7 @@ import Pagination from '../components/Pagination'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
-import { backendToFrontendExecutionStatus } from '../utils/statusMapping'
+import { statusLabel } from '../utils/executionStatus'
 import { firstError, validateRequired, validateMaxLength, validateStepUrl, validatePairedFields, NAME_MAX_LENGTH, DESCRIPTION_MAX_LENGTH } from '../utils/validation'
 
 // ============================================================
@@ -102,7 +102,7 @@ function describeApiError(err: unknown, fallback: string): string {
       case 400:
         return `Données invalides : ${err.message}`
       case 401:
-        return 'Vous devez être connecté (Keycloak) pour effectuer cette action.'
+        return 'Vous devez être connecté pour effectuer cette action.'
       case 403:
         return "Action refusée : votre rôle ne dispose pas des permissions nécessaires."
       case 404:
@@ -241,7 +241,6 @@ function Scenarios() {
   /** Suppression/archivage groupé (la suppression unitaire garde `deleteConfirm`). */
   const [bulkDeletion, setBulkDeletion] = useState<string[] | null>(null)
   /** Scénarios réactivés qui ont des planifications suspendues : proposition de les réactiver. */
-  const [resumeOffer, setResumeOffer] = useState<{ ids: string[]; schedules: number } | null>(null)
 
   // Modale Détail (lecture seule pour le scénario, mais gestion réelle des
   // étapes Spring Boot depuis cette même modale — voir Phase 19)
@@ -368,11 +367,11 @@ function Scenarios() {
     await refetchScenarios()
   }
 
-  /** Propose de réactiver les planifications suspendues des scénarios réactivés avec succès. */
-  const offerResume = (activatedIds: string[]) => {
-    const candidates = scenarios.filter((s) => activatedIds.includes(s.id) && s.pausedSchedules > 0)
-    if (candidates.length > 0) {
-      setResumeOffer({ ids: candidates.map((s) => s.id), schedules: candidates.reduce((n, s) => n + s.pausedSchedules, 0) })
+  /** L'activation reprend d'office les planifications suspendues (côté serveur) : on l'annonce simplement. */
+  const announceResumed = (activatedIds: string[]) => {
+    const resumed = scenarios.filter((s) => activatedIds.includes(s.id)).reduce((n, s) => n + s.pausedSchedules, 0)
+    if (resumed > 0) {
+      showToast(`${resumed} planification(s) suspendue(s) reprennent leur cours (aucun lancement passé n’est rattrapé).`, 'info')
     }
   }
 
@@ -384,29 +383,15 @@ function Scenarios() {
         showToast(target === 'ACTIVE'
           ? `Scénario « ${scenario.name} » activé.`
           : `Scénario « ${scenario.name} » désactivé${scenario.pausedSchedules > 0 ? ` : ${scenario.pausedSchedules} planification(s) suspendue(s)` : ''}.`, 'success')
-        if (target === 'ACTIVE') offerResume(ids)
+        if (target === 'ACTIVE') announceResumed(ids)
       } else {
         const result = await scenariosBackendApi.bulkStatus(ids, target)
         reportBulk(result, target === 'ACTIVE' ? 'activé(s)' : 'désactivé(s)')
-        if (target === 'ACTIVE') offerResume(result.results.filter((r) => r.success).map((r) => r.id))
+        if (target === 'ACTIVE') announceResumed(result.results.filter((r) => r.success).map((r) => r.id))
       }
       await afterMutation()
     } catch (err) {
       showToast(describeApiError(err, 'Changement de statut impossible.'), 'danger')
-    } finally {
-      setBulkBusy(false)
-    }
-  }
-
-  const resumeSchedules = async () => {
-    if (!resumeOffer) return
-    setBulkBusy(true)
-    try {
-      reportBulk(await scenariosBackendApi.bulkResumeSchedules(resumeOffer.ids), 'avec planifications réactivées')
-      setResumeOffer(null)
-      await refetchScenarios()
-    } catch (err) {
-      showToast(describeApiError(err, 'Réactivation des planifications impossible.'), 'danger')
     } finally {
       setBulkBusy(false)
     }
@@ -599,6 +584,15 @@ function Scenarios() {
                               <code style={{ fontSize: '11.5px', color: 'var(--pt-primary)' }}>{st.url}</code>
                               {st.expectedStatus != null && (
                                 <span className="pt-pill neutral" style={{ fontSize: '10.5px' }}>Attendu: {st.expectedStatus}</span>
+                              )}
+                              {st.assertionBodyContains?.trim() ? (
+                                <span className="pt-pill success" style={{ fontSize: '10.5px' }} title={`La réponse doit contenir : ${st.assertionBodyContains}`}>
+                                  <i className="bi bi-check2"></i> Contenu vérifié
+                                </span>
+                              ) : (
+                                <span className="pt-pill warning" style={{ fontSize: '10.5px' }} title="Seul le code HTTP est vérifié.">
+                                  <i className="bi bi-shield-exclamation"></i> Sans vérification de contenu
+                                </span>
                               )}
                               <div className="d-flex gap-1" style={{ marginLeft: 'auto' }}>
                                 {canWrite && (
@@ -876,7 +870,7 @@ function Scenarios() {
                             style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: '12.5px', color: 'var(--pt-primary)', fontWeight: 600, textDecoration: 'underline' }}
                             title="Voir cette exécution sur la page Exécutions"
                           >
-                            {backendToFrontendExecutionStatus(latestExec.status)} — {formatDate(latestExec.startedAt)}
+                            {statusLabel(latestExec.status)} — {formatDate(latestExec.startedAt)}
                           </button>
                         ) : (
                           <span style={{ fontSize: '12px', color: 'var(--pt-text-light)' }}>Aucune exécution</span>
@@ -993,27 +987,6 @@ function Scenarios() {
           onConfirm={confirmBulkDeletion}
           onClose={() => setBulkDeletion(null)}
         />
-      )}
-
-      {/* Réactivation : proposer de réactiver les planifications suspendues par la désactivation. */}
-      {resumeOffer && (
-        <div className="modal fade show d-block" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="resume-title" style={{ background: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content" style={{ borderRadius: 'var(--pt-radius)', background: 'var(--pt-card-bg)', color: 'var(--pt-text)' }}>
-              <div className="modal-body p-4">
-                <h5 id="resume-title" style={{ fontWeight: 700, marginBottom: '8px' }}>Réactiver les planifications ?</h5>
-                <p className="mb-0" style={{ color: 'var(--pt-text-muted)', fontSize: '13.5px' }}>
-                  {resumeOffer.schedules} planification(s) avaient été suspendues par la désactivation. Les planifications
-                  ponctuelles dont la date est passée resteront désactivées (aucun rattrapage).
-                </p>
-              </div>
-              <div className="modal-footer">
-                <button className="pt-btn-outline" onClick={() => setResumeOffer(null)} disabled={bulkBusy}>Plus tard</button>
-                <button className="pt-btn-primary" onClick={resumeSchedules} disabled={bulkBusy}>Réactiver les planifications</button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Brouillon : suppression simple (aucune exécution possible, donc aucun historique à conserver). */}

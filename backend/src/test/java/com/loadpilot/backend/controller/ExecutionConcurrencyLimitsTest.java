@@ -138,6 +138,14 @@ class ExecutionConcurrencyLimitsTest {
         return objectMapper.readTree(response).get("status").asText();
     }
 
+    @Autowired
+    private com.loadpilot.backend.service.execution.RunningExecutionRegistry registry;
+
+    private void waitUntilReleased(String executionId) throws Exception {
+        long deadline = System.currentTimeMillis() + 8000;
+        while (registry.get(UUID.fromString(executionId)) != null && System.currentTimeMillis() < deadline) Thread.sleep(20);
+    }
+
     private void waitForTerminalStatus(String executionId) throws Exception {
         long deadline = System.currentTimeMillis() + 8000;
         while (System.currentTimeMillis() < deadline) {
@@ -170,6 +178,9 @@ class ExecutionConcurrencyLimitsTest {
 
         waitForTerminalStatus(exec1);
         waitForTerminalStatus(exec2);
+        // La place est rendue a la toute fin de la tache (apres le resume) : on attend sa liberation reelle.
+        waitUntilReleased(exec1);
+        waitUntilReleased(exec2);
 
         // Capacite reellement liberee (jamais une fuite) : une nouvelle
         // execution redevient possible une fois les deux premieres terminees.

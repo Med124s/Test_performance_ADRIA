@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Seuils de reussite par scenario : taux d'erreurs maximal (defaut 1 %) et P95 maximal (optionnel).
+        Chaque execution garde une copie des seuils au lancement (comme la charge) : un scenario modifie
+        ensuite ne change jamais le verdict d'une execution passee. Les anciennes executions n'ont pas de
+        copie (colonnes nulles) et gardent leur statut. "cancelled_by" : qui a annule l'execution.
+    -->
+    <changeSet id="029-success-thresholds" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="max_error_rate_percent" type="DOUBLE PRECISION" defaultValueNumeric="1.0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="max_p95_ms" type="BIGINT"/>
+        </addColumn>
+        <addColumn tableName="execution">
+            <column name="max_error_rate_percent" type="DOUBLE PRECISION"/>
+            <column name="max_p95_ms" type="BIGINT"/>
+            <column name="cancelled_by" type="VARCHAR(255)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

@@ -25,11 +25,20 @@ public record ApplicationRequest(
         /** Optionnel : absent = aucune authentification a la creation,
          * authentification inchangee a la mise a jour. */
         @Valid
-        ApplicationAuthRequest auth
+        ApplicationAuthRequest auth,
+
+        /** Optionnel : absent = aucun monitoring a la creation, monitoring inchange a la mise a jour. */
+        @Valid
+        ApplicationMonitoringRequest monitoring
 ) {
 
     /** Compatibilite : Application sans authentification explicite. */
     public ApplicationRequest(String name, String description, String url) {
-        this(name, description, url, null);
+        this(name, description, url, null, null);
+    }
+
+    /** Compatibilite : Application sans monitoring explicite. */
+    public ApplicationRequest(String name, String description, String url, ApplicationAuthRequest auth) {
+        this(name, description, url, auth, null);
     }
 }

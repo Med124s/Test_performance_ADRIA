@@ -37,3 +37,10 @@ app:
     # ScheduledExecutionPoller, qui appellent pollAndTrigger() directement
     # plutot que d'attendre un vrai tick).
     poll-interval-ms: 3600000
+  audit:
+    # Pas d'import automatique des evenements de securite en test (aucun Keycloak) :
+    # les tests appellent SecurityEventImporter.importNewEvents() directement.
+    security-events:
+      enabled: false
+    # Purge jamais declenchee par l'horloge en test (appelee directement par les tests).
+    purge-cron: "-"

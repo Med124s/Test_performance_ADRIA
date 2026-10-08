@@ -145,25 +145,28 @@ class ScenarioStatusAndBulkControllerTest {
         send(put("/api/scenarios/" + id), AS_ENGINEER, Map.of("applicationId", appId, "name", "Renomme inactif"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("INACTIVE"));
 
+        // L'activation reprend aussitot les planifications suspendues (rien n'est rattrape).
         send(post("/api/scenarios/" + id + "/activate"), AS_ENGINEER, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.pausedSchedules").value(1));
-        assertThat(scheduleRepository.findById(UUID.fromString(scheduleId)).orElseThrow().isEnabled()).isFalse();
-
-        send(post("/api/scenarios/" + id + "/resume-schedules"), AS_ENGINEER, null)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.resumed").value(1))
-                .andExpect(jsonPath("$.expired").value(0));
+                .andExpect(jsonPath("$.pausedSchedules").value(0));
         var resumed = scheduleRepository.findById(UUID.fromString(scheduleId)).orElseThrow();
         assertThat(resumed.isEnabled()).isTrue();
         assertThat(resumed.isPausedByScenario()).isFalse();
+        assertThat(resumed.getNextRunAt()).isEqualTo(resumed.getRunAt());
+
+        // La reprise explicite reste disponible et n'a plus rien a faire.
+        send(post("/api/scenarios/" + id + "/resume-schedules"), AS_ENGINEER, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resumed").value(0))
+                .andExpect(jsonPath("$.expired").value(0));
 
         List<AuditLog> audit = auditLogRepository.findAll();
         assertThat(audit).anyMatch(a -> a.getAction() == AuditAction.DISABLE && a.getModule() == AuditModule.SCENARIO
-                && a.getDescription().contains("Scenario deactivated: A desactiver (1 schedule(s) paused)"));
+                && "A desactiver".equals(a.getTargetLabel())
+                && a.getDescription().contains("Scénario désactivé — 1 planification(s) suspendue(s)"));
         assertThat(audit).anyMatch(a -> a.getAction() == AuditAction.ENABLE && a.getModule() == AuditModule.SCENARIO
-                && a.getDescription().contains("Scenario activated: Renomme inactif"));
+                && "Renomme inactif".equals(a.getTargetLabel()) && a.getDescription().startsWith("Scénario réactivé"));
     }
 
     @Test

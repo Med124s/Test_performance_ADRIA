@@ -44,6 +44,11 @@ public final class ExecutionSpecifications {
             if (filter.status() != null) {
                 predicates.add(criteriaBuilder.equal(root.get("status"), filter.status()));
             }
+            if (filter.finishedOnly()) {
+                predicates.add(root.get("status").in(com.loadpilot.backend.enums.ExecutionStatus.SUCCESS,
+                        com.loadpilot.backend.enums.ExecutionStatus.THRESHOLDS_EXCEEDED,
+                        com.loadpilot.backend.enums.ExecutionStatus.FAILED, com.loadpilot.backend.enums.ExecutionStatus.CANCELLED));
+            }
             if (filter.scenarioId() != null) {
                 predicates.add(criteriaBuilder.equal(root.get("scenario").get("id"), filter.scenarioId()));
             }

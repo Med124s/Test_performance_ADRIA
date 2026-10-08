@@ -53,6 +53,12 @@ describe('Résultats par étape', () => {
     await waitFor(() => expect(api.getResults).toHaveBeenLastCalledWith('ex-1', expect.objectContaining({ failedOnly: true })))
     fireEvent.click(screen.getByRole('button', { name: '2' }))
     await waitFor(() => expect(api.getResults).toHaveBeenLastCalledWith('ex-1', expect.objectContaining({ page: 1 })))
+    // Tri par temps de réponse (côté serveur), retour à la page 1.
+    expect(api.getResults).toHaveBeenLastCalledWith('ex-1', expect.objectContaining({ sort: 'TIME' }))
+    fireEvent.change(screen.getByLabelText('Trier les requêtes'), { target: { value: 'SLOWEST' } })
+    await waitFor(() => expect(api.getResults).toHaveBeenLastCalledWith('ex-1', expect.objectContaining({ sort: 'SLOWEST', page: 0 })))
+    fireEvent.change(screen.getByLabelText('Trier les requêtes'), { target: { value: 'FASTEST' } })
+    await waitFor(() => expect(api.getResults).toHaveBeenLastCalledWith('ex-1', expect.objectContaining({ sort: 'FASTEST' })))
   })
 
   it('requête réussie : requête envoyée, réponse en JSON lisible, vérifications ; secrets masqués', async () => {

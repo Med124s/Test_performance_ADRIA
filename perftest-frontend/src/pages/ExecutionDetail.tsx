@@ -22,7 +22,7 @@ import StepRequestsExplorer from './execution-detail/StepRequestsExplorer'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { metricsBackendApi } from '../services/api/metricsBackend'
 import { ApiError } from '../services/api/httpClient'
-import { backendToFrontendExecutionStatus } from '../utils/statusMapping'
+import { executionStatusMeta } from '../utils/executionStatus'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler)
 
@@ -57,7 +57,7 @@ function describeApiError(err: unknown, fallback: string): string {
       case 0:
         return err.message
       case 401:
-        return 'Vous devez être connecté (Keycloak) pour consulter cette exécution.'
+        return 'Vous devez être connecté pour consulter cette exécution.'
       case 403:
         return "Action refusée : votre rôle ne dispose pas des permissions nécessaires."
       case 404:
@@ -205,15 +205,9 @@ function SpringExecutionDetail({ id }: { id: string }) {
     )
   }
 
-  const statusMeta: Record<string, { cls: string; icon: string; text: string }> = {
-    QUEUED: { cls: 'neutral', icon: 'bi-hourglass-split', text: 'En attente de démarrage' },
-    SUCCESS: { cls: 'success', icon: 'bi-check-circle-fill', text: 'Terminée avec succès' },
-    FAILED: { cls: 'danger', icon: 'bi-x-circle-fill', text: 'Échouée' },
-    RUNNING: { cls: 'info', icon: 'bi-play-circle-fill', text: 'En cours' },
-    PAUSED: { cls: 'warning', icon: 'bi-pause-circle-fill', text: 'En pause' },
-    CANCELLED: { cls: 'neutral', icon: 'bi-slash-circle-fill', text: 'Annulée' },
-  }
-  const meta = statusMeta[execution.status]
+  // Table unique des statuts (utils/executionStatus) : un statut inconnu s'affiche en gris, jamais un plantage.
+  const statusInfo = executionStatusMeta(execution.status)
+  const meta = { cls: statusInfo.pill, icon: statusInfo.icon, text: statusInfo.detailLabel }
   const executedSteps = execution.successfulSteps + execution.failedSteps
   // Taux de réussite affiché : dérivé des deux vrais compteurs déjà
   // renvoyés par le backend (successfulSteps/failedSteps) — jamais

@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import LoadSummaryPanel from './LoadSummaryPanel'
 import { EMPTY_INFO } from './draftModel'
 import { INITIAL_TEST_RUN } from './TestRunPanel'
-import { DEFAULT_LOAD, LoadConfig, loadToRequest, loadWarnings, newStep, validateLoad } from './wizardModel'
+import {
+  DEFAULT_LOAD, LoadConfig, loadToRequest, loadWarnings, newStep, thresholdsFromScenario, thresholdsToRequest, validateLoad, validateThresholds,
+} from './wizardModel'
 
 const load = (patch: Partial<LoadConfig> = {}): LoadConfig => ({ ...DEFAULT_LOAD, presetId: 'custom', ...patch })
 
@@ -47,5 +49,43 @@ describe('Charge — mêmes règles que le moteur', () => {
     fireEvent.change(select, { target: { value: 'NONE' } })
     expect(onMode).toHaveBeenCalledWith('NONE')
     expect(screen.getByText(/20 par type d’erreur et 100 par étape/)).toBeTruthy()
+  })
+})
+
+describe('Seuils de réussite du scénario', () => {
+  it('validation, envoi au serveur et lecture d’un scénario enregistré', () => {
+    expect(validateThresholds({ maxErrorRatePercent: '1', maxP95Ms: '' })).toEqual({})
+    expect(validateThresholds({ maxErrorRatePercent: '2,5', maxP95Ms: '800' })).toEqual({})
+    expect(validateThresholds({ maxErrorRatePercent: '', maxP95Ms: '' }).maxErrorRatePercent).toMatch(/Indiquez le taux d’erreurs maximal/)
+    expect(validateThresholds({ maxErrorRatePercent: '150', maxP95Ms: '' }).maxErrorRatePercent).toMatch(/entre 0 et 100/)
+    expect(validateThresholds({ maxErrorRatePercent: '-1', maxP95Ms: '' }).maxErrorRatePercent).toMatch(/entre 0 et 100/)
+    expect(validateThresholds({ maxErrorRatePercent: '1', maxP95Ms: '0' }).maxP95Ms).toMatch(/au moins 1/)
+    // Ancien brouillon (champs absents) : rien à valider, rien d'envoyé (valeurs du serveur conservées).
+    expect(validateThresholds({})).toEqual({})
+    expect(thresholdsToRequest({})).toEqual({})
+
+    expect(thresholdsToRequest({ maxErrorRatePercent: '2,5', maxP95Ms: '800' })).toEqual({ maxErrorRatePercent: 2.5, maxP95Ms: 800 })
+    // P95 vide : 0 = « aucun seuil » pour le serveur.
+    expect(thresholdsToRequest({ maxErrorRatePercent: '1', maxP95Ms: '' })).toEqual({ maxErrorRatePercent: 1, maxP95Ms: 0 })
+    expect(thresholdsFromScenario({ maxErrorRatePercent: 2.5, maxP95Ms: null })).toEqual({ maxErrorRatePercent: '2,5', maxP95Ms: '' })
+    expect(thresholdsFromScenario({})).toEqual({ maxErrorRatePercent: '1', maxP95Ms: '' })
+  })
+
+  it('étape « Charge & résumé » : taux d’erreurs maximal (défaut 1 %) et P95 maximal optionnel', () => {
+    const onThresholds = vi.fn()
+    render(<LoadSummaryPanel info={EMPTY_INFO} application={undefined} steps={[newStep()]} errors={{ maxP95Ms: 'Le P95 maximal doit être au moins 1.' }}
+      showErrors load={load({ virtualUsers: '5' })} testRun={INITIAL_TEST_RUN} testStale={false} testPassed={false} csvRows={null}
+      onChange={() => {}} onGoTo={() => {}} onThresholdsChange={onThresholds} />)
+    expect(screen.getByText('Seuils de réussite')).toBeTruthy()
+    const rate = screen.getByLabelText(/Taux d’erreurs maximal/) as HTMLInputElement
+    expect(rate.value).toBe('1')
+    fireEvent.change(rate, { target: { value: '2,5' } })
+    expect(onThresholds).toHaveBeenCalledWith({ maxErrorRatePercent: '2,5' })
+    const p95 = screen.getByLabelText(/P95 maximal/) as HTMLInputElement
+    expect(p95.placeholder).toBe('Aucun seuil')
+    fireEvent.change(p95, { target: { value: '500' } })
+    expect(onThresholds).toHaveBeenLastCalledWith({ maxP95Ms: '500' })
+    expect(screen.getByText('Le P95 maximal doit être au moins 1.')).toBeTruthy()
+    expect(screen.getByText(/« Échouée » \(rouge\) est réservé/)).toBeTruthy()
   })
 })

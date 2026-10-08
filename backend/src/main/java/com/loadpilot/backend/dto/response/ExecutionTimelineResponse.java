@@ -30,9 +30,44 @@ public record ExecutionTimelineResponse(
         List<ErrorPoint> errorPoints,
         List<PauseRange> pauses,
         List<Insight> insights,
+        /** Tableau « Évolution des étapes pendant le test » (null si aucune requete). */
+        StepEvolution stepEvolution,
+        /** CPU / RAM du processus de l'application testee sur le meme axe "t" ; null sans monitoring. */
+        ResourceSeries resources,
+        /** Debut du test (epoch ms) : t = 0. */
+        long startEpochMs,
+        /** Intervalle de la requete la plus rapide / la plus lente (memes requetes que les cartes Minimum / Maximum). */
+        ExtremeMarker fastest,
+        ExtremeMarker slowest,
         /** Message quand aucune analyse n'est possible (aucune requete enregistree). */
         String message
 ) {
+    /**
+     * Comparaison debut / fin du test par etape (voir StepEvolutionAnalyzer). Secondes en temps
+     * actif (pauses retirees) ; comparable = false : message explique pourquoi (test trop court...).
+     */
+    public record StepEvolution(boolean comparable, String message, double stableSeconds, double startFromSeconds,
+            double startToSeconds, double endFromSeconds, double endToSeconds, List<StepTrend> steps) {
+    }
+
+    /**
+     * Mesures du processus teste alignees sur "t" : moyenne des mesures tombant dans chaque intervalle,
+     * null sans mesure (une mesure toutes les intervalSeconds : la courbe relie les points).
+     * cpuPercent en % d'un coeur ; memoryMb en Mo (memoryMetric : metrique lue).
+     */
+    public record ResourceSeries(String source, int intervalSeconds, String memoryMetric, String message, int sampleCount,
+            List<Double> cpuPercent, List<Double> memoryMb) {
+    }
+
+    /** Repere d'une requete extreme : indice de l'intervalle, temps de reponse, seconde depuis le debut. */
+    public record ExtremeMarker(int bucket, long responseTimeMs, double atSeconds) {
+    }
+
+    /** trend : DEGRADED, WATCH, STABLE, INSUFFICIENT (pas assez de requetes pour comparer). */
+    public record StepTrend(String key, String name, String method, String trend, Long startP95Ms, Long endP95Ms,
+            int startRequests, int endRequests, int totalRequests, Long deltaMs, Double deltaPercent) {
+    }
+
     public record StepSeries(String key, String name, String method, List<Integer> requests, List<Double> throughput,
             List<Long> p95Ms, Long overallP95Ms) {
     }

@@ -343,7 +343,9 @@ class ExecutionHistoryAndReportTest {
      * reellement auditee (AuditAction.VIEW_HISTORY, module EXECUTION).
      */
     @Test
-    void history_isAudited() throws Exception {
+    void history_consultation_notAuditedByDefault() throws Exception {
+        // Les consultations ne sont plus journalisees par defaut (reglage « Journaliser
+        // aussi les consultations », desactive par defaut).
         mockMvc.perform(get("/api/executions/history").with(AS_VIEWER)).andExpect(status().isOk());
 
         // /api/audit-logs est reserve a SUPER_ADMIN/PERFORMANCE_ENGINEER
@@ -353,7 +355,7 @@ class ExecutionHistoryAndReportTest {
         String auditResponse = mockMvc.perform(get("/api/audit-logs").param("action", "VIEW_HISTORY").param("size", "1").with(AS_SUPER_ADMIN))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        assertThat(objectMapper.readTree(auditResponse).get("totalElements").asInt()).isGreaterThanOrEqualTo(1);
+        assertThat(objectMapper.readTree(auditResponse).get("totalElements").asInt()).isZero();
     }
 
     @Test
@@ -403,11 +405,13 @@ class ExecutionHistoryAndReportTest {
         assertThat(json.get("steps").get(0).has("stdDevResponseTime")).isFalse();
         assertThat(json.get("errors")).hasSize(0);
 
-        // P1-C (prompt section 11) — chaque consultation du rapport est
-        // reellement auditee (AuditAction.EXPORT_REPORT, module EXECUTION).
-        String auditResponse = mockMvc.perform(get("/api/audit-logs").param("action", "EXPORT_REPORT").param("size", "1").with(AS_SUPER_ADMIN))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(objectMapper.readTree(auditResponse).get("totalElements").asInt()).isGreaterThanOrEqualTo(1);
+        // Une simple consultation du rapport n'est plus un « export » : rien n'est
+        // journalise par defaut (ni EXPORT_REPORT, ni VIEW_REPORT).
+        for (String action : new String[]{"EXPORT_REPORT", "VIEW_REPORT"}) {
+            String auditResponse = mockMvc.perform(get("/api/audit-logs").param("action", action).param("size", "1").with(AS_SUPER_ADMIN))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            assertThat(objectMapper.readTree(auditResponse).get("totalElements").asInt()).isZero();
+        }
     }
 
     @Test

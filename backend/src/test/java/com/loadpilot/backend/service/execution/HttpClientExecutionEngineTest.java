@@ -759,14 +759,14 @@ class HttpClientExecutionEngineTest {
         });
 
         StepExecutionSpec spec = stepWithOptions("assert-ko", HttpMethod.GET, "/x", null, null, 200,
-                null, null, null, "\"status\":\"error\"");
+                null, null, null, "\"success\":true");
         ScenarioExecutionOutcome outcome = engine.execute(List.of(spec), baseUrl(s), LoadTestSpec.singlePass(),
                 new RunningExecutionHandle(), List.of());
 
         StepOutcome result = outcome.stepOutcomes().get(0);
         assertThat(result.success()).isFalse();
         assertThat(result.httpStatus()).isEqualTo(200); // le statut HTTP reste correct, seule l'assertion echoue
-        assertThat(result.error()).contains("Assertion");
+        assertThat(result.error()).isEqualTo("Contenu attendu introuvable : \"success\":true");
         assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.FAILED);
     }
 

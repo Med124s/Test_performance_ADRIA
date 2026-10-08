@@ -9,7 +9,10 @@
 // ============================================================
 
 import { springHttp } from './httpClient'
-import { BackendScheduledExecutionRequest, BackendScheduledExecutionResponse } from '../../types/backendContracts'
+import {
+  BackendScheduleHistoryResponse, BackendSchedulePreviewRequest, BackendSchedulePreviewResponse,
+  BackendScheduledExecutionRequest, BackendScheduledExecutionResponse,
+} from '../../types/backendContracts'
 
 const RESOURCE = '/api/scheduled-executions'
 
@@ -26,4 +29,10 @@ export const scheduledExecutionsBackendApi = {
   /** Déclenche immédiatement (même moteur/protections que le déclenchement automatique). */
   runNow: (id: string) => springHttp.post<BackendScheduledExecutionResponse>(`${RESOURCE}/${id}/run-now`, undefined),
   delete: (id: string) => springHttp.delete<void>(`${RESOURCE}/${id}`),
+  /** 3 prochains lancements calculés comme le déclencheur ; 400 avec un message clair si la saisie est invalide. */
+  preview: (data: BackendSchedulePreviewRequest) =>
+    springHttp.post<BackendSchedulePreviewResponse>(`${RESOURCE}/preview`, data),
+  /** Exécutions lancées et lancements ignorés / manqués, du plus récent au plus ancien. */
+  history: (id: string, limit = 100) =>
+    springHttp.get<BackendScheduleHistoryResponse>(`${RESOURCE}/${id}/history?limit=${limit}`),
 }

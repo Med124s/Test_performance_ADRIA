@@ -27,6 +27,9 @@ public interface ExecutionMapper {
     @Mapping(target = "applicationName", source = "scenario.application.name")
     @Mapping(target = "triggeredByUsername", source = "triggeredBy", qualifiedByName = "appUserDisplayName")
     @Mapping(target = "throughput", source = ".", qualifiedByName = "executionThroughput")
+    @Mapping(target = "statusReason", source = ".", qualifiedByName = "executionStatusReason")
+    @Mapping(target = "previousP95Ms", ignore = true)
+    @Mapping(target = "previousStartedAt", ignore = true)
     ExecutionHistoryResponse toHistoryResponse(Execution execution);
 
     List<ExecutionHistoryResponse> toHistoryResponseList(List<Execution> executions);

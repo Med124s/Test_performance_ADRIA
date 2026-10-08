@@ -43,9 +43,28 @@ public class ExecutionRequestDetailService {
     private final ExecutionRequestDetailRepository detailRepository;
     private final ObjectMapper objectMapper;
 
+    /** Tri de la liste : chronologique (defaut), plus lentes d'abord, plus rapides d'abord. */
+    public enum RowSort {
+        TIME, SLOWEST, FASTEST;
+
+        Sort toSort() {
+            return switch (this) {
+                case SLOWEST -> Sort.by(Sort.Direction.DESC, "responseTime").and(CHRONOLOGICAL);
+                case FASTEST -> Sort.by(Sort.Direction.ASC, "responseTime").and(CHRONOLOGICAL);
+                case TIME -> CHRONOLOGICAL;
+            };
+        }
+    }
+
     @Transactional(readOnly = true)
     public PagedResponse<ExecutionRequestRowResponse> list(UUID executionId, UUID stepId, String stepName, Integer virtualUser,
             Integer iteration, boolean failedOnly, int page, int size) {
+        return list(executionId, stepId, stepName, virtualUser, iteration, failedOnly, page, size, RowSort.TIME);
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<ExecutionRequestRowResponse> list(UUID executionId, UUID stepId, String stepName, Integer virtualUser,
+            Integer iteration, boolean failedOnly, int page, int size, RowSort sort) {
         if (!executionRepository.existsById(executionId)) {
             throw new ResourceNotFoundException("Exécution introuvable : " + executionId);
         }
@@ -64,15 +83,25 @@ public class ExecutionRequestDetailService {
             if (failedOnly) p.add(cb.isFalse(root.get("success")));
             return cb.and(p.toArray(new Predicate[0]));
         };
-        Page<ExecutionStepResult> rows = resultRepository.findAll(spec, PageRequest.of(page, size, CHRONOLOGICAL));
+        Page<ExecutionStepResult> rows = resultRepository.findAll(spec, PageRequest.of(page, size, (sort == null ? RowSort.TIME : sort).toSort()));
+        Map<UUID, String> kinds = detailKinds(rows.getContent());
+        return new PagedResponse<>(rows.getContent().stream().map(r -> toRow(r, kinds.get(r.getId()))).toList(),
+                rows.getNumber(), rows.getSize(), rows.getTotalElements(), rows.getTotalPages());
+    }
+
+    /** Type de detail conserve (FAILURE / SAMPLE) par requete ; absente = detail non conserve. */
+    Map<UUID, String> detailKinds(List<ExecutionStepResult> results) {
         Map<UUID, String> kinds = new HashMap<>();
-        if (!rows.isEmpty()) {
-            for (Object[] row : detailRepository.findKindsByResultIds(rows.getContent().stream().map(ExecutionStepResult::getId).toList())) {
+        if (!results.isEmpty()) {
+            for (Object[] row : detailRepository.findKindsByResultIds(results.stream().map(ExecutionStepResult::getId).toList())) {
                 kinds.put((UUID) row[0], (String) row[1]);
             }
         }
-        return new PagedResponse<>(rows.getContent().stream().map(r -> toRow(r, kinds.get(r.getId()))).toList(),
-                rows.getNumber(), rows.getSize(), rows.getTotalElements(), rows.getTotalPages());
+        return kinds;
+    }
+
+    ExecutionRequestRowResponse row(ExecutionStepResult r, String detailKind) {
+        return toRow(r, detailKind);
     }
 
     @Transactional(readOnly = true)

@@ -1,8 +1,11 @@
 package com.loadpilot.backend.controller;
 
 import com.loadpilot.backend.dto.response.ApplicationDashboardResponse;
+import com.loadpilot.backend.dto.response.DashboardOverviewResponse;
 import com.loadpilot.backend.dto.response.DashboardResponse;
+import com.loadpilot.backend.dto.response.ScenarioTrendResponse;
 import com.loadpilot.backend.service.DashboardService;
+import com.loadpilot.backend.service.impl.DashboardOverviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -29,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DashboardController {
 
     private final DashboardService dashboardService;
+    private final DashboardOverviewService overviewService;
 
     /**
      * P1-C — "from"/"to" optionnels (ISO-8601) : sans eux, comportement
@@ -43,6 +47,29 @@ public class DashboardController {
             @Parameter(description = "Borne de debut (incluse)") @RequestParam(required = false) Instant from,
             @Parameter(description = "Borne de fin (incluse)") @RequestParam(required = false) Instant to) {
         return dashboardService.getGlobalDashboard(from, to);
+    }
+
+    @GetMapping("/overview")
+    @Operation(summary = "Dashboard : etat, tendance et points a surveiller",
+            description = "Tout le Dashboard en une reponse, filtre par application (optionnelle) et par periode (executions lancees entre from et to, bornes incluses) : P95 de la periode, taux d'erreurs, requetes, executions, badges de statut, points a surveiller, derniere execution par scenario comparee a la precedente, etapes les plus lentes, en cours, recentes, prochaines planifiees.")
+    public DashboardOverviewResponse overview(
+            @Parameter(description = "Application (optionnelle)") @RequestParam(required = false) UUID applicationId,
+            @Parameter(description = "Borne de debut (incluse)") @RequestParam(required = false) Instant from,
+            @Parameter(description = "Borne de fin (incluse)") @RequestParam(required = false) Instant to) {
+        return overviewService.overview(applicationId, from, to);
+    }
+
+    @GetMapping("/scenario-trend")
+    @Operation(summary = "Evolution des performances d'un scenario",
+            description = "P95, taux d'erreurs, debit et utilisateurs virtuels de chaque execution terminee (reussie ou echouee) du scenario sur la periode, dans l'ordre chronologique.")
+    @ApiResponse(responseCode = "404", description = "Scenario introuvable")
+    public ScenarioTrendResponse scenarioTrend(
+            @RequestParam UUID scenarioId,
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to,
+            @Parameter(description = "Etape (nom) : P95 et taux d'erreurs de cette etape dans chaque execution")
+            @RequestParam(required = false) String stepName) {
+        return overviewService.scenarioTrend(scenarioId, from, to, stepName);
     }
 
     @GetMapping("/applications/{id}")

@@ -80,13 +80,23 @@ function decodeJwtPayload<T>(token: string): T {
   return JSON.parse(json) as T
 }
 
+/** Chemin interne de l'application, sûr pour un retour après connexion :
+ * commence par un seul « / » (jamais une autre origine, ni `//hote`), et
+ * jamais `/login` (qui renverrait aussitôt vers Keycloak). */
+export function safeReturnPath(path: string | null | undefined): string | null {
+  if (!path || !path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) return null
+  if (path === '/login' || path.startsWith('/login?') || path.startsWith('/login#') || path.startsWith('/login/')) return null
+  return path
+}
+
 /** Redirige RÉELLEMENT le navigateur vers la page de login Keycloak (le
- * mot de passe est saisi sur cette page Keycloak, jamais dans React). */
-export async function redirectToLogin(): Promise<void> {
+ * mot de passe est saisi sur cette page Keycloak, jamais dans React).
+ * `returnTo` : page de l'application à rouvrir une fois connecté. */
+export async function redirectToLogin(returnTo?: string): Promise<void> {
   const verifier = generateCodeVerifier()
   const challenge = await generateCodeChallenge(verifier)
   const state = generateState()
-  sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier, state }))
+  sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier, state, returnTo: safeReturnPath(returnTo) }))
 
   const params = new URLSearchParams({
     client_id: KEYCLOAK_CLIENT_ID,
@@ -102,19 +112,34 @@ export async function redirectToLogin(): Promise<void> {
 
 /** À appeler au montage de l'application : si l'URL contient
  * `?code=...&state=...` (retour de Keycloak), échange le code contre de
- * vrais tokens et nettoie l'URL. Ne fait rien si absent (cas normal en
- * mode mock ou hors flux de connexion). */
-export async function handleRedirectCallback(): Promise<void> {
+ * vrais tokens et nettoie l'URL. Ne fait rien si absent (accès direct à
+ * l'application). Renvoie la page demandée avant la connexion, s'il y en a une.
+ *
+ * Un même retour n'est traité qu'une fois : en développement, React
+ * (StrictMode) exécute deux fois l'effet de démarrage ; le second appel
+ * reçoit le résultat du premier au lieu de retrouver un état PKCE déjà
+ * consommé (ce qui perdait la page demandée). */
+let callbackInFlight: { href: string; result: Promise<string | null> } | null = null
+
+export function handleRedirectCallback(): Promise<string | null> {
+  const href = window.location.href
+  if (callbackInFlight?.href !== href) {
+    callbackInFlight = { href, result: processRedirectCallback() }
+  }
+  return callbackInFlight.result
+}
+
+async function processRedirectCallback(): Promise<string | null> {
   const url = new URL(window.location.href)
   const code = url.searchParams.get('code')
   const state = url.searchParams.get('state')
-  if (!code || !state) return
+  if (!code || !state) return null
 
   const pkceRaw = sessionStorage.getItem(PKCE_STORAGE_KEY)
   sessionStorage.removeItem(PKCE_STORAGE_KEY)
-  if (!pkceRaw) return // callback inattendu (état PKCE absent) : ignoré, jamais deviné
+  if (!pkceRaw) return null // callback inattendu (état PKCE absent) : ignoré, jamais deviné
 
-  const { verifier, state: expectedState } = JSON.parse(pkceRaw) as { verifier: string; state: string }
+  const { verifier, state: expectedState, returnTo } = JSON.parse(pkceRaw) as { verifier: string; state: string; returnTo?: string | null }
   if (state !== expectedState) {
     throw new Error('État OAuth2 invalide (protection CSRF) — connexion refusée.')
   }
@@ -133,7 +158,7 @@ export async function handleRedirectCallback(): Promise<void> {
     body: body.toString(),
   })
   if (!response.ok) {
-    throw new Error(`Échange du code d'autorisation Keycloak refusé (HTTP ${response.status}).`)
+    throw new Error(`Échange du code d'autorisation refusé (HTTP ${response.status}).`)
   }
   const json = (await response.json()) as {
     access_token: string
@@ -152,7 +177,10 @@ export async function handleRedirectCallback(): Promise<void> {
   // Nettoie ?code=&state= de l'URL visible sans recharger la page.
   url.searchParams.delete('code')
   url.searchParams.delete('state')
+  url.searchParams.delete('session_state')
+  url.searchParams.delete('iss')
   window.history.replaceState({}, document.title, url.pathname + url.search)
+  return safeReturnPath(returnTo)
 }
 
 /** Marge (ms) prise avant l'expiration réelle du JWT (voir "exp") pour
@@ -255,7 +283,8 @@ export async function isAuthenticated(): Promise<boolean> {
 
 /** Déconnexion RÉELLE : invalide la session SSO Keycloak elle-même (pas
  * seulement l'état local) — voir Phase 16, section 11. Après l'appel,
- * Keycloak redirige vers `REDIRECT_URI`. */
+ * Keycloak redirige vers `REDIRECT_URI`, où l'application (non connectée)
+ * renvoie aussitôt vers la page de connexion LoadPilot. */
 export function logout(): void {
   const tokens = readTokens()
   clearTokens()

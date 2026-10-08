@@ -76,7 +76,16 @@ Le schéma est **entièrement géré par Liquibase** (`backend/src/main/resource
 - Client `loadpilot-frontend` : public, PKCE S256 activé.
 - Client `loadpilot-backend-admin` : confidentiel, compte de service dédié à l'administration des utilisateurs (`/api/users`).
 - **Action obligatoire lors du déploiement client** : le champ `redirectUris`/`webOrigins` du client `loadpilot-frontend` est actuellement fixé à `http://localhost:3000/*` dans le fichier versionné — **à éditer manuellement dans la Console Admin Keycloak si le domaine final du client diffère de `localhost:3000`.**
-- **Action obligatoire lors du déploiement client** : `bruteForceProtected` vaut `false` dans le fichier `realm-export.json` versionné (protection anti-bruteforce **non activée par défaut à l'import**) — à activer manuellement (Console Admin → Realm settings → Security defenses → Brute force detection, ou via l'API Admin) avant toute mise en service.
+- Protection anti-bruteforce activée dans `realm-export.json` : blocage temporaire après 10 échecs (1 min, puis +1 min par nouvelle série de 10 échecs, 15 min au plus, jamais définitif). Pendant le blocage, la page affiche le message générique « Nom d'utilisateur ou mot de passe incorrect » pour ne pas révéler l'existence du compte. À ajuster selon la politique du client. Un réalm importé avant ce changement garde l'ancien réglage : voir `keycloak/README.md`, section « Thème de connexion LoadPilot ».
+- **Page de connexion LoadPilot (thème Keycloak)** :
+  - **Thème** : `keycloak/themes/loadpilot`, un thème FreeMarker sans build qui hérite de `keycloak.v2` (Keycloak 26.x). Il couvre la connexion, le mot de passe oublié, le nouveau mot de passe, le profil, les pages d'erreur, d'information, de déconnexion et de page expirée.
+  - **Réglages du réalm** : français par défaut, nom affiché « LoadPilot », « Rester connecté » et « Mot de passe oublié ? » activés. Le thème est appliqué au réalm et au client `loadpilot-frontend`.
+  - **Chargement** : `docker-compose.yml` monte le dossier dans le conteneur, donc le thème est chargé au démarrage de Keycloak.
+  - **Redéploiement** : voir `keycloak/README.md`, section « Déployer ou redéployer le thème ». En `start-dev`, il suffit de recharger la page ; en production (`start`), il faut redémarrer Keycloak.
+  - **E-mails (mot de passe oublié)** :
+    - en développement et en démo, `docker-compose.yml` démarre **Mailpit**, qui capture les e-mails ; on les lit sur http://localhost:8025 ;
+    - en production, il suffit de renseigner les variables `KC_SMTP_HOST`, `KC_SMTP_PORT`, `KC_SMTP_FROM`, `KC_SMTP_AUTH`, `KC_SMTP_USER`, `KC_SMTP_PASSWORD`… (voir `.env.example`) ;
+    - détail dans `keycloak/README.md`, section « E-mails ».
 - `sslRequired` vaut `"none"` dans le fichier versionné — **À VALIDER LORS DU DÉPLOIEMENT** selon le contexte réseau (voir section 13).
 - Procédure réelle d'installation et d'import du réalm (sans Docker) : voir `keycloak/README.md` de ce dépôt.
 - Aucun utilisateur métier n'est fourni dans le réalm importé : les comptes doivent être créés manuellement (Console Admin → Users → Add user).
@@ -193,7 +202,8 @@ Ordre de démarrage obligatoire : PostgreSQL et Keycloak doivent être joignable
 | CSRF | Désactivé — cohérent avec une API REST stateless à authentification JWT, aucune session serveur. |
 | Swagger/OpenAPI | Public en profil `dev`, désactivable via le profil `prod` — implémenté, action de configuration à la charge du déploiement. |
 | Actuator | Seul `/health` exposé, sans détail interne — implémenté. |
-| Brute-force Keycloak | **NON ACTIVÉ PAR DÉFAUT** dans le fichier de réalm versionné — action obligatoire lors du déploiement (voir section 6). |
+| Brute-force Keycloak | Activé dans le fichier de réalm versionné (10 échecs → blocage temporaire de 1 min, 15 min au plus), message générique pendant le blocage — à vérifier sur un réalm importé avant ce changement (voir section 6). |
+| Page de connexion | Thème Keycloak `loadpilot` : le mot de passe n'est saisi que sur Keycloak, jamais dans React (pas de « password grant »). |
 | HTTPS/TLS | **NON FOURNI PAR L'APPLICATION.** Aucun reverse proxy TLS n'est inclus dans ce dépôt. À configurer selon l'infrastructure client si une exposition au-delà d'un réseau interne de confiance est envisagée. |
 | Secrets | Toutes les valeurs sensibles proviennent de variables d'environnement, sans valeur par défaut dangereuse — implémenté. |
 

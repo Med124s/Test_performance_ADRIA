@@ -40,6 +40,12 @@ public final class MapperSupport {
      * superieur si l'execution s'est arretee au premier echec - voir
      * Metric.errorRate pour la meme distinction deja etablie).
      */
+    /** Raison principale du statut (voir ExecutionStatusReason). */
+    @Named("executionStatusReason")
+    public static String executionStatusReason(Execution execution) {
+        return com.loadpilot.backend.service.execution.ExecutionStatusReason.of(execution);
+    }
+
     @Named("executionThroughput")
     public static BigDecimal executionThroughput(Execution execution) {
         int executed = execution.getSuccessfulSteps() + execution.getFailedSteps();

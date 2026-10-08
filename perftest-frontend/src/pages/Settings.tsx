@@ -28,7 +28,7 @@ function describeApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     switch (err.status) {
       case 0: return err.message
-      case 401: return 'Vous devez être connecté (Keycloak) pour accéder à vos paramètres.'
+      case 401: return 'Vous devez être connecté pour accéder à vos paramètres.'
       case 400: return err.message
       default: return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
     }
@@ -42,7 +42,8 @@ const roleLabel: Record<string, string> = {
   ROLE_VIEWER: 'Observateur',
 }
 
-function Settings() {
+/** embedded : affichée dans un onglet (Paramètres, Utilisateurs et rôles), sans son propre en-tête. */
+function Settings({ embedded = false }: { embedded?: boolean } = {}) {
   const { darkMode, setDarkMode } = useDarkMode()
   const [profile, setProfile] = useState<BackendProfileResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -85,14 +86,16 @@ function Settings() {
   }
 
   return (
-    <div className="pt-content">
-      <div className="pt-page-header">
-        <div className="page-title">
-          <h1>Settings</h1>
-          <p>Votre profil et vos préférences réelles</p>
+    <div className={embedded ? undefined : 'pt-content'}>
+      {!embedded && (
+        <div className="pt-page-header">
+          <div className="page-title">
+            <h1>Mon profil</h1>
+            <p>Votre profil et vos préférences réelles</p>
+          </div>
+          <TopBar searchPlaceholder="" />
         </div>
-        <TopBar searchPlaceholder="" />
-      </div>
+      )}
 
       {error && (
         <div className="pt-alert-banner danger mb-3">
@@ -113,7 +116,7 @@ function Settings() {
             <div className="pt-card h-100">
               <div className="pt-card-title mb-3"><i className="bi bi-person-badge me-2 text-primary"></i>Profil</div>
               <p className="text-muted mb-3" style={{ fontSize: '12px' }}>
-                Identité gérée par Keycloak — en lecture seule ici (modifiable uniquement via votre compte Keycloak).
+                Identité gérée de façon centralisée — en lecture seule ici. Pour la modifier, contactez un administrateur.
               </p>
               <div className="d-flex flex-column gap-2" style={{ fontSize: '13.5px' }}>
                 <div className="d-flex justify-content-between border-bottom pb-2"><span className="text-muted">Nom</span><strong>{profile.name ?? '—'}</strong></div>
@@ -175,16 +178,8 @@ function Settings() {
                   <span><i className="bi bi-bell me-2"></i>Préférences de notifications</span>
                   <i className="bi bi-chevron-right text-muted"></i>
                 </Link>
-                <Link to="/roles-catalog" className="d-flex justify-content-between align-items-center text-decoration-none border-top pt-2">
-                  <span><i className="bi bi-shield-lock me-2"></i>Catalogue des rôles</span>
-                  <i className="bi bi-chevron-right text-muted"></i>
-                </Link>
-                <Link to="/configurations" className="d-flex justify-content-between align-items-center text-decoration-none border-top pt-2">
-                  <span><i className="bi bi-gear me-2"></i>Configurations système</span>
-                  <i className="bi bi-chevron-right text-muted"></i>
-                </Link>
-                <Link to="/settings/integrations" className="d-flex justify-content-between align-items-center text-decoration-none border-top pt-2">
-                  <span><i className="bi bi-plug me-2"></i>Intégrations</span>
+                <Link to="/notifications" className="d-flex justify-content-between align-items-center text-decoration-none border-top pt-2">
+                  <span><i className="bi bi-inbox me-2"></i>Toutes mes notifications</span>
                   <i className="bi bi-chevron-right text-muted"></i>
                 </Link>
               </div>

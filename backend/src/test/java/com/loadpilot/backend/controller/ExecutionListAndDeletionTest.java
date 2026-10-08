@@ -114,7 +114,7 @@ class ExecutionListAndDeletionTest {
         long deadline = System.currentTimeMillis() + 15_000;
         while (System.currentTimeMillis() < deadline) {
             String status = call(get("/api/executions/" + executionId + "/status"), null).get("status").asText();
-            if (List.of("SUCCESS", "FAILED", "CANCELLED").contains(status)) break;
+            if (List.of("SUCCESS", "THRESHOLDS_EXCEEDED", "FAILED", "CANCELLED").contains(status)) break;
             Thread.sleep(100);
         }
         // Laisse la tache asynchrone finir d'enregistrer les metriques (sinon 409 « termine l'enregistrement »).
@@ -136,7 +136,9 @@ class ExecutionListAndDeletionTest {
         assertThat(all.get("totalElements").asLong()).isEqualTo(3);
         assertThat(all.get("counts").get("total").asLong()).isEqualTo(3);
         assertThat(all.get("counts").get("success").asLong()).isEqualTo(2);
-        assertThat(all.get("counts").get("failed").asLong()).isEqualTo(1);
+        // /fail repond 500 : le test va au bout, seuil de taux d'erreurs depasse (pas « Echouee »).
+        assertThat(all.get("counts").get("thresholdsExceeded").asLong()).isEqualTo(1);
+        assertThat(all.get("counts").get("failed").asLong()).isZero();
 
         JsonNode byScenario = call(get("/api/executions/page?applicationId=" + appId + "&scenarioId=" + ok + "&status=SUCCESS"), null);
         assertThat(byScenario.get("totalElements").asLong()).isEqualTo(2);
@@ -145,11 +147,45 @@ class ExecutionListAndDeletionTest {
 
         JsonNode search = call(get("/api/executions/page").param("applicationId", appId).param("search", "liste ko"), null);
         assertThat(search.get("totalElements").asLong()).isEqualTo(1);
-        assertThat(search.get("counts").get("failed").asLong()).isEqualTo(1);
+        assertThat(search.get("counts").get("thresholdsExceeded").asLong()).isEqualTo(1);
 
         JsonNode paged = call(get("/api/executions/page?applicationId=" + appId + "&size=5&page=0"), null);
         assertThat(paged.get("size").asInt()).isEqualTo(5);
+
+        // Periode (bornes incluses, sur startedAt) : compteurs et lignes suivent le filtre.
+        String future = java.time.Instant.now().plusSeconds(3600).toString();
+        JsonNode none = call(get("/api/executions/page").param("applicationId", appId).param("dateFrom", future), null);
+        assertThat(none.get("totalElements").asLong()).isZero();
+        assertThat(none.get("counts").get("total").asLong()).isZero();
+        String hourAgo = java.time.Instant.now().minusSeconds(3600).toString();
+        JsonNode inRange = call(get("/api/executions/page").param("applicationId", appId).param("dateFrom", hourAgo)
+                .param("dateTo", future), null);
+        assertThat(inRange.get("totalElements").asLong()).isEqualTo(3);
+        assertThat(inRange.get("counts").get("success").asLong()).isEqualTo(2);
+        JsonNode before = call(get("/api/executions/page").param("applicationId", appId).param("dateTo", hourAgo), null);
+        assertThat(before.get("totalElements").asLong()).isZero();
+
+        // Tri par statut / duree (liste blanche) : l'ordre suit le tri demande.
+        JsonNode byStatus = call(get("/api/executions/page").param("applicationId", appId).param("sort", "status,asc"), null);
+        assertThat(byStatus.get("content").get(0).get("status").asText()).isEqualTo("SUCCESS");
+        JsonNode byStatusDesc = call(get("/api/executions/page").param("applicationId", appId).param("sort", "status,desc"), null);
+        assertThat(byStatusDesc.get("content").get(0).get("status").asText()).isEqualTo("THRESHOLDS_EXCEEDED");
         assertThat(auditLogRepository.count()).as("la liste n'est pas auditee").isEqualTo(auditBefore);
+
+        // P95 de chaque ligne : celui du rapport (resume enregistre, calcule a la fin ou en arriere-plan).
+        JsonNode withP95 = null;
+        long deadline = System.currentTimeMillis() + 20_000;
+        while (System.currentTimeMillis() < deadline) {
+            withP95 = call(get("/api/executions/page").param("applicationId", appId), null);
+            boolean complete = true;
+            for (JsonNode r : withP95.get("content")) complete &= !r.get("p95Ms").isNull();
+            if (complete) break;
+            Thread.sleep(200);
+        }
+        for (JsonNode r : withP95.get("content")) {
+            JsonNode report = call(get("/api/executions/" + r.get("id").asText() + "/report"), null);
+            assertThat(r.get("p95Ms").asLong()).isEqualTo(report.get("statistics").get("p95").asLong());
+        }
     }
 
     @Test
@@ -171,7 +207,7 @@ class ExecutionListAndDeletionTest {
         assertThat(resultRepository.findByExecutionIdOrderByTimestampAsc(id)).isEmpty();
         assertThat(metricRepository.findAll().stream().noneMatch(m -> m.getExecution().getId().equals(id))).isTrue();
         assertThat(auditLogRepository.findAll().stream().anyMatch(a -> a.getAction() == AuditAction.DELETE
-                && a.getDescription() != null && a.getDescription().contains(executionId))).isTrue();
+                && executionId.equals(a.getTargetId()))).isTrue();
         assertThat(perform(delete("/api/executions/" + executionId), null, AS_ENGINEER).getResponse().getStatus()).isEqualTo(404);
     }
 
@@ -181,6 +217,16 @@ class ExecutionListAndDeletionTest {
         String finished1 = runToEnd(scenario(appId, "Fini 1", "/ok", null));
         String finished2 = runToEnd(scenario(appId, "Fini 2", "/fail", null));
         String running = call(post("/api/executions"), Map.of("scenarioId", scenario(appId, "Long", "/slow", 20))).get("id").asText();
+
+        // Page Rapports : seulement les executions terminees (l'execution en cours n'y figure pas), lisible par un VIEWER.
+        JsonNode reports = objectMapper.readTree(perform(get("/api/executions/page").param("applicationId", appId)
+                .param("finished", "true").param("size", "10"), null, AS_VIEWER).getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertThat(reports.get("totalElements").asLong()).isEqualTo(2);
+        assertThat(reports.get("content").findValuesAsText("id")).containsExactlyInAnyOrder(finished1, finished2);
+        assertThat(reports.get("counts").get("total").asLong()).isEqualTo(2);
+        assertThat(reports.get("counts").get("running").asLong()).isZero();
+        JsonNode all = call(get("/api/executions/page").param("applicationId", appId), null);
+        assertThat(all.get("totalElements").asLong()).isEqualTo(3);
 
         assertThat(perform(delete("/api/executions/" + running), null, AS_ENGINEER).getResponse().getStatus()).isEqualTo(409);
         JsonNode impact = call(post("/api/executions/deletion-impact"), Map.of("ids", List.of(finished1, finished2, running)));

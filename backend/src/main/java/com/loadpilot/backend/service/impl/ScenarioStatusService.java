@@ -1,5 +1,8 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.service.audit.AuditEvent;
+import com.loadpilot.backend.service.audit.AuditSnapshots;
+import com.loadpilot.backend.service.audit.AuditTargetType;
 import com.loadpilot.backend.entity.Scenario;
 import com.loadpilot.backend.entity.ScheduledExecution;
 import com.loadpilot.backend.enums.AuditAction;
@@ -31,8 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
  * Desactiver : refuse pour un brouillon ou si une execution est en cours ; le scenario reste
  * visible et modifiable, n'est plus executable, et ses planifications actives sont suspendues
  * (enabled=false, pausedByScenario=true) - le poller les ignore de toute facon (filtre sur
- * le statut ACTIVE). Activer : le scenario redevient executable ; ses planifications
- * suspendues sont proposees a la reactivation (resumeSchedules), jamais reactivees d'office.
+ * le statut ACTIVE). Activer : le scenario redevient executable et ses planifications
+ * suspendues reprennent aussitot (ScheduleResumer : prochaine occurrence, rien n'est rattrape).
  * Chaque changement est trace dans l'audit (ENABLE / DISABLE, module SCENARIO).
  */
 @Service
@@ -47,6 +50,7 @@ public class ScenarioStatusService {
     private final ScenarioRepository scenarioRepository;
     private final DeletionServiceImpl deletionService;
     private final AuditLogService auditLogService;
+    private final ScheduleResumer scheduleResumer;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -68,16 +72,20 @@ public class ScenarioStatusService {
                     .setParameter("id", id)
                     .executeUpdate();
             Scenario saved = scenarioRepository.saveAndFlush(scenario);
-            auditLogService.record(AuditAction.DISABLE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                    "Scenario deactivated: " + scenario.getName() + (paused > 0 ? " (" + paused + " schedule(s) paused)" : ""));
+            auditLogService.record(AuditEvent.of(AuditAction.DISABLE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, scenario.getId(), scenario.getName())
+                    .change("Statut", "Actif", "Inactif")
+                    .description("Scénario désactivé" + (paused > 0 ? " — " + paused + " planification(s) suspendue(s)" : "")));
             return saved;
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.DISABLE, AuditModule.SCENARIO, AuditResult.FAILURE,
-                    "Scenario deactivation failed: " + scenario.getName() + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.DISABLE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, scenario.getId(), scenario.getName())
+                    .description("Désactivation refusée").failed(e));
             throw e;
         }
     }
 
+    /** Active le scenario et reprend aussitot ses planifications suspendues (voir ScheduleResumer : rien n'est rattrape). */
     @Transactional
     public Scenario activate(UUID id) {
         Scenario scenario = find(id);
@@ -85,49 +93,32 @@ public class ScenarioStatusService {
         if (scenario.getStatus() == ScenarioStatus.ACTIVE) return scenario;
         scenario.setStatus(ScenarioStatus.ACTIVE);
         Scenario saved = scenarioRepository.saveAndFlush(scenario);
-        auditLogService.record(AuditAction.ENABLE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                "Scenario activated: " + scenario.getName());
+        ScheduleResumer.Result resumed = scheduleResumer.resume(saved);
+        auditLogService.record(AuditEvent.of(AuditAction.ENABLE, AuditModule.SCENARIO)
+                .target(AuditTargetType.SCENARIO, scenario.getId(), scenario.getName())
+                .change("Statut", "Inactif", "Actif")
+                .description("Scénario réactivé" + (resumed.resumed() > 0 ? " — " + resumed.resumed() + " planification(s) reprise(s)" : "")));
         return saved;
     }
 
     /**
-     * Reactive les planifications suspendues par la desactivation. Une planification
-     * ponctuelle dont la date est passee pendant l'inactivite n'est jamais declenchee en
-     * rattrapage : elle reste desactivee (comptee dans "expired"). Une planification cron
-     * repart de la prochaine occurrence a partir de maintenant.
+     * Reprise explicite des planifications suspendues (conservee pour les appels existants ; l'activation
+     * le fait deja automatiquement). Une planification unique dont la date est passee n'est jamais
+     * lancee en rattrapage (comptee dans "expired").
      */
     @Transactional
     public ResumeResult resumeSchedules(UUID id) {
         Scenario scenario = find(id);
-        if (scenario.getStatus() != ScenarioStatus.ACTIVE || scenario.isArchived() || scenario.getApplication().isArchived()) {
+        if (!ScheduleResumer.usable(scenario)) {
             throw new ConflictException("Activez (et restaurez si besoin) le scénario avant de réactiver ses planifications.");
         }
-        List<ScheduledExecution> paused = entityManager.createQuery(
-                        "SELECT se FROM ScheduledExecution se WHERE se.scenario.id = :id AND se.pausedByScenario = true",
-                        ScheduledExecution.class)
-                .setParameter("id", id)
-                .getResultList();
-        Instant now = Instant.now();
-        int resumed = 0;
-        int expired = 0;
-        for (ScheduledExecution schedule : paused) {
-            schedule.setPausedByScenario(false);
-            if (schedule.getScheduleType() == ScheduleType.ONE_TIME && (schedule.getRunAt() == null || !schedule.getRunAt().isAfter(now))) {
-                expired++;
-                continue;
-            }
-            schedule.setNextRunAt(schedule.getScheduleType() == ScheduleType.ONE_TIME
-                    ? schedule.getRunAt()
-                    : ScheduleNextRunCalculator.computeInitial(schedule.getScheduleType(), schedule.getRunAt(),
-                            schedule.getCronExpression(), schedule.getTimezone(), now));
-            schedule.setEnabled(true);
-            resumed++;
+        ScheduleResumer.Result result = scheduleResumer.resume(scenario);
+        if (result.resumed() + result.expired() > 0) {
+            auditLogService.record(AuditEvent.of(AuditAction.ENABLE, AuditModule.SCHEDULING)
+                    .target(AuditTargetType.SCENARIO, scenario.getId(), scenario.getName())
+                    .description("Planifications du scénario réactivées : " + result.resumed() + " reprise(s), " + result.expired() + " expirée(s)"));
         }
-        if (!paused.isEmpty()) {
-            auditLogService.record(AuditAction.ENABLE, AuditModule.SCHEDULING, AuditResult.SUCCESS,
-                    "Schedules resumed for scenario " + scenario.getName() + ": " + resumed + " resumed, " + expired + " expired");
-        }
-        return new ResumeResult(resumed, expired);
+        return new ResumeResult(result.resumed(), result.expired());
     }
 
     /** Nombre de planifications suspendues par scenario (une seule requete pour une page). */

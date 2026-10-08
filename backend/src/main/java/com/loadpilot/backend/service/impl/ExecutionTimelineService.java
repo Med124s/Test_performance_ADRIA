@@ -78,12 +78,34 @@ public class ExecutionTimelineService {
             }
         }
 
-        ExecutionTimelineResponse response = TimelineAnalyzer.analyze(samples, vus, pauses);
+        ExecutionTimelineResponse response = TimelineAnalyzer.analyze(samples, vus, pauses, resources(execution));
         // Cache : execution terminee ET tache asynchrone finie (resultats + chronologie enregistres).
         if (!execution.getStatus().isActive() && registry.get(executionId) == null) {
             cache.put(executionId, response);
         }
         return response;
+    }
+
+    /** Mesures CPU / RAM enregistrees (voir ExecutionTransactionHelper.saveResources) ; null sans monitoring. */
+    private TimelineAnalyzer.Resources resources(Execution execution) {
+        if (execution.getResourceJson() == null) {
+            return execution.getMonitoringMessage() == null ? null
+                    : new TimelineAnalyzer.Resources(null, 0, null, execution.getMonitoringMessage(), List.of());
+        }
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(execution.getResourceJson());
+            List<TimelineAnalyzer.ResourcePoint> points = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode s : root.path("samples")) {
+                points.add(new TimelineAnalyzer.ResourcePoint(s.get(0).asLong(),
+                        s.get(1) == null || s.get(1).isNull() ? null : s.get(1).asDouble(),
+                        s.get(2) == null || s.get(2).isNull() ? null : s.get(2).asDouble()));
+            }
+            return new TimelineAnalyzer.Resources(root.path("source").asText(null), root.path("intervalSeconds").asInt(0),
+                    root.path("memoryMetric").isNull() ? null : root.path("memoryMetric").asText(null),
+                    execution.getMonitoringMessage(), points);
+        } catch (Exception e) {
+            return null; // mesures illisibles : la courbe CPU / RAM n'est simplement pas affichee
+        }
     }
 
     private static List<Interval> toIntervals(List<long[]> raw) {

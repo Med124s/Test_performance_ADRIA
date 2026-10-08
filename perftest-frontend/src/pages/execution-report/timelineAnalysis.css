@@ -9,7 +9,76 @@
 .ta-check { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 12.5px; color: var(--pt-text-muted); cursor: pointer; }
 .ta-steps { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: center; margin-bottom: 0.6rem; }
 .ta-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.ta-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.35rem; vertical-align: middle; }
+
+.ta-toggle { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem; }
+
+/* Panneau Minimum / Maximum du rapport (préfixe xp-). */
+.xp-muted { color: var(--pt-text-muted); font-size: 12.5px; }
+.xp-hero { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding: 0.85rem 1rem; margin-bottom: 1rem;
+  border: 1px solid var(--pt-border); border-radius: 10px; background: var(--pt-sidebar-item-hover); }
+.xp-hero-value { font-size: 26px; font-weight: 800; color: var(--pt-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.xp-hero-main { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 220px; font-size: 13.5px; }
+.xp-hero-link { max-width: 260px; }
+.xp-subtitle { font-size: 13.5px; font-weight: 700; margin-bottom: 0.5rem; }
+.xp-link { font-size: 12px; padding: 3px 10px; white-space: nowrap; }
+.xp-method { font-size: 10.5px; font-weight: 700; color: var(--pt-text-muted); margin-right: 0.35rem; }
+.xp-table td { white-space: nowrap; }
+.rp-card-button { all: unset; display: block; cursor: pointer; border-radius: var(--pt-radius); }
+.rp-card-button:hover .pt-stat-card, .rp-card-button:focus-visible .pt-stat-card { border-color: var(--pt-primary); }
+.rp-card-button:focus-visible { outline: 2px solid var(--pt-primary); outline-offset: 2px; }
+.rp-card-hint { font-size: 11px; color: var(--pt-text-muted); margin-top: 0.25rem; }
+
+/* « Évolution des étapes pendant le test » (préfixe se-). */
+.se-wrap { overflow-x: auto; }
+.se-table { width: 100%; border-collapse: collapse; font-size: 13px; color: var(--pt-text); }
+.se-table th { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--pt-text-muted);
+  padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--pt-border); white-space: nowrap; text-align: left; }
+.se-table td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--pt-border); vertical-align: middle; }
+.se-table tbody tr:hover { background: rgba(148, 163, 184, 0.10); }
+.se-table .se-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; width: 7.5rem; }
+/* Tendance : colonne ajustée au badge ; l'étape prend la largeur restante. */
+.se-table .se-trend { width: 1%; white-space: nowrap; padding-left: 1.25rem; }
+.se-name { font-weight: 600; }
+.se-method { display: inline-block; font-size: 10.5px; font-weight: 700; color: var(--pt-text-muted); margin-right: 0.45rem; }
+.se-delta { font-weight: 700; }
+.se-pct { display: block; font-size: 11px; color: var(--pt-text-muted); }
+.se-help { cursor: help; margin-left: 0.2rem; }
+.se-badge { white-space: nowrap; cursor: help; }
+.se-degraded { color: var(--pt-danger); }
+.se-watch { color: #D97706; }
+.se-stable { color: var(--pt-success); }
+.se-insufficient { color: var(--pt-text-muted); }
+.se-empty { margin: 0; font-size: 13px; color: var(--pt-text-muted); }
+
+/* Thème sombre : textes plus clairs pour garder le contraste sur les fonds foncés. */
+[data-theme="dark"] .se-badge.danger, [data-theme="dark"] .se-degraded { color: #FCA5A5; }
+[data-theme="dark"] .se-badge.warning, [data-theme="dark"] .se-watch { color: #FCD34D; }
+[data-theme="dark"] .se-badge.success, [data-theme="dark"] .se-stable { color: #86EFAC; }
 
 @media (max-width: 576px) {
   .ta-chart { height: 260px; }
+
+  /* Mobile : une carte par étape (libellé à gauche, valeur à droite). */
+  .se-table thead { display: none; }
+  .se-table, .se-table tbody, .se-table tr, .se-table td { display: block; width: 100%; }
+  .se-table tr { border: 1px solid var(--pt-border); border-radius: 8px; padding: 0.35rem 0.6rem; margin-bottom: 0.6rem; }
+  .se-table td, .se-table .se-num, .se-table .se-trend { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+    border: none; padding: 0.3rem 0; text-align: right; width: 100%; }
+  .se-table td::before { content: attr(data-label); font-size: 11.5px; font-weight: 600; color: var(--pt-text-muted); text-align: left; }
+  .se-table td.se-name { font-size: 14px; }
+  .se-table td.se-name::before { content: none; }
+  .se-pct { display: inline; margin-left: 0.35rem; }
 }
+
+/* Seuils de réussite du rapport : ✓ respecté (vert), ✕ dépassé (orange) */
+.rp-thresholds { list-style: none; padding: 0; margin: 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.rp-thresholds li { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.45rem 0.8rem; border-radius: 10px; font-size: 13px;
+  border: 1px solid var(--pt-border); background: var(--pt-card-bg); color: var(--pt-text); }
+.rp-thresholds li.ok { border-color: color-mix(in srgb, var(--pt-success) 40%, var(--pt-border)); }
+.rp-thresholds li.ko { border-color: color-mix(in srgb, var(--pt-warning) 55%, var(--pt-border)); background: color-mix(in srgb, var(--pt-warning) 8%, var(--pt-card-bg)); }
+.rp-th-mark { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
+  background: var(--pt-sidebar-item-hover); color: var(--pt-text-muted); }
+.rp-thresholds li.ok .rp-th-mark { background: var(--pt-success-light); color: var(--pt-success); }
+.rp-thresholds li.ko .rp-th-mark { background: var(--pt-warning-light); color: var(--pt-warning); }
+.rp-th-limit { color: var(--pt-text-muted); font-size: 12px; }

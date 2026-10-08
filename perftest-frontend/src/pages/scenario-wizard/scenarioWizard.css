@@ -350,6 +350,10 @@
 .sw-step-card.selected .sw-step-num { background: var(--pt-primary); color: #fff; }
 .sw-step-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1; }
 .sw-step-name { font-weight: 600; font-size: 13.5px; color: var(--pt-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw-step-nocheck { display: inline-flex; align-items: center; gap: 0.25rem; align-self: flex-start; margin-top: 0.15rem;
+  padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 10.5px; font-weight: 600; white-space: nowrap;
+  background: var(--pt-warning-light); color: #B45309; cursor: help; }
+[data-theme="dark"] .sw-step-nocheck { color: #FCD34D; }
 .sw-step-url { font-size: 11.5px; color: var(--pt-text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sw-step-flag { font-size: 14px; flex: 0 0 auto; }
 .sw-step-flag.ok { color: var(--pt-success); }

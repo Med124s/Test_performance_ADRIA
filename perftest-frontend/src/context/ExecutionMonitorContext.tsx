@@ -2,6 +2,7 @@ import { ReactNode, createContext, useCallback, useContext, useEffect, useRef, u
 import { Link, useLocation } from 'react-router-dom'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { BackendExecutionReportResponse, BackendExecutionStatus, BackendExecutionStatusResponse } from '../types/backendContracts'
+import { TERMINAL_EXECUTION_STATUSES, executionStatusMeta } from '../utils/executionStatus'
 import './executionMonitor.css'
 
 // ============================================================
@@ -15,7 +16,7 @@ import './executionMonitor.css'
 // (P95…) et modale de résultat.
 // ============================================================
 
-export const TERMINAL_STATUSES: BackendExecutionStatus[] = ['SUCCESS', 'FAILED', 'CANCELLED']
+export const TERMINAL_STATUSES: BackendExecutionStatus[] = TERMINAL_EXECUTION_STATUSES
 const POLL_INTERVAL_MS = 1000
 const STORAGE_KEY = 'loadpilot.monitored-executions'
 
@@ -43,19 +44,13 @@ export const useExecutionMonitor = () => useContext(ExecutionMonitorContext)
 
 export const isTerminal = (s: BackendExecutionStatusResponse | null) => !!s && TERMINAL_STATUSES.includes(s.status)
 
-export const STATUS_LABEL: Record<BackendExecutionStatus, string> = {
-  QUEUED: 'En file',
-  RUNNING: 'En cours',
-  PAUSED: 'En pause',
-  SUCCESS: 'Terminé — succès',
-  FAILED: 'Terminé — échec',
-  CANCELLED: 'Annulé',
-}
+/** Libellé du suivi en direct (« Terminé — succès ») ; statut inconnu : son nom. */
+export const liveStatusLabel = (status: string | null | undefined) => executionStatusMeta(status).liveLabel
 
 /** Libellé et pourcentage de la barre de progression (temps écoulé / durée, ou itérations faites / prévues). */
 export function progressOf(s: BackendExecutionStatusResponse | null): { percent: number | null; label: string } {
   if (!s) return { percent: null, label: '—' }
-  if (isTerminal(s)) return { percent: 100, label: STATUS_LABEL[s.status] }
+  if (isTerminal(s)) return { percent: 100, label: liveStatusLabel(s.status) }
   if (s.status === 'QUEUED') return { percent: 0, label: 'En attente de démarrage' }
   const live = s.live
   // Tous les utilisateurs ont terminé : le backend enregistre les résultats et calcule les métriques.
@@ -151,7 +146,7 @@ export function ExecutionMonitorProvider({ children }: { children: ReactNode }) 
                     ? <i className="bi bi-pause-circle-fill em-paused-icon" aria-hidden="true"></i>
                     : <span className="spinner-grow spinner-grow-sm text-primary" aria-hidden="true"></span>}
                   <strong className="text-truncate">{e.scenarioName || 'Exécution'}</strong>
-                  <span className="em-dock-status">{e.status ? STATUS_LABEL[e.status.status] : 'Connexion…'}</span>
+                  <span className="em-dock-status">{e.status ? liveStatusLabel(e.status.status) : 'Connexion…'}</span>
                 </div>
                 <div className="em-progress" aria-label={`Progression : ${progress.label}`}>
                   <div className={`em-progress-bar ${progress.percent == null ? 'indeterminate' : ''} ${e.status?.status === 'PAUSED' ? 'paused' : ''}`} style={{ width: `${progress.percent ?? 30}%` }}></div>
@@ -174,7 +169,8 @@ export function ExecutionMonitorProvider({ children }: { children: ReactNode }) 
 function ResultModal({ execution, onClose }: { execution: MonitoredExecution; onClose: () => void }) {
   const status = execution.status!
   const stats = execution.report?.statistics
-  const tone = status.status === 'SUCCESS' ? 'ok' : status.status === 'CANCELLED' ? 'neutral' : 'ko'
+  const statusTone = executionStatusMeta(status.status).tone
+  const tone = statusTone === 'active' ? 'neutral' : statusTone
   const fmt = (v: number | null | undefined, unit: string) => (v == null ? '—' : `${Math.round(v * 10) / 10}${unit}`)
   return (
     <div className="modal fade show d-block em-backdrop" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="em-result-title">
@@ -182,10 +178,10 @@ function ResultModal({ execution, onClose }: { execution: MonitoredExecution; on
         <div className="modal-content em-modal">
           <div className="modal-body p-4">
             <div className={`em-result-badge ${tone}`}>
-              <i className={`bi ${tone === 'ok' ? 'bi-check-circle-fill' : tone === 'ko' ? 'bi-x-circle-fill' : 'bi-slash-circle'}`}></i>
+              <i className={`bi ${tone === 'ok' ? 'bi-check-circle-fill' : tone === 'ko' ? 'bi-x-circle-fill' : tone === 'warn' ? 'bi-exclamation-triangle-fill' : 'bi-slash-circle'}`}></i>
               {status.status}
             </div>
-            <h5 id="em-result-title" className="mt-2 mb-1">{execution.scenarioName || 'Exécution'} : {STATUS_LABEL[status.status].toLowerCase()}</h5>
+            <h5 id="em-result-title" className="mt-2 mb-1">{execution.scenarioName || 'Exécution'} : {liveStatusLabel(status.status).toLowerCase()}</h5>
             {status.errorMessage && status.status !== 'SUCCESS' && <p className="em-muted mb-2">{status.errorMessage}</p>}
             <div className="em-result-grid">
               <div><strong>{stats ? stats.totalRequests : status.totalRequests}</strong><span>requêtes</span></div>

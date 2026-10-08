@@ -1,31 +1,13 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { notificationsBackendApi } from '../services/api/notificationsBackend'
-
-const UNREAD_POLL_INTERVAL_MS = 20000
+import { roleLabelFromRawRoles } from '../utils/appRoles'
+import NotificationBell from './NotificationBell'
 
 interface TopBarIconsProps {
   onOpenMobileMenu: () => void
 }
 
 function TopBarIcons({ onOpenMobileMenu }: TopBarIconsProps) {
-  const { user } = useAuth()
-  // P1-B — compteur RÉEL (voir NotificationController#unreadCount), même
-  // source que Sidebar.tsx (chacun sondage indépendamment le backend, un
-  // simple GET léger — jamais de state partagé fabriqué entre les deux).
-  const [unreadCount, setUnreadCount] = useState(0)
-  useEffect(() => {
-    let cancelled = false
-    const poll = () => {
-      notificationsBackendApi.unreadCount()
-        .then((res) => { if (!cancelled) setUnreadCount(res.count) })
-        .catch(() => { /* silencieux */ })
-    }
-    poll()
-    const interval = setInterval(poll, UNREAD_POLL_INTERVAL_MS)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [])
+  const { user, rawRoles } = useAuth()
 
   return (
     <div className="pt-global-topbar">
@@ -41,10 +23,8 @@ function TopBarIcons({ onOpenMobileMenu }: TopBarIconsProps) {
         <i className="bi bi-list" style={{ fontSize: '20px' }}></i>
       </button>
 
-      <Link to="/notifications" className="topbar-icon" title="Notifications">
-        <i className="bi bi-bell" style={{ fontSize: '18px' }}></i>
-        {unreadCount > 0 && <span className="badge-dot">{unreadCount}</span>}
-      </Link>
+      {/* Cloche : panneau des dernières notifications et lien vers la page complète. */}
+      <NotificationBell />
       <div className="topbar-icon" style={{ gap: '0.5rem', padding: '0 0.5rem', width: 'auto' }}>
         <div
           style={{
@@ -64,7 +44,7 @@ function TopBarIcons({ onOpenMobileMenu }: TopBarIconsProps) {
         </div>
         <div style={{ lineHeight: 1.2, textAlign: 'left' }}>
           <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--pt-text)' }}>{user?.name || 'Admin User'}</div>
-          <div style={{ fontSize: '11px', color: 'var(--pt-text-muted)' }}>{user?.role || 'Admin'}</div>
+          <div style={{ fontSize: '11px', color: 'var(--pt-text-muted)' }}>{roleLabelFromRawRoles(rawRoles)}</div>
         </div>
       </div>
     </div>

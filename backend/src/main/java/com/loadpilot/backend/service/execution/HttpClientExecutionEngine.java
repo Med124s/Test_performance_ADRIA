@@ -418,7 +418,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             String error = !statusOk
                     ? "Reponse HTTP " + statusCode + " (attendu " + describeExpectation(step) + ")"
                     : !assertionOk
-                    ? "Assertion echouee : la reponse ne contient pas le contenu attendu."
+                    ? missingContentMessage(step.assertionBodyContains())
                     : null;
             // Capture apres evaluation, quel que soit le resultat de l'assertion ; propre a ce VU
             // et a l'iteration en cours (VariableContext, videe au debut de chaque iteration).
@@ -584,6 +584,15 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         }
         // Recommandation Phase 9 : sans expectedStatus explicite, 200-399 = succes.
         return actualStatus >= 200 && actualStatus < 400;
+    }
+
+    /**
+     * Message d'echec d'une reponse au bon code HTTP mais sans le contenu attendu (meme libelle que
+     * « Tester ») ; texte attendu tronque a 200 caracteres pour garder un message lisible.
+     */
+    public static String missingContentMessage(String expected) {
+        String text = expected.length() > 200 ? expected.substring(0, 200) + "…" : expected;
+        return "Contenu attendu introuvable : " + text;
     }
 
     private String describeExpectation(StepExecutionSpec step) {

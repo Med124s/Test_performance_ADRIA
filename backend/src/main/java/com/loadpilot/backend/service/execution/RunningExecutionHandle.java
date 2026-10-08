@@ -28,6 +28,8 @@ public final class RunningExecutionHandle {
 
     private volatile boolean cancelled = false;
     private volatile String cancellationReason;
+    /** Utilisateur qui a demande l'annulation (« Annulée par … ») ; null = annulation automatique. */
+    private volatile String cancelledBy;
     private final List<Future<?>> futures = new CopyOnWriteArrayList<>();
 
     private final Object pauseLock = new Object();
@@ -39,6 +41,7 @@ public final class RunningExecutionHandle {
 
     private volatile LiveStats liveStats;
     private volatile RequestDetailRecorder detailRecorder;
+    private volatile com.loadpilot.backend.service.monitoring.ResourceTrack resources;
 
     // Chronologie (heure murale, ms) : activite de chaque VU et pauses - enregistree a la fin de
     // l'execution pour l'analyse dans le temps (utilisateurs actifs a chaque instant, pauses grisees).
@@ -71,6 +74,15 @@ public final class RunningExecutionHandle {
         return detailRecorder;
     }
 
+    /** Mesures CPU / RAM de l'application testee (null : monitoring non configure). */
+    public com.loadpilot.backend.service.monitoring.ResourceTrack resources() {
+        return resources;
+    }
+
+    public void resources(com.loadpilot.backend.service.monitoring.ResourceTrack track) {
+        this.resources = track;
+    }
+
     public void detailRecorder(RequestDetailRecorder recorder) {
         this.detailRecorder = recorder;
     }
@@ -82,6 +94,16 @@ public final class RunningExecutionHandle {
     /** Motif de l'annulation (null = annulation par l'utilisateur). */
     public String cancellationReason() {
         return cancellationReason;
+    }
+
+    public String cancelledBy() {
+        return cancelledBy;
+    }
+
+    /** Annulation demandee par un utilisateur. */
+    public void requestCancellationBy(String username) {
+        if (!cancelled) cancelledBy = username;
+        requestCancellation(null);
     }
 
     public void registerFuture(Future<?> future) {

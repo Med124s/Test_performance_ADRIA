@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   BackendApplicationResponse,
   BackendBulkActionResponse,
-  BackendExecutionDeletionImpact,
   BackendExecutionHistoryResponse,
   BackendExecutionPageResponse,
   BackendExecutionRequest,
@@ -16,74 +15,57 @@ import { executionsBackendApi } from '../services/api/executionsBackend'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
 import { applicationsBackendApi } from '../services/api/applicationsBackend'
 import { stepsBackendApi } from '../services/api/stepsBackend'
-import { ApiError } from '../services/api/httpClient'
 import { useApiList } from '../hooks/useApiResource'
 import Pagination from '../components/Pagination'
 import SearchSelect from '../components/SearchSelect'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { isTerminal, progressOf, useExecutionMonitor } from '../context/ExecutionMonitorContext'
+import { MONITORING_SCOPE_TEXT, formatCpu } from '../components/application-monitoring/monitoringModel'
+import { formatMs, formatRps } from '../utils/numberFormat'
+import {
+  PERIOD_OPTIONS, Period, statusLabel, statusPill, formatHumanDuration, formatRequests, fullDate, periodBounds, relativeTime, requestsOf,
+  cpuLevel, p95Delta,
+} from './executions/executionsModel'
+import RowActionsMenu, { RowAction } from './executions/RowActionsMenu'
+import FrDateInput from './executions/FrDateInput'
+import ExecutionDeletionDialog, { bulkDeletionMessage, describeExecutionError as describeApiError } from './executions/ExecutionDeletionDialog'
 import './applications.css'
+import './executions/executions.css'
 
 // ============================================================
-// Page Exécutions : liste filtrée et paginée CÔTÉ SERVEUR
-// (GET /api/executions/page : statut, scénario, application, recherche,
-// compteurs par statut suivant les mêmes filtres). Filtres, page et
-// recherche vivent dans l'URL (rechargement / partage de lien) ; tout
-// changement de filtre ramène à la page 1.
+// Page Exécutions : liste filtrée, triée et paginée CÔTÉ SERVEUR
+// (GET /api/executions/page : statut, scénario, application, période,
+// recherche, tri, compteurs par statut suivant les mêmes filtres). Filtres,
+// tri, page et recherche vivent dans l'URL (rechargement / partage de
+// lien) ; tout changement de filtre ou de tri ramène à la page 1.
 //
-// Sélection multiple + suppression définitive (simple ou groupée, résultat
-// par exécution), relance avec suivi en direct, progression des exécutions
-// en cours ou en pause directement dans le tableau.
+// Sélection multiple (comparaison, suppression), relance avec suivi en
+// direct, annulation, progression des exécutions en cours dans le tableau.
 // ============================================================
 
-const STATUS_TABS = ['', 'QUEUED', 'RUNNING', 'PAUSED', 'SUCCESS', 'FAILED', 'CANCELLED'] as const
+const STATUS_TABS = ['', 'QUEUED', 'RUNNING', 'PAUSED', 'SUCCESS', 'THRESHOLDS_EXCEEDED', 'FAILED', 'CANCELLED'] as const
 type StatusTab = typeof STATUS_TABS[number]
 const PAGE_SIZES = [10, 20, 50]
 
-const statusLabel: Record<BackendExecutionStatus, string> = {
-  QUEUED: 'En attente',
-  RUNNING: 'En cours',
-  PAUSED: 'En pause',
-  SUCCESS: 'Réussie',
-  FAILED: 'Échouée',
-  CANCELLED: 'Annulée',
+/** Tri serveur (liste blanche du backend) : statut, date de lancement, durée. */
+export type SortColumn = 'startedAt' | 'status' | 'duration'
+const SORT_COLUMNS: SortColumn[] = ['startedAt', 'status', 'duration']
+export const DEFAULT_SORT: { column: SortColumn; direction: 'asc' | 'desc' } = { column: 'startedAt', direction: 'desc' }
+
+/** « status,asc » → { column, direction } ; valeur inconnue → tri par défaut (plus récentes d'abord). */
+export function parseSort(raw: string | null): { column: SortColumn; direction: 'asc' | 'desc' } {
+  const [column, direction] = (raw ?? '').split(',')
+  if (!SORT_COLUMNS.includes(column as SortColumn)) return DEFAULT_SORT
+  return { column: column as SortColumn, direction: direction === 'asc' ? 'asc' : 'desc' }
 }
 
-const statusPillClass: Record<BackendExecutionStatus, string> = {
-  QUEUED: 'neutral',
-  RUNNING: 'info',
-  PAUSED: 'warning',
-  SUCCESS: 'success',
-  FAILED: 'danger',
-  CANCELLED: 'neutral',
-}
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const PERIODS: Period[] = ['', '24h', '7d', '30d', 'custom']
 
 /** En attente, en cours ou en pause : annulable, jamais supprimable. */
 function isActive(status: BackendExecutionStatus): boolean {
   return status === 'QUEUED' || status === 'RUNNING' || status === 'PAUSED'
-}
-
-function describeApiError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    switch (err.status) {
-      case 0:
-        return err.message
-      case 401:
-        return 'Vous devez être connecté (Keycloak) pour effectuer cette action.'
-      case 403:
-        return "Action refusée : votre rôle ne dispose pas des permissions nécessaires."
-      case 404:
-        return err.message.startsWith('Erreur 404') ? 'Scénario ou exécution introuvable (déjà supprimé ?).' : err.message
-      case 429:
-        // Limite de capacité (utilisateurs virtuels globaux / exécutions simultanées) : le backend précise laquelle.
-        return `Limite de capacité LoadPilot atteinte : ${err.message}`
-      default:
-        // 400 (brouillon, scénario inactif…) et 409 (archivé, exécution en cours…) : message clair du backend.
-        return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
-    }
-  }
-  return err instanceof Error ? err.message : fallback
 }
 
 function formatDate(iso: string) {
@@ -92,109 +74,11 @@ function formatDate(iso: string) {
   return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatDuration(ms: number | null): string {
-  if (ms == null) return '—'
-  const totalSec = Math.round(ms / 1000)
-  const h = String(Math.floor(totalSec / 3600)).padStart(2, '0')
-  const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0')
-  const s = String(totalSec % 60).padStart(2, '0')
-  return `${h}:${m}:${s}`
-}
-
-function plural(n: number, singular: string, pluralForm = `${singular}s`) {
-  return `${n} ${n > 1 ? pluralForm : singular}`
-}
-
 // ============================================================
-// Confirmation de suppression : impact réel (résultats, métriques), définitif.
+// Page
 // ============================================================
 
-function ExecutionDeletionDialog({ ids, onConfirm, onClose }: {
-  ids: string[]
-  onConfirm: () => Promise<void>
-  onClose: () => void
-}) {
-  const [impact, setImpact] = useState<BackendExecutionDeletionImpact | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    executionsBackendApi.deletionImpact(ids)
-      .then((r) => { if (alive) setImpact(r) })
-      .catch((err) => { if (alive) setLoadError(describeApiError(err, 'Impact indisponible.')) })
-    return () => { alive = false }
-  }, [ids])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onClose])
-
-  const deletable = impact ? impact.executions - impact.active : 0
-  const submit = async () => {
-    setBusy(true)
-    setActionError(null)
-    try {
-      await onConfirm()
-    } catch (err) {
-      setActionError(describeApiError(err, 'Suppression impossible.'))
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1060 }}>
-      <div className="modal-dialog modal-dialog-centered">
-        <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="ex-del-title"
-          style={{ borderRadius: 'var(--pt-radius)', border: '1px solid var(--pt-border)', background: 'var(--pt-card-bg)' }}>
-          <div className="modal-body p-4">
-            <h5 id="ex-del-title" style={{ fontWeight: 700 }}>
-              <i className="bi bi-trash3 text-danger me-2"></i>
-              Supprimer {ids.length > 1 ? `${ids.length} exécutions` : 'cette exécution'} ?
-            </h5>
-            {!impact && !loadError && <p className="text-muted mb-0"><span className="spinner-border spinner-border-sm me-2"></span>Calcul de l’impact…</p>}
-            {loadError && <div className="pt-alert-banner danger mb-0"><i className="bi bi-exclamation-octagon"></i>{loadError}</div>}
-            {impact && (
-              <>
-                <p className="mb-2" style={{ fontSize: '13.5px' }}>Seront supprimés <strong>définitivement</strong> :</p>
-                <ul style={{ fontSize: '13.5px' }} aria-label="Impact">
-                  <li><strong>{deletable}</strong> {deletable > 1 ? 'exécutions' : 'exécution'}</li>
-                  <li><strong>{impact.results}</strong> {impact.results > 1 ? 'résultats de requêtes' : 'résultat de requête'}</li>
-                  <li><strong>{impact.metrics}</strong> {impact.metrics > 1 ? 'métriques' : 'métrique'}</li>
-                </ul>
-                {impact.active > 0 && (
-                  <div className="pt-alert-banner warning mb-2" role="alert" style={{ fontSize: '12.5px' }}>
-                    <i className="bi bi-hourglass-split"></i>
-                    {plural(impact.active, 'exécution est', 'exécutions sont')} en attente, en cours ou en pause : {impact.active > 1 ? 'elles ne seront pas supprimées' : 'elle ne sera pas supprimée'} (annulez-la d’abord).
-                  </div>
-                )}
-                <p className="mb-0" style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>
-                  Cette action est irréversible : rapports et détails de ces exécutions ne seront plus consultables.
-                </p>
-              </>
-            )}
-            {actionError && <div className="pt-alert-banner danger mt-2 mb-0"><i className="bi bi-exclamation-octagon"></i>{actionError}</div>}
-          </div>
-          <div className="modal-footer">
-            <button type="button" className="pt-btn-ghost" onClick={onClose} disabled={busy}>Annuler</button>
-            <button type="button" className="pt-btn-danger" onClick={submit} disabled={busy || !impact || deletable === 0}>
-              {busy ? <span className="spinner-border spinner-border-sm me-1"></span> : <i className="bi bi-trash3"></i>} Supprimer définitivement
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================
-// Vue Spring Boot
-// ============================================================
-
-function SpringExecutions() {
+function Executions() {
   const navigate = useNavigate()
   const { authProvider, rawRoles } = useAuth()
   const { showToast } = useToast()
@@ -206,13 +90,20 @@ function SpringExecutions() {
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
 
   // ---------------------------------------------------------------- filtres dans l'URL
-  const urlStatus = (STATUS_TABS as readonly string[]).includes(searchParams.get('status') ?? '') ? (searchParams.get('status') as StatusTab) : ''
+  const rawStatus = searchParams.get('status') ?? ''
+  const urlStatus: StatusTab = (STATUS_TABS as readonly string[]).includes(rawStatus) ? (rawStatus as StatusTab) : ''
   const urlScenario = searchParams.get('scenario') ?? ''
   const urlApp = searchParams.get('app') ?? ''
   const urlQuery = searchParams.get('q') ?? ''
   const urlPage = Math.max(1, Number(searchParams.get('page')) || 1)
   const urlSize = PAGE_SIZES.includes(Number(searchParams.get('size'))) ? Number(searchParams.get('size')) : 10
-  const hasFilters = !!(urlStatus || urlScenario || urlApp || urlQuery)
+  // Période : glissante (24 h, 7 j, 30 j) ou personnalisée (journées entières, heure locale).
+  const urlFrom = DAY_RE.test(searchParams.get('from') ?? '') ? (searchParams.get('from') as string) : ''
+  const urlTo = DAY_RE.test(searchParams.get('to') ?? '') ? (searchParams.get('to') as string) : ''
+  const rawPeriod = searchParams.get('period') ?? ''
+  const urlPeriod: Period = PERIODS.includes(rawPeriod as Period) && rawPeriod !== '' ? (rawPeriod as Period) : urlFrom || urlTo ? 'custom' : ''
+  const urlSort = parseSort(searchParams.get('sort'))
+  const hasFilters = !!(urlStatus || urlScenario || urlApp || urlQuery || urlPeriod)
 
   const updateParams = useCallback((patch: Record<string, string | null>, resetPage = true) =>
     setSearchParams((prev) => {
@@ -236,9 +127,14 @@ function SpringExecutions() {
     setSearchParams((prev) => {
       const next = new URLSearchParams()
       if (prev.get('size')) next.set('size', prev.get('size') as string)
+      if (prev.get('sort')) next.set('sort', prev.get('sort') as string)
       return next
     }, { replace: true })
   }
+
+  const changePeriod = (period: Period) => updateParams(period === 'custom'
+    ? { period: 'custom' }
+    : { period: period || null, from: null, to: null })
 
   // ---------------------------------------------------------------- données
   const [data, setData] = useState<BackendExecutionPageResponse | null>(null)
@@ -250,7 +146,8 @@ function SpringExecutions() {
     try {
       const result = await executionsBackendApi.getPage({
         status: urlStatus || undefined, scenarioId: urlScenario || undefined, applicationId: urlApp || undefined,
-        search: urlQuery || undefined, page: urlPage - 1, size: urlSize,
+        search: urlQuery || undefined, page: urlPage - 1, size: urlSize, ...periodBounds(urlPeriod, urlFrom, urlTo),
+        sort: `${urlSort.column},${urlSort.direction}`,
       })
       // Page devenue vide (ex. après une suppression) : revenir à la dernière page existante.
       if (result.content.length === 0 && urlPage > 1 && result.totalElements > 0) {
@@ -264,8 +161,25 @@ function SpringExecutions() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [urlStatus, urlScenario, urlApp, urlQuery, urlPage, urlSize, updateParams])
+  }, [urlStatus, urlScenario, urlApp, urlQuery, urlPage, urlSize, urlPeriod, urlFrom, urlTo, urlSort.column, urlSort.direction, updateParams])
   useEffect(() => { loadPage() }, [loadPage])
+
+  /** Tri par colonne (statut, date, durée) : clic = décroissant, second clic = croissant ; retour à la page 1. */
+  const toggleSort = (column: SortColumn) => {
+    const direction = urlSort.column === column && urlSort.direction === 'desc' ? 'asc' : 'desc'
+    updateParams({ sort: column === DEFAULT_SORT.column && direction === DEFAULT_SORT.direction ? null : `${column},${direction}` })
+  }
+  const sortHeader = (column: SortColumn, label: string, className = '') => {
+    const active = urlSort.column === column
+    return (
+      <th className={`ex-th-sort ${active ? 'sorted' : ''} ${className}`} aria-sort={active ? (urlSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+        <button type="button" className="ex-sort" onClick={() => toggleSort(column)} aria-label={`Trier par ${label.toLowerCase()}`}>
+          {label}
+          <i className={`bi ${!active ? 'bi-arrow-down-up' : urlSort.direction === 'asc' ? 'bi-arrow-up' : 'bi-arrow-down'} ex-sort-icon`} aria-hidden="true"></i>
+        </button>
+      </th>
+    )
+  }
 
   const rows = data?.content ?? []
   const activeIds = rows.filter((e) => isActive(e.status)).map((e) => e.id).join(',')
@@ -308,7 +222,7 @@ function SpringExecutions() {
 
   // ---------------------------------------------------------------- sélection multiple
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  useEffect(() => { setSelected(new Set()) }, [urlStatus, urlScenario, urlApp, urlQuery, urlPage, urlSize])
+  useEffect(() => { setSelected(new Set()) }, [urlStatus, urlScenario, urlApp, urlQuery, urlPage, urlSize, urlPeriod, urlFrom, urlTo])
   const pageIds = rows.map((e) => e.id)
   const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
   const someSelected = !allSelected && pageIds.some((id) => selected.has(id))
@@ -321,6 +235,11 @@ function SpringExecutions() {
     return next
   })
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pageIds))
+  // Comparaison : 2 à 4 exécutions terminées (sinon le bouton explique pourquoi il est désactivé).
+  const compareBlocked = selected.size < 2 ? 'Sélectionnez au moins 2 exécutions terminées.'
+    : selected.size > 4 ? 'Comparaison limitée à 4 exécutions.'
+    : rows.some((e) => selected.has(e.id) && isActive(e.status)) ? 'Seules les exécutions terminées peuvent être comparées.'
+    : null
 
   // ---------------------------------------------------------------- actions
   const [deletion, setDeletion] = useState<string[] | null>(null)
@@ -329,13 +248,8 @@ function SpringExecutions() {
   const [cancellingId, setCancellingId] = useState<string | null>(null)
 
   const reportBulk = (result: BackendBulkActionResponse) => {
-    if (result.failed === 0) {
-      showToast(`${plural(result.succeeded, 'exécution supprimée', 'exécutions supprimées')} définitivement.`, 'success')
-      return
-    }
-    const failures = result.results.filter((r) => !r.success).map((r) => `${r.name ? r.name.split(' (')[0] : 'Exécution'} : ${r.message}`).join(' ; ')
-    showToast(`${plural(result.succeeded, 'exécution supprimée', 'exécutions supprimées')}, ${result.failed} non supprimée(s) — ${failures}`,
-      result.succeeded > 0 ? 'warning' : 'danger')
+    const { message, type } = bulkDeletionMessage(result)
+    showToast(message, type)
   }
 
   const confirmDeletion = async () => {
@@ -420,18 +334,57 @@ function SpringExecutions() {
     }
   }
 
-  // Détail : page dédiée (requêtes par étape, paginées côté serveur) plutôt qu'une modale chargeant tout.
-  const openDetail = (id: string) => navigate(`/executions/detail/${id}`)
+  // Clic sur une ligne : rapport (exécution terminée) ou suivi en direct (exécution active).
+  const openRow = (exec: BackendExecutionHistoryResponse) => {
+    if (isActive(exec.status)) {
+      monitor.track(exec.id, exec.scenarioName)
+      navigate(`/executions/live/${exec.id}`)
+    } else {
+      navigate(`/executions/report/${exec.id}`)
+    }
+  }
+  /** Les clics sur la case à cocher, les liens et les boutons d'action n'ouvrent pas la ligne. */
+  const onRowClick = (e: ReactMouseEvent, exec: BackendExecutionHistoryResponse) => {
+    if ((e.target as HTMLElement).closest('input, button, a, [role="menu"]')) return
+    openRow(exec)
+  }
 
   const counts = data?.counts
   const totalItems = data?.totalElements ?? 0
   const totalPages = Math.max(1, data?.totalPages ?? 1)
   const startIndex = totalItems === 0 ? 0 : (urlPage - 1) * urlSize + 1
   const endIndex = Math.min((urlPage - 1) * urlSize + rows.length, totalItems)
-  const colCount = canWrite ? 8 : 7
+  const tabCount = (tab: StatusTab): number | null => !counts ? null : tab === '' ? counts.total
+    : { QUEUED: counts.queued, RUNNING: counts.running, PAUSED: counts.paused, SUCCESS: counts.success,
+      THRESHOLDS_EXCEEDED: counts.thresholdsExceeded ?? 0, FAILED: counts.failed, CANCELLED: counts.cancelled }[tab]
+
+  const rowActions = (exec: BackendExecutionHistoryResponse): RowAction[] => {
+    if (!canWrite) return []
+    const active = isActive(exec.status)
+    return [
+      { label: 'Relancer', icon: 'bi-arrow-repeat', onSelect: () => setRetryConfirm(exec) },
+      ...(active ? [{ label: cancellingId === exec.id ? 'Annulation…' : 'Annuler l’exécution', icon: 'bi-slash-circle', onSelect: () => handleCancel(exec),
+        disabled: cancellingId === exec.id }] : []),
+      { label: 'Supprimer', icon: 'bi-trash3', danger: true, onSelect: () => setDeletion([exec.id]), disabled: active,
+        reason: 'Impossible de supprimer une exécution en attente, en cours ou en pause : annulez-la d’abord.' },
+    ]
+  }
 
   return (
-    <>
+    <div className="pt-content ex-page">
+      {/* ---- en-tête : titre à gauche, action principale à droite */}
+      <div className="pt-page-header ex-header">
+        <div className="page-title">
+          <h1>Exécutions</h1>
+          <p>Lancez, suivez et comparez vos tests de charge</p>
+        </div>
+        {canWrite && (
+          <button className="pt-btn-primary ex-launch" onClick={openLaunchModal}>
+            <i className="bi bi-play-fill"></i> Nouvelle exécution
+          </button>
+        )}
+      </div>
+
       {loadError && (
         <div className="pt-alert-banner danger mb-3">
           <i className="bi bi-exclamation-triangle-fill"></i>
@@ -440,38 +393,18 @@ function SpringExecutions() {
         </div>
       )}
 
-      {/* Cartes : suivent les filtres appliqués. */}
-      <div className="row g-3 mb-4">
-        {[
-          { label: hasFilters ? 'Total (filtré)' : 'Total exécutions', value: counts?.total, icon: 'bi-play-circle', color: 'blue' },
-          { label: 'Réussies', value: counts?.success, icon: 'bi-check-circle', color: 'green' },
-          { label: 'Échouées', value: counts?.failed, icon: 'bi-x-circle', color: 'red' },
-          { label: 'Annulées', value: counts?.cancelled, icon: 'bi-slash-circle', color: 'orange' },
-        ].map((c) => (
-          <div key={c.label} className="col-6 col-xl-3">
-            <div className="pt-stat-card">
-              <div className="stat-header">
-                <div>
-                  <div className="stat-label">{c.label}</div>
-                  <div className="stat-value">{c.value ?? '—'}</div>
-                </div>
-                <div className={`stat-icon ${c.color}`}><i className={`bi ${c.icon}`}></i></div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filtres */}
-      <div className="d-flex align-items-center gap-2 flex-wrap mb-3">
-        <div className="pt-search" style={{ width: '240px', maxWidth: '100%' }}>
+      {/* ---- barre de filtres : une ligne sur ordinateur, plusieurs sur mobile */}
+      <div className="ex-filters" role="search">
+        <div className="pt-search ex-filter-search">
           <i className="bi bi-search"></i>
           <input type="text" placeholder="Rechercher (scénario, application, id)…" value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)} aria-label="Rechercher une exécution" />
         </div>
-        <SearchSelect options={scenarioOptions} value={urlScenario} onChange={(v) => updateParams({ scenario: v || null })}
-          allLabel="Tous les scénarios" ariaLabel="Filtrer par scénario" />
-        <select className="pt-form-control" style={{ width: 'auto', maxWidth: '100%' }} value={urlApp} aria-label="Filtrer par application"
+        <div className="ex-filter-scenario">
+          <SearchSelect options={scenarioOptions} value={urlScenario} onChange={(v) => updateParams({ scenario: v || null })}
+            allLabel="Tous les scénarios" ariaLabel="Filtrer par scénario" width="100%" />
+        </div>
+        <select className="pt-form-control ex-filter-select" value={urlApp} aria-label="Filtrer par application"
           onChange={(e) => {
             const app = e.target.value
             // Le scénario choisi n'appartient plus à l'application : filtre scénario retiré.
@@ -481,160 +414,182 @@ function SpringExecutions() {
           <option value="">Toutes les applications</option>
           {applications.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
-        {hasFilters && (
-          <button type="button" className="pt-btn-ghost" onClick={resetFilters}>
-            <i className="bi bi-x-circle"></i> Réinitialiser les filtres
-          </button>
+        <select className="pt-form-control ex-filter-select" value={urlPeriod} aria-label="Période" onChange={(e) => changePeriod(e.target.value as Period)}>
+          {PERIOD_OPTIONS.map((p) => <option key={p.value || 'all'} value={p.value}>{p.value === '' ? 'Toutes les périodes' : p.label}</option>)}
+        </select>
+        {urlPeriod === 'custom' && (
+          <span className="ex-custom-dates" role="group" aria-label="Période personnalisée">
+            <FrDateInput value={urlFrom} onChange={(v) => updateParams({ from: v || null })} label="Lancées à partir du" />
+            <span className="ex-muted">au</span>
+            <FrDateInput value={urlTo} onChange={(v) => updateParams({ to: v || null })} label="Lancées jusqu’au" />
+          </span>
         )}
-        {canWrite && (
-          <button className="pt-btn-primary ms-auto" onClick={openLaunchModal}>
-            <i className="bi bi-play-fill fs-6"></i> Nouvelle exécution
+        {hasFilters && (
+          <button type="button" className="pt-btn-ghost ex-reset" onClick={resetFilters}>
+            <i className="bi bi-x-circle"></i> Réinitialiser
           </button>
         )}
       </div>
 
-      <div className="pt-card" style={{ padding: 0 }}>
-        <div className="d-flex gap-2 flex-wrap p-3" style={{ borderBottom: '1px solid var(--pt-border)' }} role="group" aria-label="Filtrer par statut">
+      <div className="pt-card ex-card">
+        {/* ---- onglets de statut, collés au tableau */}
+        <div className="ex-tabs" role="tablist" aria-label="Filtrer par statut">
           {STATUS_TABS.map((tab) => {
-            const n = !counts ? null : tab === '' ? counts.total
-              : { QUEUED: counts.queued, RUNNING: counts.running, PAUSED: counts.paused, SUCCESS: counts.success, FAILED: counts.failed, CANCELLED: counts.cancelled }[tab]
+            const n = tabCount(tab)
+            const selectedTab = urlStatus === tab
             return (
-              <button key={tab || 'all'} type="button" aria-pressed={urlStatus === tab}
-                className={`btn btn-sm ${urlStatus === tab ? 'btn-primary' : 'btn-outline-secondary'}`}
-                onClick={() => updateParams({ status: tab || null })}
-                style={{ borderRadius: 'var(--pt-radius-sm)', fontWeight: 600, fontSize: '13px' }}>
-                {tab === '' ? 'Toutes' : statusLabel[tab]}{n != null && !urlStatus ? ` (${n})` : ''}
+              <button key={tab || 'all'} type="button" role="tab" aria-selected={selectedTab} aria-pressed={selectedTab}
+                className={`ex-tab ${selectedTab ? 'active' : ''} ${n === 0 && !selectedTab ? 'empty' : ''}`}
+                onClick={() => updateParams({ status: tab || null })}>
+                {tab === '' ? 'Toutes' : statusLabel(tab)}
+                {n != null && n > 0 && <span className="ex-tab-count">{n}</span>}
               </button>
             )
           })}
         </div>
 
-        {canWrite && selected.size > 0 && (
-          <div className="ap-bulk-bar" role="region" aria-label="Actions sur la sélection">
+        {selected.size > 0 && (
+          <div className="ap-bulk-bar ex-bulk" role="region" aria-label="Actions sur la sélection">
             <strong>{selected.size} sélectionnée{selected.size > 1 ? 's' : ''}</strong>
             <div className="d-flex gap-2 flex-wrap">
-              <button type="button" className="pt-btn-danger" onClick={() => setDeletion([...selected])}>
-                <i className="bi bi-trash3"></i> Supprimer
+              <button type="button" className="pt-btn-primary" disabled={!!compareBlocked} title={compareBlocked ?? 'Comparer ces exécutions côte à côte'}
+                onClick={() => navigate(`/executions/compare?ids=${[...selected].join(',')}`)}>
+                <i className="bi bi-layout-three-columns"></i> Comparer
               </button>
+              {canWrite && (
+                <button type="button" className="pt-btn-danger" onClick={() => setDeletion([...selected])}>
+                  <i className="bi bi-trash3"></i> Supprimer
+                </button>
+              )}
               <button type="button" className="pt-btn-ghost" onClick={() => setSelected(new Set())}>Annuler la sélection</button>
             </div>
           </div>
         )}
 
-        {loading && !data ? (
-          <div className="pt-empty-state">
-            <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }}></i>
-            <p>Chargement des exécutions...</p>
-          </div>
-        ) : (
-          <div className="pt-table-wrapper">
-            <table className="pt-table">
-              <thead>
-                <tr>
-                  {canWrite && (
-                    <th style={{ width: '40px' }}>
-                      <input ref={selectAllRef} type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Sélectionner toutes les exécutions de la page" />
-                    </th>
-                  )}
-                  <th>Scénario</th>
-                  <th>Application</th>
-                  <th>Statut</th>
-                  <th>Requêtes</th>
-                  <th>Durée</th>
-                  <th>Démarré le</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+        <div className="ex-table-wrap">
+          <table className="ex-table">
+            <thead>
+              <tr>
+                <th className="ex-col-check">
+                  <input ref={selectAllRef} type="checkbox" className="form-check-input" checked={allSelected} onChange={toggleAll}
+                    aria-label="Sélectionner toutes les exécutions de la page" disabled={rows.length === 0} />
+                </th>
+                <th>Scénario</th>
+                {sortHeader('status', 'Statut')}
+                <th className="num" title="Utilisateurs virtuels">VU</th>
+                <th className="num" title="Requêtes envoyées · taux d’erreur">Requêtes</th>
+                <th className="num" title="Requêtes par seconde">Débit</th>
+                <th className="num" title="95 % des requêtes ont répondu en moins de ce temps">P95</th>
+                <th className="num" title={MONITORING_SCOPE_TEXT}>CPU app.</th>
+                {sortHeader('duration', 'Durée', 'num')}
+                {sortHeader('startedAt', 'Démarrée')}
+                <th className="ex-col-actions"><span className="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && !data ? (
+                Array.from({ length: Math.min(urlSize, 6) }).map((_, i) => (
+                  <tr key={`sk-${i}`} className="ex-skeleton-row" aria-hidden="true">
+                    <td colSpan={11}><div className="ex-skeleton"></div></td>
+                  </tr>
+                ))
+              ) : rows.length === 0 ? (
+                <tr className="ex-empty-row">
+                  <td colSpan={11}>
+                    <div className="ex-empty" role="status">
+                      <i className="bi bi-inbox"></i>
+                      <p>{hasFilters ? 'Aucune exécution ne correspond à ces filtres.' : 'Aucune exécution pour l’instant. Lancez votre premier test !'}</p>
+                      {hasFilters && <button type="button" className="pt-btn-outline" onClick={resetFilters}>Réinitialiser les filtres</button>}
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={colCount} style={{ textAlign: 'center', padding: '2rem', color: 'var(--pt-text-muted)' }}>
-                      <i className="bi bi-inbox" style={{ fontSize: '28px' }}></i>
-                      <p className="mb-0 mt-1">{hasFilters ? 'Aucune exécution ne correspond à ces filtres.' : 'Aucune exécution pour l’instant. Lancez votre premier test !'}</p>
+              ) : rows.map((exec) => {
+                const active = isActive(exec.status)
+                const live = liveStatus[exec.id]
+                const status = (live?.status ?? exec.status) as BackendExecutionStatus
+                const progress = active && live && !isTerminal(live) ? progressOf(live) : null
+                const req = requestsOf(exec, active && live ? { ok: live.successfulRequests, ko: live.failedRequests } : null)
+                const reqText = formatRequests(req.total, req.errorRate)
+                return (
+                  <tr key={exec.id} className={`ex-row ${selected.has(exec.id) ? 'selected' : ''}`} onClick={(e) => onRowClick(e, exec)}
+                    data-testid="execution-row">
+                    <td className="ex-col-check">
+                      <input type="checkbox" className="form-check-input" checked={selected.has(exec.id)} onChange={() => toggleOne(exec.id)}
+                        aria-label={`Sélectionner l’exécution de ${exec.scenarioName} du ${formatDate(exec.startedAt)}`} />
+                    </td>
+                    <td data-label="Scénario" className="ex-scenario">
+                      <span className="ex-scenario-name" title={exec.scenarioName}>{exec.scenarioName}</span>
+                      <span className="ex-scenario-app">{exec.applicationName}</span>
+                    </td>
+                    <td data-label="Statut" className="ex-status">
+                      <span className={`pt-pill ${statusPill(status)} ex-pill`}><span className="ex-dot" aria-hidden="true"></span>{statusLabel(status)}</span>
+                      {!active && exec.statusReason && <span className="ex-status-reason" title={exec.statusReason}>{exec.statusReason}</span>}
+                      {active && (
+                        <div className="ex-progress" aria-label={progress ? `Progression : ${progress.label}` : 'Progression'}>
+                          <div className="em-progress ex-progress-bar">
+                            <div className={`em-progress-bar ${progress?.percent == null ? 'indeterminate' : ''} ${status === 'PAUSED' ? 'paused' : ''}`}
+                              style={{ width: `${progress?.percent ?? 30}%` }}></div>
+                          </div>
+                          <span className="ex-muted">{progress ? `${progress.percent ?? '—'} %` : '…'}</span>
+                          <Link to={`/executions/live/${exec.id}`} onClick={() => monitor.track(exec.id, exec.scenarioName)}>Suivre</Link>
+                        </div>
+                      )}
+                    </td>
+                    <td data-label="VU" className="num">{exec.virtualUsers}</td>
+                    <td data-label="Requêtes" className="num ex-requests">
+                      {reqText.total}
+                      {reqText.rate && <span className={`ex-rate ${req.failed > 0 ? 'bad' : ''}`} title={`${req.failed} en échec`}>{reqText.rate}</span>}
+                    </td>
+                    <td data-label="Débit" className="num">{exec.throughput == null ? '—' : formatRps(exec.throughput)}</td>
+                    <td data-label="P95" className="num" data-testid="p95-cell">
+                      {(() => {
+                        const delta = p95Delta(exec.p95Ms, exec.previousP95Ms)
+                        const title = exec.previousP95Ms != null && exec.previousStartedAt
+                          ? `Exécution précédente du scénario : P95 ${formatMs(exec.previousP95Ms)}, le ${formatDate(exec.previousStartedAt)}`
+                          : 'Pas d’exécution précédente terminée pour ce scénario.'
+                        return (
+                          <span className="ex-p95">
+                            <span>{formatMs(exec.p95Ms ?? null)}</span>
+                            {!active && <span className={`ex-delta ${delta.tone}`} title={title}>{delta.text}</span>}
+                          </span>
+                        )
+                      })()}
+                    </td>
+                    <td data-label="CPU app." className="num" data-testid="cpu-cell"
+                      title={exec.cpuMaxPercent != null ? `CPU du processus testé (% d’un cœur) : moyenne ${formatCpu(exec.cpuAvgPercent)}, maximum ${formatCpu(exec.cpuMaxPercent)}` : 'Aucune mesure : monitoring non configuré pour cette application (ou indisponible).'}>
+                      {exec.cpuMaxPercent != null ? (
+                        <span className="ex-cpu">
+                          <span>{formatCpu(Math.round(exec.cpuMaxPercent))}</span>
+                          <span className="ex-cpu-track" aria-hidden="true">
+                            <span className={`ex-cpu-bar ${cpuLevel(exec.cpuMaxPercent)}`} style={{ width: `${Math.min(100, Math.max(2, exec.cpuMaxPercent))}%` }}></span>
+                          </span>
+                        </span>
+                      ) : <span className="ex-muted">—</span>}
+                    </td>
+                    <td data-label="Durée" className="num">{formatHumanDuration(exec.duration)}</td>
+                    <td data-label="Démarrée" className="ex-started"
+                      title={`${fullDate(exec.startedAt)}${exec.triggeredByUsername ? ` — lancée par ${exec.triggeredByUsername}` : ''}`}>
+                      {relativeTime(exec.startedAt)}
+                    </td>
+                    <td className="ex-col-actions">
+                      <div className="ex-actions">
+                        <button type="button" className="ex-icon-btn" title="Voir le détail (requêtes par étape)" aria-label="Voir les détails"
+                          onClick={() => navigate(`/executions/detail/${exec.id}`)}>
+                          <i className="bi bi-eye" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" className="ex-icon-btn" title="Voir le rapport" aria-label="Voir le rapport"
+                          onClick={() => navigate(`/executions/report/${exec.id}`)}>
+                          <i className="bi bi-file-earmark-bar-graph" aria-hidden="true"></i>
+                        </button>
+                        <RowActionsMenu actions={rowActions(exec)} label={`Plus d’actions pour ${exec.scenarioName}`} />
+                      </div>
                     </td>
                   </tr>
-                ) : rows.map((exec) => {
-                  const active = isActive(exec.status)
-                  const live = liveStatus[exec.id]
-                  const progress = active && live && !isTerminal(live) ? progressOf(live) : null
-                  return (
-                    <tr key={exec.id} style={{ background: selected.has(exec.id) ? 'var(--pt-sidebar-item-hover)' : undefined }}>
-                      {canWrite && (
-                        <td>
-                          <input type="checkbox" checked={selected.has(exec.id)} onChange={() => toggleOne(exec.id)}
-                            aria-label={`Sélectionner l’exécution de ${exec.scenarioName} du ${formatDate(exec.startedAt)}`} />
-                        </td>
-                      )}
-                      <td>
-                        <button onClick={() => updateParams({ scenario: exec.scenarioId })} title="Filtrer sur ce scénario"
-                          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: '13.5px', fontWeight: 500, color: 'var(--pt-text)', textAlign: 'left' }}>
-                          {exec.scenarioName}
-                        </button>
-                      </td>
-                      <td><span style={{ fontSize: '13px', color: 'var(--pt-text-muted)' }}>{exec.applicationName}</span></td>
-                      <td style={{ minWidth: '150px' }}>
-                        <span className={`pt-pill ${statusPillClass[exec.status]}`}>
-                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', marginRight: '5px', background: 'currentColor' }}></span>
-                          {statusLabel[(live?.status ?? exec.status) as BackendExecutionStatus]}
-                        </span>
-                        {active && (
-                          <div className="mt-1" aria-label={progress ? `Progression : ${progress.label}` : 'Progression'}>
-                            <div className="em-progress" style={{ marginTop: '0.3rem', height: '6px' }}>
-                              <div className={`em-progress-bar ${progress?.percent == null ? 'indeterminate' : ''} ${(live?.status ?? exec.status) === 'PAUSED' ? 'paused' : ''}`}
-                                style={{ width: `${progress?.percent ?? 30}%` }}></div>
-                            </div>
-                            <div className="d-flex justify-content-between gap-2" style={{ fontSize: '11px', color: 'var(--pt-text-muted)' }}>
-                              <span>{progress ? `${progress.percent ?? '—'} %` : '…'}</span>
-                              <Link to={`/executions/live/${exec.id}`} onClick={() => monitor.track(exec.id, exec.scenarioName)}>Suivre</Link>
-                            </div>
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <span style={{ fontSize: '12.5px' }}>
-                          <span style={{ color: 'var(--pt-success)', fontWeight: 600 }} title="Réussies">{active && live ? live.successfulRequests : exec.successfulSteps}</span>
-                          {' / '}
-                          <span style={{ color: 'var(--pt-danger)', fontWeight: 600 }} title="En échec">{active && live ? live.failedRequests : exec.failedSteps}</span>
-                        </span>
-                      </td>
-                      <td><span style={{ fontSize: '13px', fontFamily: 'monospace' }}>{formatDuration(exec.duration)}</span></td>
-                      <td><span style={{ fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>{formatDate(exec.startedAt)}</span></td>
-                      <td>
-                        <div className="d-flex justify-content-end gap-1">
-                          <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Voir les détails" aria-label="Voir les détails" onClick={() => openDetail(exec.id)}>
-                            <i className="bi bi-eye" style={{ fontSize: '14px' }}></i>
-                          </button>
-                          <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)' }} title="Voir le rapport" aria-label="Voir le rapport" onClick={() => navigate(`/executions/report/${exec.id}`)}>
-                            <i className="bi bi-file-text" style={{ fontSize: '14px' }}></i>
-                          </button>
-                          {canWrite && active && (
-                            <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-danger)', color: 'var(--pt-danger)' }}
-                              title="Annuler cette exécution" aria-label="Annuler cette exécution" disabled={cancellingId === exec.id} onClick={() => handleCancel(exec)}>
-                              <i className={`bi ${cancellingId === exec.id ? 'bi-arrow-repeat pt-spin' : 'bi-slash-circle'}`} style={{ fontSize: '14px' }}></i>
-                            </button>
-                          )}
-                          {canWrite && (
-                            <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-primary)', color: 'var(--pt-primary)' }}
-                              title="Relancer (crée une nouvelle exécution)" aria-label="Relancer" onClick={() => setRetryConfirm(exec)}>
-                              <i className="bi bi-arrow-repeat" style={{ fontSize: '14px' }}></i>
-                            </button>
-                          )}
-                          {canWrite && (
-                            <button className="topbar-icon" style={{ width: '32px', height: '32px', border: '1px solid var(--pt-border)', color: active ? 'var(--pt-text-light)' : 'var(--pt-danger)' }}
-                              title={active ? 'Impossible de supprimer une exécution en attente, en cours ou en pause : annulez-la d’abord.' : 'Supprimer définitivement'}
-                              aria-label="Supprimer" disabled={active} onClick={() => setDeletion([exec.id])}>
-                              <i className="bi bi-trash3" style={{ fontSize: '14px' }}></i>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
 
         <Pagination
           page={urlPage}
@@ -743,26 +698,6 @@ function SpringExecutions() {
           </div>
         </div>
       )}
-    </>
-  )
-}
-
-// ============================================================
-// Page hôte (recherche de la barre du haut retirée : seule la recherche
-// au-dessus du tableau filtre les exécutions).
-// ============================================================
-
-function Executions() {
-  return (
-    <div className="pt-content">
-      <div className="pt-page-header">
-        <div className="page-title">
-          <h1>Exécutions</h1>
-          <p>Lancez et suivez vos exécutions de tests de charge</p>
-        </div>
-      </div>
-
-      <SpringExecutions />
     </div>
   )
 }

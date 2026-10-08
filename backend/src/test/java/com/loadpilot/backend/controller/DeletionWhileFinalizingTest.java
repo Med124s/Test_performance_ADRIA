@@ -97,7 +97,7 @@ class DeletionWhileFinalizingTest {
         String executionId = json(perform(post("/api/executions"), Map.of("scenarioId", scenarioId))).get("id").asText();
         long deadline = System.currentTimeMillis() + 10_000;
         while (System.currentTimeMillis() < deadline && registry.get(UUID.fromString(executionId)) != null) Thread.sleep(50);
-        assertThat(List.of("SUCCESS", "FAILED")).contains(json(perform(get("/api/executions/" + executionId + "/status"), null))
+        assertThat(List.of("SUCCESS", "THRESHOLDS_EXCEEDED", "FAILED")).contains(json(perform(get("/api/executions/" + executionId + "/status"), null))
                 .get("status").asText());
 
         // Simule une execution terminee en base mais dont l'enregistrement (metriques) n'est pas fini.

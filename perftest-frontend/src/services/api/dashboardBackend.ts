@@ -22,7 +22,12 @@
 // ============================================================
 
 import { springHttp } from './httpClient'
-import { BackendDashboardResponse, BackendApplicationDashboardResponse } from '../../types/backendContracts'
+import {
+  BackendApplicationDashboardResponse,
+  BackendDashboardOverview,
+  BackendDashboardResponse,
+  BackendScenarioTrend,
+} from '../../types/backendContracts'
 
 const RESOURCE = '/api/dashboard'
 
@@ -36,4 +41,17 @@ export const dashboardBackendApi = {
   },
   getByApplication: (applicationId: string) =>
     springHttp.get<BackendApplicationDashboardResponse>(`${RESOURCE}/applications/${applicationId}`),
+  /** Nouveau Dashboard : tout, filtré par application (optionnelle) et période. */
+  getOverview: (filter: { applicationId?: string; from?: string; to?: string }) =>
+    springHttp.get<BackendDashboardOverview>(`${RESOURCE}/overview${query(filter)}`),
+  /** Évolution du P95 et du taux d'erreurs d'un scénario sur la période. */
+  getScenarioTrend: (scenarioId: string, range: { from?: string; to?: string }, stepName?: string) =>
+    springHttp.get<BackendScenarioTrend>(`${RESOURCE}/scenario-trend${query({ scenarioId, ...range, stepName })}`),
+}
+
+function query(params: Record<string, string | undefined>): string {
+  const p = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v) p.set(k, v) })
+  const qs = p.toString()
+  return qs ? `?${qs}` : ''
 }

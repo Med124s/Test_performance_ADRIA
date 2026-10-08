@@ -27,4 +27,7 @@ public interface ApplicationService {
 
     /** Envoie une vraie requete HTTP vers l'URL de l'application et met a jour son statut. */
     ApplicationTestResponse testAvailability(UUID id);
+
+    /** « Tester le monitoring » avec la configuration saisie (rien n'est enregistre). */
+    com.loadpilot.backend.dto.response.MonitoringTestResponse testMonitoring(com.loadpilot.backend.dto.request.MonitoringTestRequest request);
 }

@@ -39,11 +39,14 @@ public record ScenarioResponse(
         String variables,
         com.loadpilot.backend.enums.CsvDistribution csvDistribution,
         /** Detail des requetes conserve a l'execution (aucun / echecs / echecs + echantillon). */
-        com.loadpilot.backend.enums.RequestDetailMode requestDetailMode
+        com.loadpilot.backend.enums.RequestDetailMode requestDetailMode,
+        /** Seuils de reussite : taux d'erreurs maximal (%) et P95 maximal (ms, null = aucun). */
+        Double maxErrorRatePercent,
+        Long maxP95Ms
 ) {
     public ScenarioResponse withPausedSchedules(long count) {
         return new ScenarioResponse(id, applicationId, applicationName, name, description, status, virtualUsers,
                 rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData, targetRps, createdBy, createdAt,
-                updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, count, variables, csvDistribution, requestDetailMode);
+                updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, count, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms);
     }
 }

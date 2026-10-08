@@ -123,7 +123,7 @@ class ExecutionRequestDetailTest {
         long deadline = System.currentTimeMillis() + 20_000;
         while (System.currentTimeMillis() < deadline) {
             String st = call(get("/api/executions/" + executionId + "/status"), null).get("status").asText();
-            if (List.of("SUCCESS", "FAILED", "CANCELLED").contains(st)) break;
+            if (List.of("SUCCESS", "THRESHOLDS_EXCEEDED", "FAILED", "CANCELLED").contains(st)) break;
             Thread.sleep(100);
         }
         Thread.sleep(500);

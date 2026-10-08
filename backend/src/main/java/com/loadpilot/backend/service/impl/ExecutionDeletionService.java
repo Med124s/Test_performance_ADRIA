@@ -1,5 +1,8 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.service.audit.AuditEvent;
+import com.loadpilot.backend.service.audit.AuditTargetType;
+import com.loadpilot.backend.service.audit.AuditTargets;
 import com.loadpilot.backend.dto.response.BulkActionResponse;
 import com.loadpilot.backend.dto.response.ExecutionDeletionImpactResponse;
 import com.loadpilot.backend.entity.Execution;
@@ -45,6 +48,7 @@ public class ExecutionDeletionService {
     private final ExecutionRepository executionRepository;
     private final RunningExecutionRegistry registry;
     private final AuditLogService auditLogService;
+    private final AuditTargets auditTargets;
     private final TransactionTemplate transactionTemplate;
 
     @PersistenceContext
@@ -73,13 +77,15 @@ public class ExecutionDeletionService {
 
     /** Supprime une execution terminee ; 404 si introuvable, 409 si active. Auditee. */
     public void delete(UUID id) {
-        String label = null;
+        String[] described = null;
         try {
-            label = transactionTemplate.execute(status -> deleteInTransaction(id));
-            auditLogService.record(AuditAction.DELETE, AuditModule.EXECUTION, AuditResult.SUCCESS, "Execution deleted: " + label);
+            described = transactionTemplate.execute(status -> deleteInTransaction(id));
+            auditLogService.record(AuditEvent.of(AuditAction.DELETE, AuditModule.EXECUTION)
+                    .target(AuditTargetType.EXECUTION, id, described[0])
+                    .description("Exécution supprimée avec ses résultats (statut : " + described[1] + ")"));
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.DELETE, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Execution deletion failed: " + (label != null ? label : id) + ": " + e.getClass().getSimpleName());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.DELETE, AuditModule.EXECUTION), id)
+                    .description("Suppression impossible").failed(e));
             throw e;
         }
     }
@@ -88,7 +94,7 @@ public class ExecutionDeletionService {
     public BulkActionResponse deleteMany(List<UUID> ids) {
         List<BulkActionResponse.Item> results = new ArrayList<>();
         for (UUID id : ids.stream().distinct().toList()) {
-            String name = executionRepository.findByIdWithScenarioAndApplication(id).map(this::describe).orElse(null);
+            String name = executionRepository.findByIdWithScenarioAndApplication(id).map(AuditTargets::executionLabel).orElse(null);
             try {
                 delete(id);
                 results.add(new BulkActionResponse.Item(id.toString(), name, true, "Supprimée."));
@@ -104,7 +110,7 @@ public class ExecutionDeletionService {
         return BulkActionResponse.of(results);
     }
 
-    private String deleteInTransaction(UUID id) {
+    private String[] deleteInTransaction(UUID id) {
         Execution execution = executionRepository.findByIdWithScenarioAndApplicationForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Exécution introuvable (déjà supprimée ?)."));
         if (execution.getStatus().isActive()) {
@@ -118,7 +124,7 @@ public class ExecutionDeletionService {
         if (registry.get(id) != null) {
             throw new ConflictException(FINALIZING_MESSAGE);
         }
-        String label = describe(execution);
+        String[] label = { AuditTargets.executionLabel(execution), AuditTargets.statusLabel(execution.getStatus()) };
         entityManager.flush();
         nativeUpdate("DELETE FROM metric WHERE execution_id = :id", id);
         nativeUpdate("DELETE FROM execution_step_result WHERE execution_id = :id", id);
@@ -127,10 +133,6 @@ public class ExecutionDeletionService {
         nativeUpdate("DELETE FROM execution WHERE id = :id", id);
         entityManager.clear();
         return label;
-    }
-
-    private String describe(Execution execution) {
-        return execution.getScenario().getName() + " (" + execution.getStatus() + ", " + execution.getStartedAt() + ", id " + execution.getId() + ")";
     }
 
     private long count(String jpql, List<UUID> ids) {

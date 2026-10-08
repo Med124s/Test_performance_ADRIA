@@ -183,6 +183,22 @@ class StepTestRunnerTest {
     }
 
     @Test
+    void status200_butUnexpectedContent_isAFailure_withAClearMessage() {
+        TestRunResponse result = runner(60).run(plan(loginAuth(LOGIN_PASSWORD), Map.of(),
+                step("Modifier", HttpMethod.PATCH, "/transfers/TRF42", null, null, 200, "\"success\":false", null, null, null)),
+                StepTestRunner.Listener.NONE);
+
+        StepResult s = result.steps().get(0);
+        assertThat(s.response().status()).isEqualTo(200);
+        assertThat(s.checks().status().ok()).isTrue();
+        assertThat(s.checks().assertion().ok()).isFalse();
+        assertThat(s.status()).isEqualTo(TestRunResponse.FAILED);
+        assertThat(s.errorKind()).isEqualTo("ASSERTION");
+        assertThat(s.error()).isEqualTo("Contenu attendu introuvable : \"success\":false");
+        assertThat(result.success()).isFalse();
+    }
+
+    @Test
     void stepHeader_overridesApplicationAuth_likeTheEngine() {
         TestRunResponse result = runner(60).run(plan(loginAuth(LOGIN_PASSWORD), Map.of(),
                 step("Solde", HttpMethod.GET, "/balance", "{\"Authorization\":\"Bearer wrong\"}", null, 200, null, null, null, null)),

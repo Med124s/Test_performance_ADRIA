@@ -7,14 +7,17 @@ import { BackendExecutionTimeline } from '../../types/backendContracts'
 import { executionsBackendApi } from '../../services/api/executionsBackend'
 import { ApiError } from '../../services/api/httpClient'
 import { ERROR_COLORS, STEP_COLORS, errorsByType, formatT, isLongRun, perSecond, slowestSteps } from './timelineModel'
+import StepEvolutionTable from './StepEvolutionTable'
+import { formatMs } from '../../utils/numberFormat'
+import { MONITORING_SCOPE_TEXT, MONITORING_TYPE_LABELS } from '../../components/application-monitoring/monitoringModel'
 import './timelineAnalysis.css'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler)
 
 // ============================================================
 // « Analyse dans le temps » du rapport : points clés, graphique global
-// (utilisateurs actifs, débit, P95), P95 / débit par étape, erreurs par
-// seconde et par type. Données calculées côté serveur
+// (utilisateurs actifs, débit, P95), évolution des étapes (tableau début /
+// fin ; graphique par étape replié), erreurs par seconde et par type. Données calculées côté serveur
 // (GET /api/executions/{id}/timeline) : jamais toutes les requêtes dans le
 // navigateur. Périodes de pause grisées (courbes interrompues, pas à zéro).
 // ============================================================
@@ -52,6 +55,42 @@ const pauseShading: Plugin<'line' | 'bar'> = {
   },
 }
 
+/**
+ * Repères des requêtes la plus lente (rouge) et la plus rapide (vert) : un point sur la courbe P95, à la
+ * seconde (intervalle) de la requête, avec son temps de réponse. Ne change pas l'échelle des axes.
+ */
+type ExtremeMark = { bucket: number; label: string; color: string }
+const extremeMarkers: Plugin<'line'> = {
+  id: 'extremeMarkers',
+  afterDatasetsDraw(chart, _args, options) {
+    const marks = (options as { marks?: ExtremeMark[]; p95?: (number | null)[] }).marks ?? []
+    const p95 = (options as { p95?: (number | null)[] }).p95 ?? []
+    const x = chart.scales.x
+    const y = chart.scales.yMs
+    if (!x || !y || marks.length === 0) return
+    const { ctx, chartArea } = chart
+    ctx.save()
+    marks.forEach((m, i) => {
+      const px = x.getPixelForValue(m.bucket)
+      const value = p95[m.bucket]
+      const py = value == null ? chartArea.bottom - 8 : y.getPixelForValue(value)
+      ctx.beginPath()
+      ctx.arc(px, py, 6, 0, Math.PI * 2)
+      ctx.fillStyle = m.color
+      ctx.fill()
+      ctx.lineWidth = 2
+      ctx.strokeStyle = '#ffffff'
+      ctx.stroke()
+      ctx.font = '600 11px system-ui, sans-serif'
+      ctx.fillStyle = m.color
+      const textWidth = ctx.measureText(m.label).width
+      const tx = Math.min(Math.max(px - textWidth / 2, chartArea.left), chartArea.right - textWidth)
+      ctx.fillText(m.label, tx, Math.max(chartArea.top + 10, py - 12 - i * 14))
+    })
+    ctx.restore()
+  },
+}
+
 export default function TimelineAnalysis({ executionId }: { executionId: string }) {
   const [tl, setTl] = useState<BackendExecutionTimeline | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,6 +98,7 @@ export default function TimelineAnalysis({ executionId }: { executionId: string 
   const [stepMetric, setStepMetric] = useState<'p95' | 'rps'>('p95')
   const [selectedSteps, setSelectedSteps] = useState<Set<number> | null>(null)
   const [errorStep, setErrorStep] = useState<string>('')
+  const [detailOpen, setDetailOpen] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -82,6 +122,10 @@ export default function TimelineAnalysis({ executionId }: { executionId: string 
   const grid = 'rgba(148, 163, 184, 0.18)'
   const bucket = tl.bucketSeconds
   const pausePluginOptions = { ratios: tl.pausedRatio }
+  const extremeMarks: ExtremeMark[] = [
+    ...(tl.slowest ? [{ bucket: tl.slowest.bucket, label: `Plus lente : ${formatMs(tl.slowest.responseTimeMs)}`, color: '#DC2626' }] : []),
+    ...(tl.fastest ? [{ bucket: tl.fastest.bucket, label: `Plus rapide : ${formatMs(tl.fastest.responseTimeMs)}`, color: '#16A34A' }] : []),
+  ]
   const xScale = { ticks: { color: text, maxTicksLimit: 12, maxRotation: 0 }, grid: { display: false }, title: { display: true, text: bucket > 1 ? `Temps (intervalles de ${bucket} s)` : 'Temps', color: text } }
   const legend = { position: 'bottom' as const, labels: { color: text, boxWidth: 12, font: { size: 11 } } }
 
@@ -102,6 +146,7 @@ export default function TimelineAnalysis({ executionId }: { executionId: string 
     plugins: {
       legend,
       pauseShading: pausePluginOptions,
+      extremeMarkers: { marks: extremeMarks, p95: tl.p95Ms },
       tooltip: {
         callbacks: {
           title: (items: { dataIndex: number }[]) => `À ${labels[items[0]?.dataIndex ?? 0]}${bucket > 1 ? ` (+${bucket} s)` : ''}`,
@@ -117,6 +162,26 @@ export default function TimelineAnalysis({ executionId }: { executionId: string 
       yVu: { type: 'linear' as const, position: 'left' as const, display: tl.virtualUsersAvailable, beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: grid }, title: { display: true, text: 'Utilisateurs', color: text } },
       yRps: { type: 'linear' as const, position: 'right' as const, beginAtZero: true, ticks: { color: '#4F46E5' }, grid: { display: false }, title: { display: true, text: 'req/s', color: '#4F46E5' } },
       yMs: { type: 'linear' as const, position: 'right' as const, beginAtZero: true, ticks: { color: '#EF4444' }, grid: { display: false }, title: { display: true, text: 'ms', color: '#EF4444' } },
+    },
+  }
+
+  // ---- 1 bis. CPU / RAM du processus de l'application testée (même axe du temps)
+  const res = tl.resources ?? null
+  const resourcesData = res && res.sampleCount > 0 ? {
+    labels,
+    datasets: [
+      { label: 'CPU de l’application (% d’un cœur)', data: res.cpuPercent, yAxisID: 'yCpu', borderColor: '#0EA5E9', backgroundColor: '#0EA5E9', pointRadius: 2, borderWidth: 2, tension: 0.2, spanGaps: true },
+      { label: 'RAM de l’application (Mo)', data: res.memoryMb, yAxisID: 'yRam', borderColor: '#A855F7', backgroundColor: '#A855F7', pointRadius: 2, borderWidth: 2, tension: 0.2, spanGaps: true },
+    ],
+  } : null
+  const resourcesOptions = {
+    responsive: true, maintainAspectRatio: false, animation: false as const,
+    interaction: { mode: 'index' as const, intersect: false },
+    plugins: { legend, pauseShading: pausePluginOptions, tooltip: { callbacks: { title: (items: { dataIndex: number }[]) => `À ${labels[items[0]?.dataIndex ?? 0]}` } } },
+    scales: {
+      x: xScale,
+      yCpu: { type: 'linear' as const, position: 'left' as const, beginAtZero: true, ticks: { color: '#0EA5E9' }, grid: { color: grid }, title: { display: true, text: 'CPU (% d’un cœur)', color: '#0EA5E9' } },
+      yRam: { type: 'linear' as const, position: 'right' as const, beginAtZero: true, ticks: { color: '#A855F7' }, grid: { display: false }, title: { display: true, text: 'RAM (Mo)', color: '#A855F7' } },
     },
   }
 
@@ -181,28 +246,73 @@ export default function TimelineAnalysis({ executionId }: { executionId: string 
           <h5 className="ta-title mb-0"><i className="bi bi-graph-up text-primary me-2"></i>Utilisateurs, débit et temps de réponse</h5>
           <label className="ta-check"><input type="checkbox" className="form-check-input m-0" checked={showAvg} onChange={(e) => setShowAvg(e.target.checked)} /> Afficher la moyenne</label>
         </div>
-        <div className="ta-chart"><Line data={globalData} options={globalOptions} plugins={[pauseShading as Plugin<'line'>]} /></div>
+        <div className="ta-chart"><Line data={globalData} options={globalOptions} plugins={[pauseShading as Plugin<'line'>, extremeMarkers]} /></div>
+        {extremeMarks.length > 0 && (
+          <p className="ta-note mb-0 mt-2" data-testid="extreme-legend">
+            {tl.slowest && <><span className="ta-dot" style={{ background: '#DC2626' }}></span>Requête la plus lente : {formatMs(tl.slowest.responseTimeMs)} à {formatT(tl.t[tl.slowest.bucket] ?? 0, long)}{bucket > 1 ? ` (+${bucket} s)` : ''}. </>}
+            {tl.fastest && <><span className="ta-dot" style={{ background: '#16A34A' }}></span>Requête la plus rapide : {formatMs(tl.fastest.responseTimeMs)} à {formatT(tl.t[tl.fastest.bucket] ?? 0, long)}{bucket > 1 ? ` (+${bucket} s)` : ''}.</>}
+            {' '}Cliquez sur les cartes Minimum et Maximum en haut du rapport pour le détail.
+          </p>
+        )}
+      </div>
+
+      <div className="pt-card mb-3" data-testid="resources-card">
+        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+          <h5 className="ta-title mb-0"><i className="bi bi-cpu text-primary me-2"></i>CPU et RAM de l’application testée</h5>
+          {res?.source && (
+            <span className="ta-note">{MONITORING_TYPE_LABELS[res.source]}, une mesure toutes les {res.intervalSeconds} s</span>
+          )}
+        </div>
+        {res?.message && (
+          <div className="pt-alert-banner warning mb-2" role="status" style={{ fontSize: '12.5px' }}><i className="bi bi-exclamation-triangle"></i>{res.message}</div>
+        )}
+        {resourcesData
+          ? <div className="ta-chart"><Line data={resourcesData} options={resourcesOptions} plugins={[pauseShading as Plugin<'line'>]} /></div>
+          : !res && (
+            <p className="text-muted mb-0" style={{ fontSize: '13px' }}>
+              Aucun monitoring configuré pour cette application : ajoutez-le dans <strong>Applications → Modifier → Monitoring</strong>
+              (Prometheus ou Spring Boot Actuator) pour suivre son CPU et sa RAM pendant les prochaines exécutions.
+            </p>
+          )}
+        <p className="ta-note mb-0 mt-2">
+          {MONITORING_SCOPE_TEXT}
+          {res?.memoryMetric && ` Mémoire lue : ${res.memoryMetric}.`}
+        </p>
       </div>
 
       <div className="pt-card mb-3">
-        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-          <h5 className="ta-title mb-0"><i className="bi bi-bar-chart-steps text-primary me-2"></i>Par étape dans le temps</h5>
-          <div className="d-flex gap-2 flex-wrap" role="radiogroup" aria-label="Mesure par étape">
-            <label className="ta-check"><input type="radio" name="ta-metric" className="form-check-input m-0" checked={stepMetric === 'p95'} onChange={() => setStepMetric('p95')} /> P95 (ms)</label>
-            <label className="ta-check"><input type="radio" name="ta-metric" className="form-check-input m-0" checked={stepMetric === 'rps'} onChange={() => setStepMetric('rps')} /> Débit (req/s)</label>
+        <h5 className="ta-title"><i className="bi bi-list-columns-reverse text-primary me-2"></i>Évolution des étapes pendant le test</h5>
+        {tl.stepEvolution
+          ? <StepEvolutionTable evolution={tl.stepEvolution} long={long} />
+          : <p className="se-empty" role="status">Comparaison début / fin indisponible pour cette exécution : voir le graphique détaillé.</p>}
+
+        <button type="button" className="btn btn-sm btn-outline-secondary ta-toggle" aria-expanded={detailOpen} aria-controls="ta-step-chart"
+          onClick={() => setDetailOpen((o) => !o)}>
+          <i className={`bi ${detailOpen ? 'bi-chevron-up' : 'bi-chevron-down'}`} aria-hidden="true"></i>
+          {detailOpen ? 'Masquer le graphique détaillé' : 'Voir le graphique détaillé'}
+        </button>
+        {detailOpen && (
+          <div id="ta-step-chart" className="mt-3">
+            <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+              <h6 className="ta-title mb-0" style={{ fontSize: '13.5px' }}>Par étape dans le temps</h6>
+              <div className="d-flex gap-2 flex-wrap" role="radiogroup" aria-label="Mesure par étape">
+                <label className="ta-check"><input type="radio" name="ta-metric" className="form-check-input m-0" checked={stepMetric === 'p95'} onChange={() => setStepMetric('p95')} /> P95 (ms)</label>
+                <label className="ta-check"><input type="radio" name="ta-metric" className="form-check-input m-0" checked={stepMetric === 'rps'} onChange={() => setStepMetric('rps')} /> Débit (req/s)</label>
+              </div>
+            </div>
+            <div className="ta-steps" role="group" aria-label="Étapes affichées">
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setSelectedSteps(new Set(tl.steps.map((_, i) => i)))}>Toutes</button>
+              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setSelectedSteps(new Set(slowestSteps(tl, 3)))}>Les 3 plus lentes</button>
+              {tl.steps.map((s, i) => (
+                <label key={s.key} className="ta-check">
+                  <input type="checkbox" className="form-check-input m-0" checked={steps.has(i)} onChange={() => toggleStep(i)} />
+                  <span className="ta-swatch" style={{ background: STEP_COLORS[i % STEP_COLORS.length] }} aria-hidden="true"></span>{s.name}
+                </label>
+              ))}
+            </div>
+            <div className="ta-chart"><Line data={stepData} options={stepOptions} plugins={[pauseShading as Plugin<'line'>]} /></div>
           </div>
-        </div>
-        <div className="ta-steps" role="group" aria-label="Étapes affichées">
-          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setSelectedSteps(new Set(tl.steps.map((_, i) => i)))}>Toutes</button>
-          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setSelectedSteps(new Set(slowestSteps(tl, 3)))}>Les 3 plus lentes</button>
-          {tl.steps.map((s, i) => (
-            <label key={s.key} className="ta-check">
-              <input type="checkbox" className="form-check-input m-0" checked={steps.has(i)} onChange={() => toggleStep(i)} />
-              <span className="ta-swatch" style={{ background: STEP_COLORS[i % STEP_COLORS.length] }} aria-hidden="true"></span>{s.name}
-            </label>
-          ))}
-        </div>
-        <div className="ta-chart"><Line data={stepData} options={stepOptions} plugins={[pauseShading as Plugin<'line'>]} /></div>
+        )}
       </div>
 
       <div className="pt-card mb-3">

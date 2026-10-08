@@ -40,6 +40,7 @@ function StepRequests({ executionId, step, virtualUsers }: { executionId: string
   const [vu, setVu] = useState('')
   const [iteration, setIteration] = useState('')
   const [failedOnly, setFailedOnly] = useState(false)
+  const [sort, setSort] = useState<'TIME' | 'SLOWEST' | 'FASTEST'>('TIME')
   const [page, setPage] = useState(1)
   const [rows, setRows] = useState<BackendExecutionRequestRow[]>([])
   const [total, setTotal] = useState(0)
@@ -48,7 +49,7 @@ function StepRequests({ executionId, step, virtualUsers }: { executionId: string
   const [error, setError] = useState<string | null>(null)
   const [openResult, setOpenResult] = useState<string | null>(null)
 
-  useEffect(() => { setPage(1) }, [vu, iteration, failedOnly])
+  useEffect(() => { setPage(1) }, [vu, iteration, failedOnly, sort])
 
   useEffect(() => {
     let alive = true
@@ -60,6 +61,7 @@ function StepRequests({ executionId, step, virtualUsers }: { executionId: string
       virtualUser: vu === '' ? undefined : Number(vu),
       iteration: iteration.trim() === '' || !Number.isFinite(iter) || iter < 1 ? undefined : iter - 1,
       failedOnly,
+      sort,
       page: page - 1,
       size: PAGE_SIZE,
     })
@@ -67,7 +69,7 @@ function StepRequests({ executionId, step, virtualUsers }: { executionId: string
       .catch((err) => { if (alive) setError(err instanceof ApiError ? err.message : 'Chargement impossible.') })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [executionId, step.stepId, step.stepName, vu, iteration, failedOnly, page])
+  }, [executionId, step.stepId, step.stepName, vu, iteration, failedOnly, sort, page])
 
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const to = Math.min(page * PAGE_SIZE, total)
@@ -85,6 +87,11 @@ function StepRequests({ executionId, step, virtualUsers }: { executionId: string
           <input type="checkbox" className="form-check-input m-0" checked={failedOnly} onChange={(e) => setFailedOnly(e.target.checked)} />
           Échecs seulement
         </label>
+        <select className="pt-form-control" style={{ width: 'auto' }} value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="Trier les requêtes">
+          <option value="TIME">Ordre chronologique</option>
+          <option value="SLOWEST">Plus lentes d’abord</option>
+          <option value="FASTEST">Plus rapides d’abord</option>
+        </select>
         <span className="ms-auto" style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>
           <i className="bi bi-search"></i> = détail complet conservé
         </span>

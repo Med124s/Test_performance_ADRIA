@@ -37,6 +37,9 @@ import com.loadpilot.backend.service.execution.RequestDetailRecorder;
 import com.loadpilot.backend.service.execution.RunningExecutionHandle;
 import com.loadpilot.backend.service.execution.RunningExecutionRegistry;
 import com.loadpilot.backend.service.execution.ScenarioExecutionOutcome;
+import com.loadpilot.backend.service.monitoring.MonitoringConfig;
+import com.loadpilot.backend.service.monitoring.ResourceMonitor;
+import com.loadpilot.backend.service.monitoring.ResourceTrack;
 import com.loadpilot.backend.service.report.CsvUtils;
 import com.loadpilot.backend.service.report.ExecutionStatistics;
 import com.loadpilot.backend.service.report.PerformanceStatisticsService;
@@ -48,6 +51,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import com.loadpilot.backend.service.audit.AuditEvent;
+import com.loadpilot.backend.service.audit.AuditTargetType;
+import com.loadpilot.backend.service.audit.AuditTargets;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,11 +96,15 @@ public class ExecutionServiceImpl implements ExecutionService {
     private final ExecutionTransactionHelper transactionHelper;
     private final MetricGenerationService metricGenerationService;
     private final AuditLogService auditLogService;
+    private final AuditTargets auditTargets;
     private final RunningExecutionRegistry registry;
     private final ExecutorService loadTestExecutor;
     private final PerformanceStatisticsService performanceStatisticsService;
     private final NotificationService notificationService;
     private final com.loadpilot.backend.repository.ExecutionRequestDetailRepository requestDetailRepository;
+    private final ResourceMonitor resourceMonitor;
+    private final ExecutionStatsService executionStatsService;
+    private final ScheduleNotifier scheduleNotifier;
 
     /** Plafond memoire du detail des requetes par execution (Mo) - voir RequestDetailRecorder. */
     @org.springframework.beans.factory.annotation.Value("${app.execution.request-detail.max-memory-mb:50}")
@@ -144,10 +154,18 @@ public class ExecutionServiceImpl implements ExecutionService {
             // bloc finally) qui a la responsabilite exclusive de liberer
             // cette capacite - jamais les deux a la fois.
             capacityReserved = false;
-            loadTestExecutor.submit(() -> runAsync(prepared, handle));
+            // Monitoring CPU / RAM de l'application testee (optionnel, jamais bloquant).
+            MonitoringConfig monitoring = monitoringConfigOrNull(prepared.executionId());
+            if (monitoring != null) handle.resources(new ResourceTrack(monitoring.type().name(), monitoring.intervalSeconds()));
+            loadTestExecutor.submit(() -> runAsync(prepared, handle, monitoring));
 
             Execution queued = executionRepository.findByIdWithScenarioAndApplication(prepared.executionId())
                     .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + prepared.executionId()));
+            if (scheduleId == null) {
+                auditLogService.record(AuditEvent.of(AuditAction.EXECUTE, AuditModule.EXECUTION)
+                        .target(AuditTargetType.EXECUTION, queued.getId(), AuditTargets.executionLabel(queued.getScenario().getName(), queued.getStartedAt() != null ? queued.getStartedAt() : Instant.now()))
+                        .description("Exécution lancée (" + virtualUsers + " utilisateur" + (virtualUsers > 1 ? "s" : "") + " virtuel" + (virtualUsers > 1 ? "s" : "") + ")"));
+            }
             return executionMapper.toResponse(queued);
         } catch (RuntimeException e) {
             // La reservation de capacite a reussi mais aucune Execution n'a
@@ -158,8 +176,8 @@ public class ExecutionServiceImpl implements ExecutionService {
             if (capacityReserved) {
                 registry.releaseReservationWithoutRegistering(virtualUsers);
             }
-            auditLogService.record(AuditAction.EXECUTE, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Execution failed to start for scenario " + scenarioId + ": " + e.getClass().getSimpleName());
+            auditLogService.record(launchAudit(AuditEvent.of(AuditAction.EXECUTE, AuditModule.EXECUTION), scenarioId, scheduleId)
+                    .description("Exécution non lancée").failed(e));
             throw e;
         }
     }
@@ -169,7 +187,18 @@ public class ExecutionServiceImpl implements ExecutionService {
      * Ne leve jamais vers l'appelant (il n'y en a pas) : toute exception
      * inattendue est journalisee et auditee ici meme.
      */
-    private void runAsync(PreparedExecution prepared, RunningExecutionHandle handle) {
+    private MonitoringConfig monitoringConfigOrNull(UUID executionId) {
+        try {
+            MonitoringConfig config = transactionHelper.monitoringConfig(executionId);
+            return config != null && config.enabled() ? config : null;
+        } catch (RuntimeException e) {
+            log.warn("Configuration du monitoring illisible pour l'execution {} : {}", executionId, e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private void runAsync(PreparedExecution prepared, RunningExecutionHandle handle, MonitoringConfig monitoring) {
+        ResourceMonitor.Session monitoringSession = null;
         try {
             ScenarioExecutionOutcome outcome;
             // P0-B : markRunning() peut desormais echouer a transitionner
@@ -184,13 +213,24 @@ public class ExecutionServiceImpl implements ExecutionService {
             if (handle.isCancelled() || !transactionHelper.markRunning(prepared.executionId())) {
                 outcome = new ScenarioExecutionOutcome(List.of(), ExecutionStatus.FAILED, null);
             } else {
+                if (monitoring != null) monitoringSession = resourceMonitor.start(monitoring, handle.resources());
                 outcome = executionEngine.execute(prepared.steps(), prepared.applicationBaseUrl(), prepared.auth(),
                         prepared.loadSpec(), handle, prepared.variableSources());
             }
 
             RunningExecutionHandle.Timeline timeline = handle.timeline(System.currentTimeMillis());
+            if (monitoringSession != null) {
+                monitoringSession.stop();
+                monitoringSession = null;
+                try {
+                    transactionHelper.saveResources(prepared.executionId(), handle.resources());
+                } catch (Exception e) {
+                    log.warn("Mesures CPU / RAM non enregistrees pour l'execution {} : {}", prepared.executionId(), e.getClass().getSimpleName());
+                }
+            }
             Execution finalized = transactionHelper.finalizeExecution(prepared.executionId(), outcome, handle.isCancelled(),
-                    handle.cancellationReason(), handle.detailRecorder() != null && handle.detailRecorder().sampleCapReached());
+                    handle.cancellationReason(), handle.detailRecorder() != null && handle.detailRecorder().sampleCapReached(),
+                    handle.cancelledBy());
 
             // Transaction courte separee, APRES finalisation (Phase 10) - voir
             // commentaire historique : un echec de generation de Metric ne
@@ -204,9 +244,13 @@ public class ExecutionServiceImpl implements ExecutionService {
 
             AuditResult auditResult = finalized.getStatus() == ExecutionStatus.SUCCESS
                     ? AuditResult.SUCCESS : AuditResult.FAILURE;
-            auditLogService.record(AuditAction.EXECUTE, AuditModule.EXECUTION, auditResult,
-                    "Execution " + finalized.getId() + " finished with status " + finalized.getStatus());
-            notifyTerminalStatus(prepared, finalized.getStatus());
+            // Action automatique : acteur « Système ».
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.FINISH, AuditModule.EXECUTION), finalized.getId())
+                    .system(prepared.scheduleId() != null ? "Exécution planifiée" : "Fin d’exécution")
+                    .result(auditResult)
+                    .description("Exécution terminée : " + AuditTargets.statusLabel(finalized.getStatus())));
+            // Execution planifiee : notification propre a la planification, envoyee plus bas une fois le P95 calcule.
+            if (prepared.scheduleId() == null) notifyTerminalStatus(prepared, finalized.getStatus());
 
             // Chronologie pour l'analyse dans le temps (best-effort, apres la notification : jamais bloquant ;
             // la chronologie est capturee a la fin de l'execution, pas au moment de cette ecriture).
@@ -215,12 +259,22 @@ public class ExecutionServiceImpl implements ExecutionService {
             } catch (Exception e) {
                 log.warn("Chronologie non enregistree pour l'execution {} : {}", finalized.getId(), e.getClass().getSimpleName());
             }
+
+            // Resume pour le Dashboard (P95, debit, P95 par etape), calcule une fois ; best-effort.
+            try {
+                executionStatsService.compute(finalized.getId());
+            } catch (Exception e) {
+                log.warn("Resume non calcule pour l'execution {} : {}", finalized.getId(), e.getClass().getSimpleName());
+            }
+            if (prepared.scheduleId() != null) notifyScheduled(prepared, finalized.getStatus());
         } catch (RuntimeException e) {
             log.error("Echec inattendu de l'execution asynchrone {} : {}", prepared.executionId(), e.getClass().getSimpleName());
-            auditLogService.record(AuditAction.EXECUTE, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Execution " + prepared.executionId() + " failed unexpectedly: " + e.getClass().getSimpleName());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.FINISH, AuditModule.EXECUTION), prepared.executionId())
+                    .system(prepared.scheduleId() != null ? "Exécution planifiée" : "Fin d’exécution")
+                    .description("Exécution interrompue par une erreur inattendue").failed(e));
             notifyTerminalStatus(prepared, ExecutionStatus.FAILED);
         } finally {
+            if (monitoringSession != null) monitoringSession.stop();
             registry.unregister(prepared.executionId());
         }
     }
@@ -238,6 +292,7 @@ public class ExecutionServiceImpl implements ExecutionService {
     private void notifyTerminalStatus(PreparedExecution prepared, ExecutionStatus status) {
         NotificationType type = switch (status) {
             case SUCCESS -> NotificationType.EXECUTION_SUCCESS;
+            case THRESHOLDS_EXCEEDED -> NotificationType.EXECUTION_THRESHOLDS_EXCEEDED;
             case FAILED -> NotificationType.EXECUTION_FAILED;
             case CANCELLED -> NotificationType.EXECUTION_CANCELLED;
             default -> null;
@@ -252,9 +307,26 @@ public class ExecutionServiceImpl implements ExecutionService {
         notificationService.create(prepared.triggeredByAppUserId(), type, title, message, prepared.executionId(), prepared.scheduleId());
     }
 
+    /** Fin d'une execution planifiee : « Test nocturne : réussi · P95 314 ms »... (voir ScheduleNotifier) ; repli sur la notification generique. */
+    private void notifyScheduled(PreparedExecution prepared, ExecutionStatus status) {
+        try {
+            scheduleNotifier.executionFinished(prepared.scheduleId(), prepared.executionId(), prepared.triggeredByAppUserId());
+        } catch (Exception e) {
+            log.warn("Notification de planification non envoyee pour l'execution {} : {}", prepared.executionId(), e.getClass().getSimpleName());
+            notifyTerminalStatus(prepared, status);
+        }
+    }
+
+    /** Nom de l'utilisateur connecte (preferred_username) ; null hors requete authentifiee. */
+    private static String currentUsername() {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.isAuthenticated() ? auth.getName() : null;
+    }
+
     private static String statusLabel(ExecutionStatus status) {
         return switch (status) {
             case SUCCESS -> "réussie";
+            case THRESHOLDS_EXCEEDED -> "terminée : seuils dépassés";
             case FAILED -> "échouée";
             case CANCELLED -> "annulée";
             default -> status.toString();
@@ -337,7 +409,67 @@ public class ExecutionServiceImpl implements ExecutionService {
                 live,
                 execution.getPausedAt(),
                 pausedMs,
-                activeElapsedMs);
+                activeElapsedMs,
+                resources(execution, handle));
+    }
+
+    /** CPU / RAM de l'application testee : mesures en memoire pendant le test, resume enregistre ensuite. */
+    static com.loadpilot.backend.dto.response.ExecutionResourcesResponse resources(Execution execution, RunningExecutionHandle handle) {
+        ResourceTrack track = handle != null ? handle.resources() : null;
+        if (track != null) {
+            List<ResourceTrack.Sample> samples = track.samples();
+            ResourceTrack.Sample latest = samples.isEmpty() ? null : samples.get(samples.size() - 1);
+            List<ResourceTrack.Sample> recent = samples.subList(Math.max(0, samples.size() - 24), samples.size());
+            List<Double> cpu = samples.stream().map(ResourceTrack.Sample::cpuPercent).filter(java.util.Objects::nonNull).toList();
+            List<Double> mem = samples.stream().map(ResourceTrack.Sample::memoryMb).filter(java.util.Objects::nonNull).toList();
+            return new com.loadpilot.backend.dto.response.ExecutionResourcesResponse(track.source(), track.intervalSeconds(),
+                    latest == null ? null : latest.cpuPercent(), latest == null ? null : latest.memoryMb(),
+                    cpu.isEmpty() ? null : Math.round(cpu.stream().mapToDouble(Double::doubleValue).average().orElse(0) * 10) / 10.0,
+                    cpu.isEmpty() ? null : cpu.stream().mapToDouble(Double::doubleValue).max().orElse(0),
+                    mem.isEmpty() ? null : mem.stream().mapToDouble(Double::doubleValue).max().orElse(0),
+                    track.message(),
+                    recent.stream().map(ResourceTrack.Sample::cpuPercent).toList(),
+                    recent.stream().map(ResourceTrack.Sample::memoryMb).toList());
+        }
+        if (execution.getCpuAvgPercent() == null && execution.getMemoryMaxMb() == null && execution.getMonitoringMessage() == null
+                && execution.getResourceJson() == null) {
+            return null;
+        }
+        return new com.loadpilot.backend.dto.response.ExecutionResourcesResponse(null, 0, null, null, execution.getCpuAvgPercent(),
+                execution.getCpuMaxPercent(), execution.getMemoryMaxMb(), execution.getMonitoringMessage(), List.of(), List.of());
+    }
+
+    /** Executions dont le resume est en cours de calcul en arriere-plan (jamais deux fois en meme temps). */
+    private ExecutionHistoryResponse withPrevious(ExecutionHistoryResponse row) {
+        if (row.status() == null || row.status().isActive() || row.startedAt() == null || row.scenarioId() == null) return row;
+        List<Execution> previous = executionRepository.findPreviousFinishedByScenario(UUID.fromString(row.scenarioId()), row.startedAt(),
+                PageRequest.of(0, 1));
+        if (previous.isEmpty()) return row;
+        return row.withPrevious(previous.get(0).getP95Ms(), previous.get(0).getStartedAt());
+    }
+
+    private final java.util.Set<String> statsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * P95 de la liste : lu dans le resume enregistre (aucun calcul pendant la requete). Executions
+     * terminees anterieures sans resume : calcul lance en arriere-plan, visible au rafraichissement
+     * suivant - la liste n'est jamais ralentie.
+     */
+    private void backfillStatsInBackground(List<ExecutionHistoryResponse> rows) {
+        for (ExecutionHistoryResponse row : rows) {
+            if (row.p95Ms() != null || row.status() == null || row.status().isActive()) continue;
+            if ((row.successfulSteps() == null ? 0 : row.successfulSteps()) + (row.failedSteps() == null ? 0 : row.failedSteps()) == 0) continue;
+            if (!statsInFlight.add(row.id())) continue;
+            Thread.ofVirtual().name("stats-" + row.id()).start(() -> {
+                try {
+                    executionStatsService.compute(UUID.fromString(row.id()));
+                } catch (Exception e) {
+                    log.debug("Resume non calcule en arriere-plan pour {} : {}", row.id(), e.getClass().getSimpleName());
+                } finally {
+                    statsInFlight.remove(row.id());
+                }
+            });
+        }
     }
 
     /** Pauses terminees + pause en cours eventuelle (ms). */
@@ -360,7 +492,7 @@ public class ExecutionServiceImpl implements ExecutionService {
     private Integer computeProgressPercent(Execution execution, LiveStats.Snapshot live, Long plannedIterations,
             Long activeElapsedMs) {
         return switch (execution.getStatus()) {
-            case SUCCESS, FAILED, CANCELLED -> 100;
+            case SUCCESS, THRESHOLDS_EXCEEDED, FAILED, CANCELLED -> 100;
             case QUEUED -> 0;
             case RUNNING, PAUSED -> {
                 if (execution.getDurationSeconds() != null) {
@@ -424,7 +556,8 @@ public class ExecutionServiceImpl implements ExecutionService {
     @Override
     public ExecutionResponse cancel(UUID id) {
         try {
-            CancellationAttempt attempt = transactionHelper.attemptCancellation(id);
+            String cancelledBy = currentUsername();
+            CancellationAttempt attempt = transactionHelper.attemptCancellation(id, cancelledBy);
 
             if (attempt.outcome() == CancellationOutcome.ALREADY_TERMINAL) {
                 throw new ConflictException("Impossible d'annuler cette execution : elle est deja terminee (statut "
@@ -435,10 +568,10 @@ public class ExecutionServiceImpl implements ExecutionService {
 
             if (attempt.outcome() == CancellationOutcome.CANCELLED_WHILE_QUEUED) {
                 if (handle != null) {
-                    handle.requestCancellation();
+                    handle.requestCancellationBy(cancelledBy);
                 }
-                auditLogService.record(AuditAction.CANCEL, AuditModule.EXECUTION, AuditResult.SUCCESS,
-                        "Execution cancelled before start: " + id);
+                auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.CANCEL, AuditModule.EXECUTION), id)
+                        .description("Exécution annulée avant son démarrage"));
                 return executionMapper.toResponse(attempt.execution());
             }
 
@@ -448,13 +581,13 @@ public class ExecutionServiceImpl implements ExecutionService {
                         "Impossible d'annuler : aucune execution active trouvee en memoire pour cet identifiant "
                                 + "(le serveur a peut-etre redemarre depuis le lancement).");
             }
-            handle.requestCancellation();
-            auditLogService.record(AuditAction.CANCEL, AuditModule.EXECUTION, AuditResult.SUCCESS,
-                    "Cancellation requested for running execution: " + id);
+            handle.requestCancellationBy(cancelledBy);
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.CANCEL, AuditModule.EXECUTION), id)
+                    .description("Annulation demandée pendant l’exécution"));
             return executionMapper.toResponse(attempt.execution());
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.CANCEL, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Execution cancel failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.CANCEL, AuditModule.EXECUTION), id)
+                    .description("Annulation impossible").failed(e));
             throw e;
         }
     }
@@ -481,11 +614,12 @@ public class ExecutionServiceImpl implements ExecutionService {
             }
             Execution paused = transactionHelper.markPaused(id);
             handle.pause();
-            auditLogService.record(AuditAction.PAUSE, AuditModule.EXECUTION, AuditResult.SUCCESS, "Execution paused: " + id);
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.PAUSE, AuditModule.EXECUTION), id)
+                    .description("Exécution mise en pause"));
             return executionMapper.toResponse(paused);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.PAUSE, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Execution pause failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.PAUSE, AuditModule.EXECUTION), id)
+                    .description("Mise en pause impossible").failed(e));
             throw e;
         }
     }
@@ -504,11 +638,12 @@ public class ExecutionServiceImpl implements ExecutionService {
             }
             Execution resumed = transactionHelper.markResumed(id);
             handle.resume();
-            auditLogService.record(AuditAction.RESUME, AuditModule.EXECUTION, AuditResult.SUCCESS, "Execution resumed: " + id);
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.RESUME, AuditModule.EXECUTION), id)
+                    .description("Exécution reprise"));
             return executionMapper.toResponse(resumed);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.RESUME, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Execution resume failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.RESUME, AuditModule.EXECUTION), id)
+                    .description("Reprise impossible").failed(e));
             throw e;
         }
     }
@@ -527,8 +662,9 @@ public class ExecutionServiceImpl implements ExecutionService {
             return;
         }
         handle.requestCancellation(reason);
-        auditLogService.record(AuditAction.CANCEL, AuditModule.EXECUTION, AuditResult.SUCCESS,
-                "Execution cancelled automatically after a too long pause: " + id);
+        auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.CANCEL, AuditModule.EXECUTION), id)
+                .system("Pause trop longue")
+                .description("Exécution annulée automatiquement après une pause trop longue"));
     }
 
     @Override
@@ -542,12 +678,12 @@ public class ExecutionServiceImpl implements ExecutionService {
             // distinct et reel ("une relance a ete demandee depuis
             // l'execution id"), pas un doublon.
             ExecutionResponse response = doExecute(scenarioId, triggeredByAppUserId, null);
-            auditLogService.record(AuditAction.RETRY, AuditModule.EXECUTION, AuditResult.SUCCESS,
-                    "Execution " + id + " retried as new execution " + response.id());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.RETRY, AuditModule.EXECUTION), id)
+                    .description("Relancée : nouvelle exécution créée"));
             return response;
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.RETRY, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Execution retry failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.RETRY, AuditModule.EXECUTION), id)
+                    .description("Relance impossible").failed(e));
             throw e;
         }
     }
@@ -582,19 +718,24 @@ public class ExecutionServiceImpl implements ExecutionService {
     @Override
     @Transactional(readOnly = true)
     public ExecutionPageResponse getPage(ExecutionHistoryFilterRequest filter, int page, int size, Sort sort) {
-        PagedResponse<ExecutionHistoryResponse> rows = getHistory(filter, page, size, sort);
+        PagedResponse<ExecutionHistoryResponse> rawRows = getHistory(filter, page, size, sort);
+        backfillStatsInBackground(rawRows.content());
+        // Ecart de P95 : execution terminee precedente du meme scenario (une requete courte par ligne).
+        PagedResponse<ExecutionHistoryResponse> rows = new PagedResponse<>(rawRows.content().stream().map(this::withPrevious).toList(),
+                rawRows.page(), rawRows.size(), rawRows.totalElements(), rawRows.totalPages());
         java.util.Map<ExecutionStatus, Long> byStatus = new java.util.EnumMap<>(ExecutionStatus.class);
         for (ExecutionStatus status : ExecutionStatus.values()) {
-            boolean excluded = filter.status() != null && filter.status() != status;
+            boolean excluded = (filter.status() != null && filter.status() != status) || (filter.finishedOnly() && status.isActive());
             byStatus.put(status, excluded ? 0L : executionRepository.count(ExecutionSpecifications.withFilters(
                     new ExecutionHistoryFilterRequest(status, filter.scenarioId(), filter.applicationId(),
-                            filter.dateFrom(), filter.dateTo(), filter.search()))));
+                            filter.dateFrom(), filter.dateTo(), filter.search(), filter.finishedOnly()))));
         }
         long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
         return new ExecutionPageResponse(rows.content(), rows.page(), rows.size(), rows.totalElements(), rows.totalPages(),
                 new ExecutionPageResponse.Counts(total, byStatus.get(ExecutionStatus.QUEUED), byStatus.get(ExecutionStatus.RUNNING),
                         byStatus.get(ExecutionStatus.PAUSED), byStatus.get(ExecutionStatus.SUCCESS),
-                        byStatus.get(ExecutionStatus.FAILED), byStatus.get(ExecutionStatus.CANCELLED)));
+                        byStatus.get(ExecutionStatus.FAILED), byStatus.get(ExecutionStatus.CANCELLED),
+                        byStatus.get(ExecutionStatus.THRESHOLDS_EXCEEDED)));
     }
 
     /**
@@ -639,7 +780,19 @@ public class ExecutionServiceImpl implements ExecutionService {
                 statistics,
                 steps,
                 errors,
-                performanceStatisticsService.groupErrors(results));
+                thresholds(execution, results, statistics));
+    }
+
+    /** Seuils copies au lancement et leur resultat (meme P95 que le rapport) ; null pour une execution anterieure aux seuils. */
+    static ExecutionReportResponse.Thresholds thresholds(Execution execution, List<ExecutionStepResult> results, ExecutionStatistics statistics) {
+        if (execution.getMaxErrorRatePercent() == null || execution.getStatus() == null || execution.getStatus().isActive()) return null;
+        long failures = results.stream().filter(r -> !Boolean.TRUE.equals(r.getSuccess())).count();
+        double errorRate = com.loadpilot.backend.service.execution.ExecutionVerdict.roundedRate(failures, results.size());
+        double exactRate = results.isEmpty() ? 0.0 : failures * 100.0 / results.size();
+        Long p95 = statistics == null ? null : statistics.p95();
+        Long maxP95 = execution.getMaxP95Ms();
+        return new ExecutionReportResponse.Thresholds(execution.getMaxErrorRatePercent(), errorRate,
+                exactRate <= execution.getMaxErrorRatePercent(), maxP95, p95, maxP95 == null || p95 == null ? null : p95 <= maxP95);
     }
 
     @Override
@@ -729,5 +882,15 @@ public class ExecutionServiceImpl implements ExecutionService {
         }
 
         return csv.toString();
+    }
+
+    /** Lancement refuse : la cible est le scenario (aucune execution creee) ; planification -> acteur Systeme. */
+    private AuditEvent launchAudit(AuditEvent event, UUID scenarioId, UUID scheduleId) {
+        String name = scenarioRepository.findById(scenarioId).map(s -> s.getName()).orElse(null);
+        event.target(AuditTargetType.SCENARIO, scenarioId, name != null ? name : "Scénario introuvable");
+        if (scheduleId != null) {
+            event.system("Planification");
+        }
+        return event;
     }
 }

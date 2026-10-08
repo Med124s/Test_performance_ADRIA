@@ -52,6 +52,10 @@ import org.springframework.stereotype.Component;
  *
  * Intervalle configurable (app.scheduler.poll-interval-ms, defaut 5000ms) -
  * jamais code en dur (meme regle que les limites de capacite P0-B).
+ *
+ * Lancement en retard de plus de app.scheduler.missed-grace-seconds (defaut 120 s, ex. LoadPilot
+ * arrete a l'heure prevue) : jamais rattrape, enregistre comme manque (voir
+ * ScheduledExecutionTransactionHelper) puis notifie.
  */
 @Component
 @RequiredArgsConstructor
@@ -62,6 +66,9 @@ public class ScheduledExecutionPoller {
     private final com.loadpilot.backend.repository.ScheduledExecutionRepository scheduledExecutionRepository;
     private final ScheduledExecutionTransactionHelper transactionHelper;
     private final ScheduledExecutionTrigger trigger;
+
+    @org.springframework.beans.factory.annotation.Value("${app.scheduler.missed-grace-seconds:120}")
+    private long missedGraceSeconds = 120;
 
     @Scheduled(fixedDelayString = "${app.scheduler.poll-interval-ms:5000}")
     public void pollAndTrigger() {
@@ -78,7 +85,11 @@ public class ScheduledExecutionPoller {
 
         for (UUID id : dueIds) {
             try {
-                TriggerClaim claim = transactionHelper.claimForAutomaticTrigger(id, now);
+                TriggerClaim claim = transactionHelper.claimForAutomaticTrigger(id, now, java.time.Duration.ofSeconds(missedGraceSeconds));
+                if (claim.missedCount() > 0) {
+                    trigger.notifyMissed(claim);
+                    continue;
+                }
                 if (!claim.claimed()) {
                     // Deja reclamee par ce meme tick (course theorique) ou
                     // desactivee/modifiee entre-temps - jamais un

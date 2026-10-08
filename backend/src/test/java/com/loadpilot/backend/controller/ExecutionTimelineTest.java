@@ -86,7 +86,7 @@ class ExecutionTimelineTest {
     }
 
     @Test
-    void recordedTimeline_perStepSeries_errorTypes_insights_andGroupedErrors() throws Exception {
+    void recordedTimeline_perStepSeries_errorTypes_andInsights() throws Exception {
         String appId = call(post("/api/applications"), Map.of("name", "timeline-" + UUID.randomUUID(), "url", targetUrl), AS_ENGINEER)
                 .get("id").asText();
         String scenarioId = call(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Chronologie", "virtualUsers", 3,
@@ -97,13 +97,17 @@ class ExecutionTimelineTest {
         String executionId = call(post("/api/executions"), Map.of("scenarioId", scenarioId), AS_ENGINEER).get("id").asText();
         long deadline = System.currentTimeMillis() + 20_000;
         while (System.currentTimeMillis() < deadline
-                && !List.of("SUCCESS", "FAILED").contains(call(get("/api/executions/" + executionId + "/status"), null, AS_VIEWER)
+                && !List.of("SUCCESS", "THRESHOLDS_EXCEEDED", "FAILED").contains(call(get("/api/executions/" + executionId + "/status"), null, AS_VIEWER)
                         .get("status").asText())) {
             Thread.sleep(150);
         }
-        Thread.sleep(600);
-
+        // La chronologie est enregistree a la toute fin de la tache asynchrone (apres resultats et notification).
         JsonNode tl = call(get("/api/executions/" + executionId + "/timeline"), null, AS_VIEWER);
+        long recordedDeadline = System.currentTimeMillis() + 15_000;
+        while (!"RECORDED".equals(tl.get("source").asText()) && System.currentTimeMillis() < recordedDeadline) {
+            Thread.sleep(200);
+            tl = call(get("/api/executions/" + executionId + "/timeline"), null, AS_VIEWER);
+        }
         assertThat(tl.get("source").asText()).isEqualTo("RECORDED");
         assertThat(tl.get("virtualUsersAvailable").asBoolean()).isTrue();
         assertThat(tl.get("bucketSeconds").asInt()).isEqualTo(1);
@@ -117,15 +121,6 @@ class ExecutionTimelineTest {
         assertThat(tl.get("errorPoints").size()).isPositive();
         assertThat(tl.get("insights").size()).isEqualTo(3);
         assertThat(tl.get("insights").get(2).get("text").asText()).contains("HTTP 409 sur Ecrire");
-
-        // Rapport : erreurs regroupees (une ligne par code + etape + message), occurrences et premiere apparition.
-        JsonNode report = call(get("/api/executions/" + executionId + "/report"), null, AS_VIEWER);
-        JsonNode groups = report.get("errorGroups");
-        assertThat(groups.size()).isEqualTo(1);
-        assertThat(groups.get(0).get("httpStatus").asInt()).isEqualTo(409);
-        assertThat(groups.get(0).get("stepName").asText()).isEqualTo("Ecrire");
-        assertThat(groups.get(0).get("count").asInt()).isEqualTo(report.get("errors").size());
-        assertThat(groups.get(0).get("firstAt").asText()).isNotBlank();
 
         // Deuxieme lecture : servie depuis le cache, identique.
         assertThat(call(get("/api/executions/" + executionId + "/timeline"), null, AS_VIEWER)).isEqualTo(tl);

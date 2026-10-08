@@ -118,6 +118,41 @@ public class Execution {
     @Column(name = "timeline_json", length = 100000)
     private String timelineJson;
 
+    /** CPU / RAM du processus de l'application testee {"source","intervalSeconds","samples":[[epochMs,cpu,ramMo]]} ; null sans monitoring. */
+    @Column(name = "resource_json", length = 200000)
+    private String resourceJson;
+
+    /** CPU moyen et maximal du processus teste, en % d'un coeur (100 % = un coeur entierement occupe). */
+    @Column(name = "cpu_avg_percent")
+    private Double cpuAvgPercent;
+
+    @Column(name = "cpu_max_percent")
+    private Double cpuMaxPercent;
+
+    /** RAM maximale du processus teste (Mo). */
+    @Column(name = "memory_max_mb")
+    private Double memoryMaxMb;
+
+    /** Message si le monitoring n'a pas (ou pas toujours) repondu ; l'execution continue normalement. */
+    @Column(name = "monitoring_message", length = 1000)
+    private String monitoringMessage;
+
+    /** Resume calcule une fois l'execution terminee (voir ExecutionStatsService) : P95 global (ms). */
+    @Column(name = "p95_ms")
+    private Long p95Ms;
+
+    /** Debit (req/s) hors pauses, meme calcul que le rapport. */
+    @Column(name = "throughput_rps")
+    private Double throughputRps;
+
+    /** P95 par etape : [{"name","method","p95","total"}]. */
+    @Column(name = "step_stats_json", length = 50000)
+    private String stepStatsJson;
+
+    /** Date du calcul du resume ; null = pas encore calcule. */
+    @Column(name = "stats_computed_at")
+    private Instant statsComputedAt;
+
     /**
      * P1-B — utilisateur reellement a l'origine de cette Execution (celui
      * qui a clique "Lancer", ou le proprietaire de la ScheduledExecution qui
@@ -130,6 +165,21 @@ public class Execution {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "triggered_by_app_user_id", updatable = false)
     private AppUser triggeredBy;
+
+    /** Seuils de reussite copies du scenario au lancement (null = execution anterieure aux seuils). */
+    @Column(name = "max_error_rate_percent", updatable = false)
+    private Double maxErrorRatePercent;
+
+    @Column(name = "max_p95_ms", updatable = false)
+    private Long maxP95Ms;
+
+    /** Utilisateur qui a annule l'execution (null = pas annulee, ou annulation automatique). */
+    @Column(name = "cancelled_by")
+    private String cancelledBy;
+
+    /** Planification a l'origine de cette execution (null = lancement manuel) ; simple id, sans cle etrangere. */
+    @Column(name = "schedule_id", updatable = false)
+    private UUID scheduleId;
 
     @Builder.Default
     @OneToMany(mappedBy = "execution", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)

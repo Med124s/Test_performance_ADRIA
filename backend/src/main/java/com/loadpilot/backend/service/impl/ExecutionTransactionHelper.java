@@ -4,6 +4,7 @@ import com.loadpilot.backend.entity.AppUser;
 import com.loadpilot.backend.entity.Execution;
 import com.loadpilot.backend.entity.ExecutionRequestDetail;
 import com.loadpilot.backend.entity.ExecutionStepResult;
+import com.loadpilot.backend.service.execution.ExecutionVerdict;
 import com.loadpilot.backend.service.execution.RequestDetail;
 import com.loadpilot.backend.entity.Scenario;
 import com.loadpilot.backend.entity.Step;
@@ -70,6 +71,7 @@ public class ExecutionTransactionHelper {
     private final ApplicationAuthSupport authSupport;
     private final com.loadpilot.backend.repository.ExecutionRequestDetailRepository requestDetailRepository;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final com.loadpilot.backend.service.monitoring.MonitoringSupport monitoringSupport;
 
     /**
      * Cree reellement l'Execution en base avec le statut QUEUED (P0-A) -
@@ -128,7 +130,10 @@ public class ExecutionTransactionHelper {
                 .successfulSteps(0)
                 .failedSteps(0)
                 .triggeredBy(triggeredByRef)
+                .scheduleId(scheduleId)
                 .requestDetailMode(scenario.getRequestDetailMode())
+                .maxErrorRatePercent(scenario.getMaxErrorRatePercent())
+                .maxP95Ms(scenario.getMaxP95Ms())
                 .build();
         Execution saved = executionRepository.saveAndFlush(execution);
 
@@ -211,6 +216,13 @@ public class ExecutionTransactionHelper {
     @Transactional
     public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
             String cancellationReason, boolean detailSampleCapReached) {
+        return finalizeExecution(executionId, outcome, wasCancelled, cancellationReason, detailSampleCapReached, null);
+    }
+
+    /** "cancelledBy" : utilisateur qui a demande l'annulation (affiche « Annulée par … »). */
+    @Transactional
+    public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
+            String cancellationReason, boolean detailSampleCapReached, String cancelledBy) {
         Execution execution = executionRepository.findByIdForUpdate(executionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + executionId));
 
@@ -257,10 +269,13 @@ public class ExecutionTransactionHelper {
         closePause(execution, finishedAt);
         execution.setSuccessfulSteps((int) successCount);
         execution.setFailedSteps((int) failCount);
-        execution.setStatus(wasCancelled ? ExecutionStatus.CANCELLED : outcome.finalStatus());
-        execution.setErrorMessage(wasCancelled
-                ? (cancellationReason != null ? cancellationReason : "Execution annulee par l'utilisateur.")
-                : outcome.errorMessage());
+        // Statut final selon les seuils de reussite copies au lancement (voir ExecutionVerdict).
+        ExecutionVerdict.Result verdict = ExecutionVerdict.decide(outcome, wasCancelled,
+                cancellationReason != null ? cancellationReason : "Execution annulee par l'utilisateur.",
+                execution.getMaxErrorRatePercent(), execution.getMaxP95Ms());
+        execution.setStatus(verdict.status());
+        execution.setErrorMessage(verdict.errorMessage());
+        if (wasCancelled && cancellationReason == null && cancelledBy != null) execution.setCancelledBy(cancelledBy);
         execution.setFinishedAt(finishedAt);
         execution.setDuration(Duration.between(execution.getStartedAt(), finishedAt).toMillis());
 
@@ -295,6 +310,12 @@ public class ExecutionTransactionHelper {
      */
     @Transactional
     public CancellationAttempt attemptCancellation(UUID executionId) {
+        return attemptCancellation(executionId, null);
+    }
+
+    /** "cancelledBy" : utilisateur qui annule (enregistre tout de suite pour une execution pas encore demarree). */
+    @Transactional
+    public CancellationAttempt attemptCancellation(UUID executionId, String cancelledBy) {
         // JOIN FETCH necessaire ici (contrairement a markRunning/
         // finalizeExecution) : le resultat est mappe en reponse HTTP par
         // l'appelant APRES le retour de cette methode transactionnelle.
@@ -305,6 +326,7 @@ public class ExecutionTransactionHelper {
             Instant finishedAt = Instant.now();
             execution.setStatus(ExecutionStatus.CANCELLED);
             execution.setErrorMessage("Execution annulee par l'utilisateur avant son demarrage.");
+            execution.setCancelledBy(cancelledBy);
             execution.setFinishedAt(finishedAt);
             execution.setDuration(Duration.between(execution.getStartedAt(), finishedAt).toMillis());
             Execution saved = executionRepository.saveAndFlush(execution);
@@ -337,7 +359,7 @@ public class ExecutionTransactionHelper {
     /** Message clair expliquant pourquoi une pause est refusee, selon le statut reel. */
     public static String pauseRefusal(ExecutionStatus status) {
         return switch (status) {
-            case SUCCESS, FAILED, CANCELLED -> PAUSE_FINISHED;
+            case SUCCESS, THRESHOLDS_EXCEEDED, FAILED, CANCELLED -> PAUSE_FINISHED;
             case QUEUED -> PAUSE_QUEUED;
             case PAUSED -> ALREADY_PAUSED;
             case RUNNING -> PAUSE_NOT_RUNNING;
@@ -394,6 +416,57 @@ public class ExecutionTransactionHelper {
         if (json == null || json.length() > 100000) return;
         executionRepository.findById(executionId).ifPresent(execution -> {
             execution.setTimelineJson(json);
+            executionRepository.saveAndFlush(execution);
+        });
+    }
+
+    // ------------------------------------------------------------ monitoring CPU / RAM
+
+    /** Monitoring de l'application testee par cette execution (enabled() = false si non configure). */
+    @Transactional(readOnly = true)
+    public com.loadpilot.backend.service.monitoring.MonitoringConfig monitoringConfig(UUID executionId) {
+        return executionRepository.findByIdWithScenarioAndApplication(executionId)
+                .map(e -> monitoringSupport.toConfig(e.getScenario().getApplication()))
+                .orElse(null);
+    }
+
+    /**
+     * Mesures CPU / RAM de l'execution : JSON pour la courbe, resume (CPU moyen / max, RAM max) pour
+     * les listes, message si le monitoring n'a pas toujours repondu.
+     */
+    @Transactional
+    public void saveResources(UUID executionId, com.loadpilot.backend.service.monitoring.ResourceTrack track) {
+        List<com.loadpilot.backend.service.monitoring.ResourceTrack.Sample> samples = track.samples();
+        List<Object[]> rows = new java.util.ArrayList<>(samples.size());
+        double cpuSum = 0;
+        int cpuCount = 0;
+        Double cpuMax = null;
+        Double memMax = null;
+        for (var s : samples) {
+            rows.add(new Object[] {s.atMs(), s.cpuPercent(), s.memoryMb()});
+            if (s.cpuPercent() != null) {
+                cpuSum += s.cpuPercent();
+                cpuCount++;
+                cpuMax = cpuMax == null ? s.cpuPercent() : Math.max(cpuMax, s.cpuPercent());
+            }
+            if (s.memoryMb() != null) memMax = memMax == null ? s.memoryMb() : Math.max(memMax, s.memoryMb());
+        }
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("source", track.source());
+        payload.put("intervalSeconds", track.intervalSeconds());
+        payload.put("memoryMetric", track.memoryMetric());
+        payload.put("samples", rows);
+        String json = writeJson(payload);
+        Double cpuAvg = cpuCount == 0 ? null : Math.round(cpuSum / cpuCount * 10) / 10.0;
+        Double finalCpuMax = cpuMax;
+        Double finalMemMax = memMax;
+        String message = track.message();
+        executionRepository.findById(executionId).ifPresent(execution -> {
+            execution.setResourceJson(json != null && json.length() <= 200000 ? json : null);
+            execution.setCpuAvgPercent(cpuAvg);
+            execution.setCpuMaxPercent(finalCpuMax);
+            execution.setMemoryMaxMb(finalMemMax);
+            execution.setMonitoringMessage(message == null ? null : message.length() > 1000 ? message.substring(0, 1000) : message);
             executionRepository.saveAndFlush(execution);
         });
     }

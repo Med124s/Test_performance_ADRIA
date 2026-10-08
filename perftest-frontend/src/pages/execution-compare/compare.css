@@ -1,0 +1,18 @@
+/* « Comparer des exécutions » (préfixe cp-). */
+.cp-table th, .cp-table td { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cp-table tbody th { font-weight: 600; color: var(--pt-text); font-size: 13px; }
+.cp-col-title { font-weight: 700; color: var(--pt-text); text-decoration: none; text-transform: none; }
+.cp-col-title:hover { color: var(--pt-primary); }
+.cp-muted { color: var(--pt-text-muted); font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.cp-best { color: var(--pt-success); font-weight: 700; background: color-mix(in srgb, var(--pt-success) 10%, transparent); }
+.cp-worst { color: var(--pt-danger); font-weight: 700; background: color-mix(in srgb, var(--pt-danger) 10%, transparent); }
+.cp-legend { padding: 0 0.35rem; border-radius: 4px; }
+.cp-note { margin: 0; padding: 0.6rem 1rem 0.9rem; font-size: 12px; color: var(--pt-text-muted); }
+.cp-title { font-size: 15px; font-weight: 700; color: var(--pt-text); margin: 0 0 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+.cp-title i { color: var(--pt-primary); }
+.cp-chart { position: relative; height: 300px; }
+.cp-reading { margin-top: 0.75rem; font-size: 13px; color: var(--pt-text); }
+.cp-method { font-size: 10.5px; font-weight: 700; color: var(--pt-text-muted); margin-right: 0.4rem; }
+[data-theme="dark"] .cp-best { color: #86EFAC; }
+[data-theme="dark"] .cp-worst { color: #FCA5A5; }
+@media (max-width: 576px) { .cp-chart { height: 240px; } }

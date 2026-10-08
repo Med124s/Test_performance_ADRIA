@@ -15,6 +15,7 @@ import com.loadpilot.backend.dto.request.ExecutionRequest;
 import com.loadpilot.backend.dto.request.ScenarioRequest;
 import com.loadpilot.backend.dto.request.StepRequest;
 import com.loadpilot.backend.enums.HttpMethod;
+import com.loadpilot.backend.enums.NotificationType;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -89,14 +90,14 @@ class NotificationPreferenceControllerTest {
     }
 
     @Test
-    void list_defaultsAllFiveTypesToEnabled_optOutModel() throws Exception {
+    void list_defaultsAllTypesToEnabled_optOutModel() throws Exception {
         RequestPostProcessor user = asUser("notif-pref-default-" + UUID.randomUUID());
 
         String response = mockMvc.perform(get("/api/notification-preferences").with(user))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode content = objectMapper.readTree(response);
-        assertThat(content).hasSize(5);
+        assertThat(content).hasSize(NotificationType.values().length);
         for (JsonNode entry : content) {
             assertThat(entry.get("enabled").asBoolean()).isTrue();
         }

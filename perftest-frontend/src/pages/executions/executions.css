@@ -1,0 +1,140 @@
+/* Page Exécutions (préfixe ex-) : même langage visuel que Applications / Scénarios, variables --pt-* (thème clair / sombre). */
+
+.ex-header { align-items: center; }
+.ex-launch { white-space: nowrap; }
+.ex-muted { color: var(--pt-text-muted); font-size: 12px; }
+
+/* ---- barre de filtres : une ligne, éléments de même hauteur (38 px) */
+.ex-filters { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.ex-filters .pt-form-control, .ex-filters .pt-search input { height: 38px; }
+.ex-filter-search { min-width: 0; flex: 1 1 240px; max-width: 320px; }
+.ex-filter-scenario { flex: 0 1 220px; min-width: 180px; }
+.ex-filter-scenario input { height: 38px; }
+.ex-filters .pt-search { min-width: 0; }
+.ex-filter-select { width: auto; flex: 0 1 200px; min-width: 160px; height: 38px; }
+.ex-custom-dates { display: inline-flex; align-items: center; gap: 0.4rem; }
+.ex-date { width: 118px; height: 38px; font-variant-numeric: tabular-nums; }
+.ex-reset { height: 38px; white-space: nowrap; }
+
+/* ---- carte du tableau et onglets de statut collés au tableau */
+.pt-card.ex-card { padding: 0; overflow: hidden; min-width: 0; }
+.ex-tabs { display: flex; gap: 0.25rem; padding: 0.5rem 0.75rem 0; border-bottom: 1px solid var(--pt-border); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.ex-tab { border: none; background: none; padding: 0.55rem 0.8rem 0.6rem; font-size: 13px; font-weight: 600; color: var(--pt-text-muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;
+  border-radius: 6px 6px 0 0; transition: color 0.15s ease, background 0.15s ease; }
+.ex-tab:hover { color: var(--pt-text); background: var(--pt-sidebar-item-hover); }
+.ex-tab.active { color: var(--pt-primary); border-bottom-color: var(--pt-primary); }
+.ex-tab-count { font-size: 11px; font-weight: 700; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--pt-sidebar-item-hover);
+  color: var(--pt-text-muted); font-variant-numeric: tabular-nums; }
+.ex-tab.active .ex-tab-count { background: var(--pt-primary); color: #fff; }
+.ex-tab.empty { color: var(--pt-text-light, var(--pt-text-muted)); opacity: 0.6; }
+.ex-tab:focus-visible { outline: 2px solid var(--pt-primary); outline-offset: -2px; }
+.ex-bulk { margin: 0.75rem 0.75rem 0; }
+
+/* ---- tableau */
+/* position: relative : le libellé masqué « Actions » (lecteurs d'écran) reste dans la zone qui défile. */
+.ex-table-wrap { overflow-x: auto; position: relative; }
+.ex-table { width: 100%; min-width: 1080px; border-collapse: collapse; }
+.ex-table th { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--pt-text-muted);
+  padding: 0.65rem 0.5rem; border-bottom: 1px solid var(--pt-border); white-space: nowrap; text-align: left; background: var(--pt-card-bg); }
+.ex-table th:first-child, .ex-table td:first-child { padding-left: 1rem; }
+.ex-table th:last-child, .ex-table td:last-child { padding-right: 0.75rem; }
+.ex-table td { padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--pt-border); font-size: 13px; color: var(--pt-text); white-space: nowrap; vertical-align: middle; }
+.ex-table tbody tr:last-child td { border-bottom: none; }
+.ex-table.rp-table { min-width: 860px; }
+.ex-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.ex-table th.num .ex-sort { flex-direction: row-reverse; }
+.ex-row { cursor: pointer; transition: background 0.12s ease; }
+.ex-row:hover { background: var(--pt-sidebar-item-hover); }
+.ex-row.selected { background: color-mix(in srgb, var(--pt-primary) 8%, transparent); }
+.ex-col-check { width: 40px; padding-right: 0 !important; }
+.ex-col-actions { width: 1%; text-align: right; }
+
+.ex-sort { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+.ex-sort:focus-visible { outline: 2px solid var(--pt-primary); outline-offset: 2px; border-radius: 4px; }
+.ex-sort-icon { font-size: 10px; opacity: 0; transition: opacity 0.15s ease; }
+.ex-th-sort:hover .ex-sort-icon, .ex-sort:focus-visible .ex-sort-icon { opacity: 0.5; }
+.ex-th-sort.sorted { color: var(--pt-text); }
+.ex-th-sort.sorted .ex-sort-icon { opacity: 1; }
+
+.ex-scenario { max-width: 250px; }
+.ex-scenario-name { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.ex-scenario-app { display: block; font-size: 11.5px; color: var(--pt-text-muted); overflow: hidden; text-overflow: ellipsis; }
+.ex-pill { font-size: 11.5px; }
+.ex-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
+.ex-progress { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem; font-size: 11px; }
+.ex-progress-bar { width: 72px; height: 4px !important; margin: 0 !important; }
+.ex-requests { white-space: nowrap; }
+.ex-rate { display: inline-block; margin-left: 0.35rem; padding: 0 0.35rem; border-radius: 999px; font-size: 11px; font-weight: 600;
+  color: var(--pt-text-muted); background: var(--pt-sidebar-item-hover); }
+.ex-rate.bad { color: var(--pt-danger); background: var(--pt-danger-light); }
+[data-theme="dark"] .ex-rate.bad { color: #FCA5A5; }
+.ex-started { color: var(--pt-text-muted); cursor: help; }
+
+/* Raison du statut, écart de P95, barre CPU */
+.ex-status-reason { display: block; margin-top: 0.2rem; font-size: 11px; color: var(--pt-text-muted); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-p95 { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0.1rem; }
+.ex-delta { font-size: 11px; font-weight: 600; cursor: help; }
+.ex-delta.worse { color: var(--pt-danger); }
+.ex-delta.better { color: var(--pt-success); }
+.ex-delta.same, .ex-delta.none { color: var(--pt-text-muted); font-weight: 500; }
+[data-theme="dark"] .ex-delta.worse { color: #FCA5A5; }
+[data-theme="dark"] .ex-delta.better { color: #86EFAC; }
+.ex-cpu { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; }
+.ex-cpu-track { display: block; width: 52px; height: 4px; border-radius: 999px; background: var(--pt-sidebar-item-hover); overflow: hidden; }
+.ex-cpu-bar { display: block; height: 100%; border-radius: 999px; }
+.ex-cpu-bar.ok { background: var(--pt-success); }
+.ex-cpu-bar.warn { background: var(--pt-warning); }
+.ex-cpu-bar.high { background: var(--pt-danger); }
+
+.ex-actions { display: inline-flex; align-items: center; gap: 0.1rem; }
+.ex-icon-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
+  border: 1px solid transparent; background: none; color: var(--pt-text-muted); cursor: pointer; font-size: 14px; transition: all 0.12s ease; }
+.ex-icon-btn:hover { border-color: var(--pt-border); color: var(--pt-text); background: var(--pt-card-bg); }
+.ex-icon-btn:focus-visible { outline: 2px solid var(--pt-primary); outline-offset: 1px; }
+.ex-icon-btn.ex-icon-danger:hover { color: var(--pt-danger); border-color: color-mix(in srgb, var(--pt-danger) 40%, var(--pt-border)); }
+[data-theme="dark"] .ex-icon-btn.ex-icon-danger:hover { color: #FCA5A5; }
+.ex-icon-btn[aria-expanded="true"] { border-color: var(--pt-border); color: var(--pt-text); }
+.ex-menu-list { position: fixed; z-index: 1050; padding: 0.3rem; border-radius: 10px; border: 1px solid var(--pt-border);
+  background: var(--pt-card-bg); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); display: flex; flex-direction: column; }
+.ex-menu-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem; border: none; background: none; border-radius: 6px;
+  font-size: 13px; color: var(--pt-text); text-align: left; cursor: pointer; }
+.ex-menu-item:hover:not(:disabled), .ex-menu-item:focus-visible { background: var(--pt-sidebar-item-hover); outline: none; }
+.ex-menu-item.danger { color: var(--pt-danger); }
+[data-theme="dark"] .ex-menu-item.danger { color: #FCA5A5; }
+.ex-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- états */
+.ex-skeleton { height: 18px; border-radius: 6px; background: linear-gradient(90deg, var(--pt-sidebar-item-hover) 25%, var(--pt-border) 50%, var(--pt-sidebar-item-hover) 75%);
+  background-size: 200% 100%; animation: ex-shimmer 1.2s linear infinite; }
+@keyframes ex-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .ex-skeleton { animation: none; } }
+.ex-empty { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 2.25rem 1rem; color: var(--pt-text-muted); white-space: normal; }
+.ex-empty i { font-size: 28px; }
+.ex-empty p { margin: 0; font-size: 13.5px; }
+.ex-empty-row td, .ex-skeleton-row td { cursor: default; }
+
+/* ---- tablette : filtres sur deux lignes */
+@media (max-width: 1100px) {
+  .ex-filter-search { max-width: none; flex-basis: 100%; }
+}
+
+/* ---- mobile : une carte par exécution */
+@media (max-width: 720px) {
+  .ex-filters > * { flex: 1 1 100%; max-width: none; min-width: 0; }
+  .ex-filter-select { width: 100%; }
+  .ex-custom-dates { display: flex; }
+  .ex-date { flex: 1; width: auto; }
+  .ex-header .ex-launch { width: 100%; justify-content: center; }
+  .ex-table, .ex-table.rp-table { min-width: 0; }
+  .ex-table thead { display: none; }
+  .ex-table, .ex-table tbody, .ex-table tr, .ex-table td { display: block; width: 100%; }
+  .ex-table tr.ex-row { position: relative; border-bottom: 1px solid var(--pt-border); padding: 0.6rem 0.75rem 0.6rem 2.6rem; }
+  .ex-table td { border: none; padding: 0.15rem 0; white-space: normal; }
+  .ex-table td.num, .ex-table td.ex-started { display: inline-flex; width: auto; margin-right: 0.9rem; text-align: left; font-size: 12.5px; }
+  .ex-table td.num::before, .ex-table td.ex-started::before { content: attr(data-label) " "; color: var(--pt-text-muted); margin-right: 0.3rem; }
+  .ex-table .ex-col-check { position: absolute; left: 0.75rem; top: 0.75rem; width: auto; padding: 0 !important; }
+  .ex-table .ex-col-actions { position: absolute; right: 0.5rem; top: 0.45rem; width: auto; }
+  .ex-scenario { max-width: calc(100% - 110px); }
+  .ex-status { margin: 0.15rem 0 0.25rem; }
+}

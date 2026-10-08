@@ -1,13 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { FocusEvent, MouseEvent, useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { notificationsBackendApi } from '../services/api/notificationsBackend'
+import { executionsBackendApi } from '../services/api/executionsBackend'
+import { roleLabelFromRawRoles } from '../utils/appRoles'
+import LaunchTestModal from './LaunchTestModal'
+import './navigation.css'
 
-/** P1-B — intervalle de rafraîchissement du badge (léger : un seul COUNT
- * côté backend, voir NotificationController#unreadCount) - même ordre de
- * grandeur que le poll de statut d'une Execution en cours ailleurs dans
- * l'app, jamais un websocket/SSE non demandé par le prompt. */
-const UNREAD_POLL_INTERVAL_MS = 20000
+// ============================================================
+// Barre latérale de LoadPilot, en français :
+//   Dashboard (seul)
+//   TESTS : Applications, Scénarios, Exécutions (badge : en cours), Planification
+//   ANALYSE : Comparer
+//   ADMINISTRATION (Super Administrateur) : Utilisateurs et rôles, Journal d'audit, Paramètres
+// « Lancer un test » ouvre le choix du scénario puis le suivi en direct ;
+// thème clair / sombre par un bouton icône ; carte utilisateur avec menu
+// (Mon profil, Déconnexion). Mode réduit : icônes seules avec infobulle
+// (survol ET focus clavier), élément actif marqué d'une barre.
+// Les notifications sont dans la cloche du header (plus dans ce menu).
+// ============================================================
+
+/** Rafraîchissement du badge « en cours » d'Exécutions (une requête légère). */
+const RUNNING_POLL_INTERVAL_MS = 15000
 
 interface SidebarProps {
   darkMode: boolean
@@ -21,270 +34,248 @@ interface NavItem {
   path: string
   icon: string
   label: string
+  /** Actif aussi pour ces sous-chemins (ex. /executions/report/…) ; jamais pour `except`. */
+  match?: (pathname: string) => boolean
   badge?: number
+  badgeLabel?: string
 }
 
-// Section "OVERVIEW" : le cœur du flux de travail de test de performance.
-const overviewItems: NavItem[] = [
-  { path: '/', icon: 'bi-grid-1x2-fill', label: 'Dashboard' },
-  { path: '/applications', icon: 'bi-globe2', label: 'Applications' },
-  { path: '/scenarios', icon: 'bi-collection-play', label: 'Scénarios' },
-  { path: '/executions', icon: 'bi-play-circle', label: 'Exécutions' },
-  { path: '/metriques', icon: 'bi-graph-up', label: 'Métriques' },
-  { path: '/rapports', icon: 'bi-file-earmark-bar-graph', label: 'Rapports' },
-  { path: '/historique', icon: 'bi-clock-history', label: 'Historique' },
-  { path: '/notifications', icon: 'bi-bell', label: 'Notifications' },
-  { path: '/planification', icon: 'bi-calendar-week', label: 'Planification' },
-]
-
-// Section "ACCOUNT" : administration & réglages.
-const accountItems: NavItem[] = [
-  { path: '/users-roles', icon: 'bi-people', label: 'Users & Roles' },
-  { path: '/roles-catalog', icon: 'bi-shield-lock', label: 'Catalogue des rôles' },
-  { path: '/audit-logs', icon: 'bi-shield-check', label: 'Audit Logs' },
-  { path: '/configurations', icon: 'bi-gear', label: 'Configurations' },
-  { path: '/settings', icon: 'bi-sliders', label: 'Settings' },
-]
-
-const allItems = [...overviewItems, ...accountItems]
+interface NavSection {
+  id: string
+  label: string | null
+  items: NavItem[]
+}
 
 interface FloatingLabel {
   top: number
   text: string
 }
 
+const isUnder = (base: string) => (p: string) => p === base || p.startsWith(base + '/')
+
 function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: SidebarProps) {
-  const { user, logout } = useAuth()
+  const { user, logout, authProvider, rawRoles } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const isSuperAdmin = authProvider === 'keycloak' && rawRoles.includes('ROLE_SUPER_ADMIN')
+  const canLaunch = authProvider === 'keycloak' && (isSuperAdmin || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
 
-  // Desktop : icônes + libellés (déplié) ou icônes seules (replié) — la
-  // préférence est mémorisée. Sur mobile/tablette, ce réglage est ignoré :
-  // le tiroir affiche toujours le menu complet une fois ouvert.
-  const [isExpanded, setIsExpanded] = useState(
-    () => localStorage.getItem('pt_sidebar_expanded') !== '0'
-  )
+  // Desktop : déplié (icônes + libellés) ou replié (icônes seules), préférence mémorisée.
+  // Sur mobile/tablette, le tiroir affiche toujours le menu complet.
+  const [isExpanded, setIsExpanded] = useState(() => {
+    try { return localStorage.getItem('pt_sidebar_expanded') !== '0' } catch { return true }
+  })
   const toggleExpanded = () => {
     setIsExpanded((prev) => {
       const next = !prev
-      localStorage.setItem('pt_sidebar_expanded', next ? '1' : '0')
+      try { localStorage.setItem('pt_sidebar_expanded', next ? '1' : '0') } catch { /* préférence non mémorisée */ }
       return next
     })
   }
 
-  // Étiquette flottante (mode replié uniquement) : navigue ET affiche son
-  // libellé pour la page active ; le survol affiche aussi un aperçu.
+  // Exécutions en cours (en attente, en cours, en pause) : badge sur « Exécutions », masqué à 0.
+  const [running, setRunning] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    const poll = () => {
+      executionsBackendApi.getPage({ page: 0, size: 5 })
+        .then((r) => { if (!cancelled) setRunning((r.counts.queued ?? 0) + (r.counts.running ?? 0) + (r.counts.paused ?? 0)) })
+        .catch(() => { /* badge non critique */ })
+    }
+    poll()
+    const timer = setInterval(poll, RUNNING_POLL_INTERVAL_MS)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [location.pathname])
+
+  const sections: NavSection[] = [
+    { id: 'home', label: null, items: [{ path: '/', icon: 'bi-grid-1x2-fill', label: 'Dashboard', match: (p) => p === '/' }] },
+    {
+      id: 'tests', label: 'Tests', items: [
+        { path: '/applications', icon: 'bi-globe2', label: 'Applications' },
+        { path: '/scenarios', icon: 'bi-collection-play', label: 'Scénarios' },
+        {
+          path: '/executions', icon: 'bi-play-circle', label: 'Exécutions',
+          match: (p) => isUnder('/executions')(p) && !isUnder('/executions/compare')(p),
+          badge: running > 0 ? running : undefined, badgeLabel: `${running} exécution${running > 1 ? 's' : ''} en cours`,
+        },
+        { path: '/planification', icon: 'bi-calendar-week', label: 'Planification' },
+      ],
+    },
+    { id: 'analyse', label: 'Analyse', items: [{ path: '/executions/compare', icon: 'bi-layout-three-columns', label: 'Comparer' }] },
+    ...(isSuperAdmin ? [{
+      id: 'admin', label: 'Administration', items: [
+        { path: '/utilisateurs', icon: 'bi-people', label: 'Utilisateurs et rôles' },
+        { path: '/audit-logs', icon: 'bi-shield-check', label: 'Journal d’audit' },
+        { path: '/parametres', icon: 'bi-gear', label: 'Paramètres' },
+      ],
+    }] : []),
+  ]
+  const allItems = sections.flatMap((s) => s.items)
+  const isActive = (item: NavItem) => (item.match ?? isUnder(item.path))(location.pathname)
+
+  // Infobulle flottante (mode replié) : au survol et au focus clavier ; libellé de la page active sinon.
   const itemRefs = useRef<Record<string, HTMLElement | null>>({})
   const [hoveredLabel, setHoveredLabel] = useState<FloatingLabel | null>(null)
   const [activeLabel, setActiveLabel] = useState<FloatingLabel | null>(null)
-
-  const computeActiveLabel = () => {
-    if (isExpanded) { setActiveLabel(null); return }
-    const active = allItems.find((item) =>
-      item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)
-    )
-    if (active) {
-      const el = itemRefs.current[active.path]
-      if (el) {
-        const rect = el.getBoundingClientRect()
-        setActiveLabel({ top: rect.top + rect.height / 2, text: active.label })
-        return
-      }
-    }
-    setActiveLabel(null)
+  const labelAt = (el: HTMLElement, text: string): FloatingLabel => {
+    const rect = el.getBoundingClientRect()
+    return { top: rect.top + rect.height / 2, text }
   }
-
   useEffect(() => {
-    const id = requestAnimationFrame(computeActiveLabel)
+    const id = requestAnimationFrame(() => {
+      if (isExpanded) { setActiveLabel(null); return }
+      const active = allItems.find(isActive)
+      const el = active ? itemRefs.current[active.path] : null
+      setActiveLabel(active && el ? labelAt(el, active.label) : null)
+    })
     return () => cancelAnimationFrame(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, isExpanded])
+  const showLabel = (text: string) => (e: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>) => {
+    if (!isExpanded) setHoveredLabel(labelAt(e.currentTarget, text))
+  }
+  const hideLabel = () => setHoveredLabel(null)
+  const floatingLabel = !isExpanded ? (hoveredLabel || activeLabel) : null
 
-  // Ferme le tiroir mobile automatiquement après une navigation.
+  // Ferme le tiroir mobile après une navigation.
   useEffect(() => {
     onCloseMobile()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
-  // P1-B — compteur RÉEL (voir NotificationController#unreadCount), plus
-  // jamais lu depuis localStorage (utils/notificationsStore.ts, supprimé).
-  const [unreadCount, setUnreadCount] = useState(0)
+  // Menu de la carte utilisateur.
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const userButtonRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
-    let cancelled = false
-    const poll = () => {
-      notificationsBackendApi.unreadCount()
-        .then((res) => { if (!cancelled) setUnreadCount(res.count) })
-        .catch(() => { /* silencieux : un badge qui ne se rafraîchit pas un cycle n'est jamais critique */ })
-    }
-    poll()
-    const interval = setInterval(poll, UNREAD_POLL_INTERVAL_MS)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [])
+    if (!userMenuOpen) return
+    const onDown = (e: globalThis.MouseEvent) => { if (!userMenuRef.current?.contains(e.target as Node)) setUserMenuOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setUserMenuOpen(false); userButtonRef.current?.focus() } }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [userMenuOpen])
+  useEffect(() => { setUserMenuOpen(false) }, [location.pathname])
 
-  const navOverviewItems = overviewItems.map((item) =>
-    item.path === '/notifications' && unreadCount > 0 ? { ...item, badge: unreadCount } : item
-  )
+  const [launchOpen, setLaunchOpen] = useState(false)
 
   const handleLogout = () => {
+    setUserMenuOpen(false)
+    // Keycloak ferme la session puis renvoie vers l'application, qui (non
+    // connectée) affiche directement la page de connexion LoadPilot.
     logout()
-    navigate('/login', { replace: true })
   }
 
-  const showHover = (path: string, label: string) => (e: React.MouseEvent<HTMLElement>) => {
-    if (isExpanded) return
-    itemRefs.current[path] = e.currentTarget
-    const rect = e.currentTarget.getBoundingClientRect()
-    setHoveredLabel({ top: rect.top + rect.height / 2, text: label })
+  const renderNavLink = (item: NavItem) => {
+    const active = isActive(item)
+    return (
+      <Link
+        key={item.path}
+        ref={(el) => { itemRefs.current[item.path] = el }}
+        to={item.path}
+        className={`nav-link ${active ? 'active' : ''}`}
+        aria-current={active ? 'page' : undefined}
+        aria-label={item.badge ? `${item.label} (${item.badgeLabel})` : item.label}
+        onMouseEnter={showLabel(item.label)}
+        onMouseLeave={hideLabel}
+        onFocus={showLabel(item.label)}
+        onBlur={hideLabel}
+        onClick={hideLabel}
+      >
+        <i className={`bi ${item.icon}`} aria-hidden="true"></i>
+        <span className="pt-sidebar-label-text">{item.label}</span>
+        {item.badge ? <span className="badge sb-badge" title={item.badgeLabel} aria-hidden="true">{item.badge}</span> : null}
+      </Link>
+    )
   }
-  const hideHover = () => setHoveredLabel(null)
 
-  const renderNavLink = (item: NavItem) => (
-    <NavLink
-      key={item.path}
-      ref={(el) => { itemRefs.current[item.path] = el }}
-      to={item.path}
-      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-      end={item.path === '/'}
-      onMouseEnter={showHover(item.path, item.label)}
-      onMouseLeave={hideHover}
-      onClick={hideHover}
-    >
-      <i className={`bi ${item.icon}`}></i>
-      <span className="pt-sidebar-label-text">{item.label}</span>
-      {item.badge ? (
-        <span className="badge" style={{ background: 'var(--pt-primary)' }}>{item.badge}</span>
-      ) : null}
-    </NavLink>
-  )
-
-  // En mode replié : le survol prime sur le libellé "actif" permanent.
-  const floatingLabel = !isExpanded ? (hoveredLabel || activeLabel) : null
+  const themeLabel = darkMode ? 'Passer en mode clair' : 'Passer en mode sombre'
+  const userName = user?.name || 'Utilisateur'
 
   return (
     <>
-      {/* Fond semi-transparent (mobile/tablette uniquement) : referme le
-          tiroir au clic en dehors. */}
-      {mobileOpen && (
-        <div className="pt-nav-backdrop" onClick={onCloseMobile} aria-hidden="true"></div>
-      )}
+      {/* Fond semi-transparent (mobile/tablette) : referme le tiroir au clic en dehors. */}
+      {mobileOpen && <div className="pt-nav-backdrop" onClick={onCloseMobile} aria-hidden="true"></div>}
 
-      <aside className={`pt-sidebar ${isExpanded ? 'expanded' : 'collapsed'} ${mobileOpen ? 'mobile-open' : ''}`}>
+      <aside className={`pt-sidebar ${isExpanded ? 'expanded' : 'collapsed'} ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Navigation principale">
         <div className="pt-sidebar-brand">
-          <button
-            className="brand-icon"
-            style={{ border: 'none', cursor: 'pointer' }}
-            onClick={() => navigate('/')}
-            title="Aller au Dashboard"
-            aria-label="Aller au Dashboard"
-          >
-            <i className="bi bi-speedometer2"></i>
+          <button className="brand-icon" style={{ border: 'none', cursor: 'pointer' }} onClick={() => navigate('/')}
+            title="LoadPilot — aller au Dashboard" aria-label="LoadPilot — aller au Dashboard">
+            <i className="bi bi-speedometer2" aria-hidden="true"></i>
           </button>
-          {isExpanded && (
-            <div className="brand-text">
-              <h5>Cadence</h5>
-              <small>Performance Testing Platform</small>
-            </div>
-          )}
-          <button
-            className="pt-sidebar-collapse-btn d-none d-lg-flex"
-            onClick={toggleExpanded}
-            title={isExpanded ? 'Replier le menu' : 'Déplier le menu'}
-            aria-label={isExpanded ? 'Replier le menu' : 'Déplier le menu'}
-          >
-            <i className={`bi ${isExpanded ? 'bi-chevron-left' : 'bi-chevron-right'}`}></i>
+          <div className="brand-text sb-when-expanded">
+            <h5>LoadPilot</h5>
+            <small>Tests de performance</small>
+          </div>
+          <button className="pt-sidebar-collapse-btn d-none d-lg-flex" onClick={toggleExpanded}
+            title={isExpanded ? 'Réduire le menu' : 'Agrandir le menu'} aria-label={isExpanded ? 'Réduire le menu' : 'Agrandir le menu'}
+            aria-expanded={isExpanded}>
+            <i className={`bi ${isExpanded ? 'bi-chevron-left' : 'bi-chevron-right'}`} aria-hidden="true"></i>
           </button>
-          <button
-            className="pt-sidebar-collapse-btn d-lg-none"
-            onClick={onCloseMobile}
-            title="Fermer le menu"
-            aria-label="Fermer le menu"
-          >
-            <i className="bi bi-x-lg"></i>
+          <button className="pt-sidebar-collapse-btn d-lg-none" onClick={onCloseMobile} title="Fermer le menu" aria-label="Fermer le menu">
+            <i className="bi bi-x-lg" aria-hidden="true"></i>
           </button>
         </div>
 
-        {/* CTA Lancer un Test */}
-        <div style={{ padding: '0 12px', marginBottom: '8px' }}>
-          <NavLink
-            to="/executions"
-            onMouseEnter={showHover('/executions-cta', 'Lancer un Test')}
-            onMouseLeave={hideHover}
-            onClick={hideHover}
-            style={({ isActive }) => ({
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: isExpanded ? 'flex-start' : 'center',
-              gap: '10px',
-              background: isActive ? 'var(--pt-primary-dark)' : 'var(--pt-primary)',
-              color: 'white',
-              padding: isExpanded ? '10px 14px' : '10px',
-              borderRadius: 'var(--pt-radius-sm)',
-              fontWeight: 600,
-              fontSize: '13.5px',
-              textDecoration: 'none',
-              boxShadow: '0 2px 8px rgba(79,70,229,0.35)',
-              transition: 'background 0.15s',
-            })}
-          >
-            <i className="bi bi-lightning-charge-fill"></i>
-            {isExpanded && <span>Lancer un Test</span>}
-          </NavLink>
-        </div>
+        {/* Lancer un test : choix du scénario puis suivi en direct (rôles autorisés à lancer). */}
+        {canLaunch && (
+          <div className="sb-cta-wrap">
+            <button type="button" className="sb-cta" onClick={() => { hideLabel(); setLaunchOpen(true) }}
+              onMouseEnter={showLabel('Lancer un test')} onMouseLeave={hideLabel} onFocus={showLabel('Lancer un test')} onBlur={hideLabel}
+              aria-label="Lancer un test" aria-haspopup="dialog">
+              <i className="bi bi-lightning-charge-fill" aria-hidden="true"></i>
+              <span className="pt-sidebar-label-text">Lancer un test</span>
+            </button>
+          </div>
+        )}
 
         <nav className="pt-sidebar-nav">
-          {isExpanded && <div className="pt-sidebar-section-label">Overview</div>}
-          {navOverviewItems.map(renderNavLink)}
-          <div className="pt-sidebar-divider"></div>
-          {isExpanded && <div className="pt-sidebar-section-label">Account</div>}
-          {accountItems.map(renderNavLink)}
+          {sections.map((section, i) => (
+            <div key={section.id} role="group" aria-label={section.label ?? undefined}>
+              {i > 1 && <div className="pt-sidebar-divider sb-when-collapsed" aria-hidden="true"></div>}
+              {section.label && <div className="pt-sidebar-section-label sb-when-expanded" aria-hidden="true">{section.label}</div>}
+              {section.items.map(renderNavLink)}
+            </div>
+          ))}
         </nav>
 
-        <div className="pt-sidebar-footer">
-          <button
-            className="nav-link pt-sidebar-logout-link"
-            onClick={handleLogout}
-            onMouseEnter={showHover('/logout', 'Déconnexion')}
-            onMouseLeave={hideHover}
-          >
-            <i className="bi bi-box-arrow-right"></i>
-            <span className="pt-sidebar-label-text">Déconnexion</span>
-          </button>
-
-          <div
-            className={`user-profile ${!isExpanded ? 'collapsed' : ''}`}
-            onMouseEnter={showHover('/user', user?.name || 'Admin User')}
-            onMouseLeave={hideHover}
-          >
-            <div className="user-avatar">{user?.initials || 'AU'}</div>
-            {isExpanded && (
-              <div className="user-info">
-                <h6>{user?.name || 'Admin User'}</h6>
-                <small>{user?.role || 'Admin'}</small>
+        <div className="pt-sidebar-footer sb-footer">
+          <div className="sb-user" ref={userMenuRef}>
+            <button ref={userButtonRef} type="button" className="sb-user-btn" aria-haspopup="menu" aria-expanded={userMenuOpen}
+              aria-label={`Menu de ${userName}`} onClick={() => setUserMenuOpen((o) => !o)}
+              onMouseEnter={showLabel(userName)} onMouseLeave={hideLabel} onFocus={showLabel(userName)} onBlur={hideLabel}>
+              <span className="user-avatar" aria-hidden="true">{user?.initials || 'U'}</span>
+              <span className="user-info sb-when-expanded">
+                <span className="sb-user-name">{userName}</span>
+                <small>{roleLabelFromRawRoles(rawRoles)}</small>
+              </span>
+              <i className="bi bi-chevron-up sb-when-expanded sb-user-chevron" aria-hidden="true"></i>
+            </button>
+            {userMenuOpen && (
+              <div className="sb-user-menu" role="menu" aria-label="Compte">
+                <button type="button" role="menuitem" className="sb-menu-item" onClick={() => navigate('/parametres?tab=profil')}>
+                  <i className="bi bi-person-circle" aria-hidden="true"></i> Mon profil
+                </button>
+                <button type="button" role="menuitem" className="sb-menu-item danger" onClick={handleLogout}>
+                  <i className="bi bi-box-arrow-right" aria-hidden="true"></i> Déconnexion
+                </button>
               </div>
             )}
           </div>
-
-          <div className={`mode-toggle ${!isExpanded ? 'collapsed' : ''}`}>
-            {isExpanded && (
-              <span><i className="bi bi-sun me-2"></i>Mode clair</span>
-            )}
-            <label
-              className="pt-toggle"
-              onMouseEnter={showHover('/theme', darkMode ? 'Mode sombre' : 'Mode clair')}
-              onMouseLeave={hideHover}
-            >
-              <input type="checkbox" checked={darkMode} onChange={toggleDarkMode} />
-              <span className="toggle-slider"></span>
-            </label>
-          </div>
+          <button type="button" className="sb-theme-btn" onClick={toggleDarkMode} title={themeLabel} aria-label={themeLabel}
+            onMouseEnter={showLabel(themeLabel)} onMouseLeave={hideLabel} onFocus={showLabel(themeLabel)} onBlur={hideLabel}>
+            <i className={`bi ${darkMode ? 'bi-sun' : 'bi-moon-stars'}`} aria-hidden="true"></i>
+          </button>
         </div>
 
         {floatingLabel && (
-          <div className="pt-sidebar-floating-label" style={{ top: floatingLabel.top }}>
+          <div className="pt-sidebar-floating-label" style={{ top: floatingLabel.top }} role="tooltip">
             {floatingLabel.text}
           </div>
         )}
       </aside>
+
+      {launchOpen && <LaunchTestModal onClose={() => setLaunchOpen(false)} />}
     </>
   )
 }

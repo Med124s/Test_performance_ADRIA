@@ -127,4 +127,14 @@ public class ScheduledExecution {
      * n'a encore eu lieu. Jamais une exception complete/stacktrace. */
     @Column(name = "last_trigger_error", length = 500)
     private String lastTriggerError;
+
+    /** Date de fin optionnelle (planification recurrente) : aucune occurrence apres cet instant. */
+    @Column(name = "end_at")
+    private Instant endAt;
+
+    /** Quand notifier a la fin d'une execution planifiee. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "notify_mode", nullable = false)
+    @Builder.Default
+    private com.loadpilot.backend.enums.ScheduleNotifyMode notifyMode = com.loadpilot.backend.enums.ScheduleNotifyMode.ALWAYS;
 }

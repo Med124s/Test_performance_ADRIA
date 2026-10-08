@@ -90,6 +90,23 @@ app:
       client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:loadpilot-backend-admin}
       client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:}
       timeout-seconds: ${KEYCLOAK_ADMIN_TIMEOUT_SECONDS:5}
+      # Liens des e-mails Keycloak (reinitialisation du mot de passe,
+      # invitation d'un nouvel utilisateur) : client public et adresse de
+      # l'application ouverte une fois l'action terminee.
+      actions-client-id: ${KEYCLOAK_ACTIONS_CLIENT_ID:loadpilot-frontend}
+      actions-redirect-uri: ${KEYCLOAK_ACTIONS_REDIRECT_URI:http://localhost:3000/}
+      actions-lifespan-seconds: ${KEYCLOAK_ACTIONS_LIFESPAN_SECONDS:43200}
+  audit:
+    # Reverse proxies de confiance (IP separees par des virgules) : seulement
+    # pour eux, l'IP reelle du client est lue dans X-Forwarded-For.
+    trusted-proxies: ${LOADPILOT_AUDIT_TRUSTED_PROXIES:}
+    # Purge quotidienne des entrees plus anciennes que la duree de conservation (Parametres).
+    purge-cron: ${LOADPILOT_AUDIT_PURGE_CRON:0 30 3 * * *}
+    security-events:
+      # Import periodique des evenements de connexion du systeme d'authentification
+      # (connexion, echec, blocage, deconnexion, mot de passe) vers le journal.
+      enabled: ${LOADPILOT_AUDIT_SECURITY_EVENTS_ENABLED:true}
+      poll-ms: ${LOADPILOT_AUDIT_SECURITY_EVENTS_POLL_MS:60000}
   scheduler:
     # P1-B - intervalle (ms) du poller reel de ScheduledExecution (voir
     # service.impl.ScheduledExecutionPoller pour la comparaison argumentee

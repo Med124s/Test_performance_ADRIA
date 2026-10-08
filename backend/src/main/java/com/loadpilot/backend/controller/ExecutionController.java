@@ -23,6 +23,8 @@ import com.loadpilot.backend.enums.AuditResult;
 import com.loadpilot.backend.enums.ExecutionStatus;
 import com.loadpilot.backend.security.CurrentUser;
 import com.loadpilot.backend.service.AppUserSyncService;
+import com.loadpilot.backend.service.audit.AuditEvent;
+import com.loadpilot.backend.service.audit.AuditTargets;
 import com.loadpilot.backend.service.AuditLogService;
 import com.loadpilot.backend.service.ExecutionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -73,10 +75,13 @@ public class ExecutionController {
 
     private final ExecutionService executionService;
     private final AppUserSyncService appUserSyncService;
+    private final AuditTargets auditTargets;
     private final AuditLogService auditLogService;
     private final ExecutionDeletionService deletionService;
     private final com.loadpilot.backend.service.impl.ExecutionRequestDetailService requestDetailService;
     private final com.loadpilot.backend.service.impl.ExecutionTimelineService timelineService;
+    private final com.loadpilot.backend.service.impl.ExecutionExtremesService extremesService;
+    private final com.loadpilot.backend.service.impl.ExecutionComparisonService comparisonService;
 
     /** ?scenarioId= filtre par scenario (meme convention que Scenarios/Steps). */
     @GetMapping
@@ -119,8 +124,9 @@ public class ExecutionController {
             @RequestParam(required = false) String sort) {
         ExecutionHistoryFilterRequest filter = new ExecutionHistoryFilterRequest(status, scenarioId, applicationId, dateFrom, dateTo, search);
         PagedResponse<ExecutionHistoryResponse> result = executionService.getHistory(filter, page, size, resolveHistorySort(sort));
-        auditLogService.record(AuditAction.VIEW_HISTORY, AuditModule.EXECUTION, AuditResult.SUCCESS,
-                "History viewed: page " + page + ", size " + size + ", " + result.totalElements() + " total matching");
+        // Consultation : journalisee seulement si « Journaliser aussi les consultations » est actif.
+        auditLogService.record(AuditEvent.of(AuditAction.VIEW_HISTORY, AuditModule.EXECUTION).consultation()
+                .description("Historique des exécutions consulté (page " + (page + 1) + ", " + result.totalElements() + " résultat(s))"));
         return result;
     }
 
@@ -131,16 +137,20 @@ public class ExecutionController {
      */
     @GetMapping("/page")
     @Operation(summary = "Page de la liste des executions (filtres + compteurs par statut)",
-            description = "Filtres : status, scenarioId, applicationId, search. size borne a 5..100. Tri whitelist : startedAt|duration|status.")
+            description = "Filtres : status, scenarioId, applicationId, dateFrom, dateTo (bornes incluses, sur startedAt), search. "
+                    + "size borne a 5..100. Tri whitelist : startedAt|duration|status (colonne,direction).")
     public ExecutionPageResponse page(
             @RequestParam(required = false) ExecutionStatus status,
             @RequestParam(required = false) UUID scenarioId,
             @RequestParam(required = false) UUID applicationId,
+            @Parameter(description = "Borne de date de debut (incluse, sur startedAt)") @RequestParam(required = false) Instant dateFrom,
+            @Parameter(description = "Borne de date de fin (incluse, sur startedAt)") @RequestParam(required = false) Instant dateTo,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String sort) {
-        ExecutionHistoryFilterRequest filter = new ExecutionHistoryFilterRequest(status, scenarioId, applicationId, null, null, search);
+            @RequestParam(required = false) String sort,
+            @Parameter(description = "true : seulement les executions terminees (page Rapports)") @RequestParam(defaultValue = "false") boolean finished) {
+        ExecutionHistoryFilterRequest filter = new ExecutionHistoryFilterRequest(status, scenarioId, applicationId, dateFrom, dateTo, search, finished);
         return executionService.getPage(filter, Math.max(0, page), Math.min(100, Math.max(5, size)), resolveHistorySort(sort));
     }
 
@@ -222,9 +232,36 @@ public class ExecutionController {
             @RequestParam(required = false) Integer iteration,
             @RequestParam(defaultValue = "false") boolean failedOnly,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            @Parameter(description = "TIME (chronologique, defaut), SLOWEST (plus lentes d'abord) ou FASTEST (plus rapides d'abord)")
+            @RequestParam(defaultValue = "TIME") com.loadpilot.backend.service.impl.ExecutionRequestDetailService.RowSort sort) {
         return requestDetailService.list(id, stepId, stepName, virtualUser, iteration, failedOnly,
-                Math.max(0, page), Math.min(100, Math.max(5, size)));
+                Math.max(0, page), Math.min(100, Math.max(5, size)), sort);
+    }
+
+    @GetMapping("/compare")
+    @Operation(summary = "Comparer 2 a 4 executions terminees",
+            description = "Une colonne par execution (ordre chronologique) : scenario, date, charge, requetes, debit, P95, p99, taux "
+                    + "d'erreurs, CPU / RAM max de l'application (si monitoring), et P95 de chaque etape - memes calculs que les rapports. "
+                    + "warning si les executions n'utilisent pas le meme scenario.")
+    @ApiResponse(responseCode = "400", description = "Moins de 2 ou plus de 4 executions, ou execution non terminee")
+    @ApiResponse(responseCode = "404", description = "Execution introuvable")
+    public com.loadpilot.backend.dto.response.ExecutionComparisonResponse compare(@RequestParam List<UUID> ids) {
+        return comparisonService.compare(ids);
+    }
+
+    @GetMapping("/{id}/extremes")
+    @Operation(summary = "Requetes les plus rapides ou les plus lentes (cartes Minimum / Maximum du rapport)",
+            description = "kind = MIN ou MAX : les 10 requetes extremes, la premiere etant exactement la valeur de la carte, avec "
+                    + "etape, utilisateur virtuel, iteration, heure, seconde dans le test, code HTTP, et au meme moment utilisateurs "
+                    + "actifs, debit et P95 de l'intervalle. Calcule par la base (index), sans charger toutes les requetes.")
+    @ApiResponse(responseCode = "404", description = "Execution introuvable")
+    public com.loadpilot.backend.dto.response.ExecutionExtremesResponse extremes(@PathVariable UUID id,
+            @RequestParam(defaultValue = "MAX") String kind) {
+        if (!"MIN".equalsIgnoreCase(kind) && !"MAX".equalsIgnoreCase(kind)) {
+            throw new com.loadpilot.backend.exception.BadRequestException("kind doit valoir MIN ou MAX.");
+        }
+        return extremesService.extremes(id, "MAX".equalsIgnoreCase(kind));
     }
 
     @GetMapping("/{id}/timeline")
@@ -267,12 +304,13 @@ public class ExecutionController {
     public ExecutionReportResponse getReport(@PathVariable UUID id) {
         try {
             ExecutionReportResponse report = executionService.getReport(id);
-            auditLogService.record(AuditAction.EXPORT_REPORT, AuditModule.EXECUTION, AuditResult.SUCCESS,
-                    "Report viewed for execution " + id);
+            // Consultation (et non un export) : journalisee seulement si le reglage est actif.
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.VIEW_REPORT, AuditModule.EXECUTION), id)
+                    .consultation().description("Rapport consulté"));
             return report;
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.EXPORT_REPORT, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "Report view failed for execution " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.VIEW_REPORT, AuditModule.EXECUTION), id)
+                    .consultation().description("Rapport inaccessible").failed(e));
             throw e;
         }
     }
@@ -294,15 +332,15 @@ public class ExecutionController {
     public ResponseEntity<byte[]> exportReport(@PathVariable UUID id) {
         try {
             byte[] csvBytes = executionService.exportReportCsv(id).getBytes(StandardCharsets.UTF_8);
-            auditLogService.record(AuditAction.EXPORT_CSV, AuditModule.EXECUTION, AuditResult.SUCCESS,
-                    "Report exported as CSV for execution " + id);
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.EXPORT_CSV, AuditModule.EXECUTION), id)
+                    .description("Rapport exporté au format CSV"));
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_TYPE, "text/csv; charset=UTF-8")
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"execution-report-" + id + ".csv\"")
                     .body(csvBytes);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.EXPORT_CSV, AuditModule.EXECUTION, AuditResult.FAILURE,
-                    "CSV export failed for execution " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.EXPORT_CSV, AuditModule.EXECUTION), id)
+                    .description("Export CSV du rapport impossible").failed(e));
             throw e;
         }
     }

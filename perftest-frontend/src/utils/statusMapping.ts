@@ -53,10 +53,15 @@ export function backendToFrontendExecutionStatus(status: BackendExecutionStatus)
       return 'En pause'
     case 'SUCCESS':
       return 'Réussie'
+    // Modèle hérité sans équivalent : un seuil dépassé est un résultat non conforme.
+    case 'THRESHOLDS_EXCEEDED':
     case 'FAILED':
       return 'Échouée'
     case 'CANCELLED':
       return 'Annulée'
+    default:
+      // Statut inconnu (serveur plus récent) : jamais un plantage.
+      return 'Avec erreurs'
   }
 }
 

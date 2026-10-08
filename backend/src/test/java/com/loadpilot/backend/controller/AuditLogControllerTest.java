@@ -74,8 +74,10 @@ class AuditLogControllerTest {
     }
 
     @Test
-    void list_asEngineer_returns200() throws Exception {
-        mockMvc.perform(get("/api/audit-logs").with(AS_ENGINEER)).andExpect(status().isOk());
+    void list_asEngineer_returns403_reservedToSuperAdmin() throws Exception {
+        mockMvc.perform(get("/api/audit-logs").with(AS_ENGINEER)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/audit-logs/export").with(AS_ENGINEER)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/audit-logs/actors").with(AS_ENGINEER)).andExpect(status().isForbidden());
     }
 
     @Test
@@ -126,8 +128,20 @@ class AuditLogControllerTest {
     }
 
     @Test
-    void stats_asEngineer_returns200() throws Exception {
-        mockMvc.perform(get("/api/audit-logs/stats").with(AS_ENGINEER)).andExpect(status().isOk());
+    void stats_asEngineer_returns403() throws Exception {
+        mockMvc.perform(get("/api/audit-logs/stats").with(AS_ENGINEER)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void entries_canNeverBeModifiedNorDeleted_throughTheApi() throws Exception {
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/api/audit-logs/" + id).with(AS_SUPER_ADMIN))
+                .andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/audit-logs/" + id).with(AS_SUPER_ADMIN)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(post("/api/audit-logs").with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isMethodNotAllowed());
     }
 
     @Test
@@ -161,17 +175,31 @@ class AuditLogControllerTest {
         mockMvc.perform(get("/api/audit-logs/export").with(AS_SUPER_ADMIN))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "text/csv; charset=UTF-8"))
-                .andExpect(header().string("Content-Disposition", "attachment; filename=\"audit-logs.csv\""));
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"journal-audit.csv\""));
     }
 
     @Test
     void export_asSuperAdmin_bodyStartsWithCsvHeaderRow() throws Exception {
-        String body = mockMvc.perform(get("/api/audit-logs/export").with(AS_SUPER_ADMIN))
+        String appName = createApplicationAndGetName();
+        String body = mockMvc.perform(get("/api/audit-logs/export").param("q", appName).with(AS_SUPER_ADMIN))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
 
+        // En francais, filtres respectes (une seule ligne : la creation de cette application).
         org.assertj.core.api.Assertions.assertThat(body)
-                .startsWith("id,userId,username,action,module,date,ip,result,description");
+                .startsWith("\uFEFFDate;Utilisateur;Catégorie;Action;Détail;Avant → après;Résultat;Adresse IP\r\n")
+                .contains(";Applications;Création de l’application « " + appName + " »;Application créée;")
+                .contains("Nom : — → " + appName)
+                .doesNotContain("CREATE", "APPLICATION;", "SUCCESS");
+        org.assertj.core.api.Assertions.assertThat(body.split("\r\n")).hasSize(2);
+    }
+
+    @Test
+    void export_isItselfRecorded() throws Exception {
+        mockMvc.perform(get("/api/audit-logs/export").with(AS_SUPER_ADMIN)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/audit-logs").param("q", "Journal d’audit").param("size", "50").with(AS_SUPER_ADMIN))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.summary=='Export CSV du journal d’audit')]").exists());
     }
 
     // ------------------------------------------------------------
@@ -189,7 +217,31 @@ class AuditLogControllerTest {
                         .param("size", "200")
                         .with(AS_SUPER_ADMIN))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[?(@.description=='Application created: " + appName + "')]").exists());
+                .andExpect(jsonPath("$.content[?(@.targetLabel=='" + appName + "')]").exists());
+    }
+
+    @Test
+    void list_searchCategoryAndResult_filterServerSide_withFrenchLabels() throws Exception {
+        String appName = createApplicationAndGetName();
+
+        mockMvc.perform(get("/api/audit-logs").param("q", appName.toUpperCase()).param("category", "APPLICATIONS")
+                        .param("result", "SUCCESS").with(AS_SUPER_ADMIN))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].summary").value("Création de l’application « " + appName + " »"))
+                .andExpect(jsonPath("$.content[0].actionLabel").value("Création"))
+                .andExpect(jsonPath("$.content[0].categoryLabel").value("Applications"))
+                .andExpect(jsonPath("$.content[0].resultLabel").value("Réussi"))
+                .andExpect(jsonPath("$.content[0].targetExists").value(true))
+                .andExpect(jsonPath("$.content[0].changes[0].label").value("Nom"))
+                .andExpect(jsonPath("$.content[0].changes[0].after").value(appName));
+
+        mockMvc.perform(get("/api/audit-logs").param("q", appName).param("category", "SECURITY").with(AS_SUPER_ADMIN))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        mockMvc.perform(get("/api/audit-logs").param("q", appName).param("actor", "__system").with(AS_SUPER_ADMIN))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test

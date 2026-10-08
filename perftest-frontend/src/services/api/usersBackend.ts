@@ -21,12 +21,21 @@
 // ============================================================
 
 import { springHttp } from './httpClient'
-import { BackendUserSummaryResponse, BackendAppRole } from '../../types/backendContracts'
+import { BackendUserSummaryResponse, BackendAppRole, BackendCreateUserRequest, BackendUserCreatedResponse, BackendPasswordPolicy } from '../../types/backendContracts'
 
 const RESOURCE = '/api/users'
 
+//   POST /api/users                   -> BackendUserCreatedResponse (compte +
+//                                         e-mail Keycloak pour choisir le mot de passe)
+//   POST /api/users/{id}/reset-password -> 202 (e-mail Keycloak de réinitialisation)
 export const usersBackendApi = {
   list: () => springHttp.get<BackendUserSummaryResponse[]>(RESOURCE),
+  create: (request: BackendCreateUserRequest) => springHttp.post<BackendUserCreatedResponse>(RESOURCE, request),
+  resetPassword: (id: string) => springHttp.post<void>(`${RESOURCE}/${id}/reset-password`),
+  /** Mot de passe défini par l'administrateur : jamais renvoyé ni conservé par LoadPilot. */
+  setPassword: (id: string, password: string, temporary: boolean) =>
+    springHttp.put<void>(`${RESOURCE}/${id}/password`, { password, temporary }),
+  passwordPolicy: () => springHttp.get<BackendPasswordPolicy>(`${RESOURCE}/password-policy`),
   updateRole: (id: string, role: BackendAppRole) =>
     springHttp.put<BackendUserSummaryResponse>(`${RESOURCE}/${id}/role`, { role }),
   updateStatus: (id: string, enabled: boolean) =>

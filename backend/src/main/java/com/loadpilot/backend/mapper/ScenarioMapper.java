@@ -33,6 +33,8 @@ public interface ScenarioMapper {
     @Mapping(target = "variables", ignore = true)
     @Mapping(target = "csvDistribution", ignore = true)
     @Mapping(target = "requestDetailMode", ignore = true)
+    @Mapping(target = "maxErrorRatePercent", ignore = true)
+    @Mapping(target = "maxP95Ms", ignore = true)
     Scenario toEntity(ScenarioRequest request);
 
     @Mapping(target = "id", ignore = true)
@@ -53,6 +55,8 @@ public interface ScenarioMapper {
     @Mapping(target = "variables", ignore = true)
     @Mapping(target = "csvDistribution", ignore = true)
     @Mapping(target = "requestDetailMode", ignore = true)
+    @Mapping(target = "maxErrorRatePercent", ignore = true)
+    @Mapping(target = "maxP95Ms", ignore = true)
     void updateEntityFromRequest(ScenarioRequest request, @MappingTarget Scenario scenario);
 
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")

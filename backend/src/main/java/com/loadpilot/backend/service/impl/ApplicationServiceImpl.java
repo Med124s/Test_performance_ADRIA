@@ -31,7 +31,11 @@ import com.loadpilot.backend.service.http.HttpAvailabilityResult;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import com.loadpilot.backend.service.audit.AuditEvent;
+import com.loadpilot.backend.service.audit.AuditSnapshots;
+import com.loadpilot.backend.service.audit.AuditTargetType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
@@ -59,6 +63,8 @@ public class ApplicationServiceImpl implements ApplicationService {
     private final AuditLogService auditLogService;
     private final ApplicationAuthSupport authSupport;
     private final DeletionServiceImpl deletionService;
+    private final com.loadpilot.backend.service.monitoring.MonitoringSupport monitoringSupport;
+    private final com.loadpilot.backend.service.monitoring.ResourceMonitor resourceMonitor;
 
     @Value("${app.availability.timeout-seconds:5}")
     private long timeoutSeconds;
@@ -72,6 +78,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             Application application = applicationMapper.toEntity(request);
             application.setCreatedBy(createdBy);
             authSupport.apply(request.auth(), application, true);
+            monitoringSupport.apply(request.monitoring(), application);
             // Aucun test n'a encore ete lance pour cette application : pas de
             // statut invente (voir ApplicationStatus).
 
@@ -80,12 +87,15 @@ public class ApplicationServiceImpl implements ApplicationService {
             // execute) - sans flush immediat, la reponse construite juste apres
             // renverrait un createdAt/updatedAt encore nul.
             Application saved = applicationRepository.saveAndFlush(application);
-            auditLogService.record(AuditAction.CREATE, AuditModule.APPLICATION, AuditResult.SUCCESS,
-                    "Application created: " + saved.getName());
+            auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, saved.getId(), saved.getName())
+                    .diff(Map.of(), AuditSnapshots.of(saved))
+                    .description("Application créée"));
             return applicationMapper.toResponse(saved);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.CREATE, AuditModule.APPLICATION, AuditResult.FAILURE,
-                    "Application creation failed: " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, null, request.name())
+                    .description("Création refusée").failed(e));
             throw e;
         }
     }
@@ -148,20 +158,30 @@ public class ApplicationServiceImpl implements ApplicationService {
     public ApplicationResponse update(UUID id, ApplicationRequest request) {
         try {
             Application application = findOrThrow(id);
+            Map<String, Object> before = AuditSnapshots.of(application);
+            String authBefore = application.getAuthConfig();
             applicationMapper.updateEntityFromRequest(request, application);
             authSupport.apply(request.auth(), application, false);
+            monitoringSupport.apply(request.monitoring(), application);
             // Toute modification (URL, authentification...) invalide le
             // resultat du dernier test : il sera remplace par le prochain.
             application.setStatus(null);
             application.setStatusMessage(null);
             application.setStatusCheckedAt(null);
             Application saved = applicationRepository.saveAndFlush(application);
-            auditLogService.record(AuditAction.UPDATE, AuditModule.APPLICATION, AuditResult.SUCCESS,
-                    "Application updated: " + saved.getName());
+            AuditEvent audit = AuditEvent.of(AuditAction.UPDATE, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, saved.getId(), saved.getName())
+                    .diff(before, AuditSnapshots.of(saved));
+            // Jamais les identifiants eux-memes : seulement le fait qu'ils ont change.
+            if (!java.util.Objects.equals(authBefore, saved.getAuthConfig())) {
+                audit.change("Identifiants d’authentification", "anciens", "modifiés");
+            }
+            auditLogService.record(audit.description(audit.changes().isEmpty() ? "Application enregistrée sans changement" : "Application modifiée"));
             return applicationMapper.toResponse(saved);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.UPDATE, AuditModule.APPLICATION, AuditResult.FAILURE,
-                    "Application update failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, id, applicationName(id))
+                    .description("Modification refusée").failed(e));
             throw e;
         }
     }
@@ -174,6 +194,14 @@ public class ApplicationServiceImpl implements ApplicationService {
         // cours - voir DeletionServiceImpl (audit inclus). L'archivage est
         // l'alternative par defaut proposee par l'interface.
         deletionService.deleteApplicationPermanently(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public com.loadpilot.backend.dto.response.MonitoringTestResponse testMonitoring(
+            com.loadpilot.backend.dto.request.MonitoringTestRequest request) {
+        Application existing = request.applicationId() == null ? null : findOrThrow(request.applicationId());
+        return resourceMonitor.test(monitoringSupport.toConfig(request.monitoring(), existing));
     }
 
     @Override
@@ -199,8 +227,9 @@ public class ApplicationServiceImpl implements ApplicationService {
             };
             return finishTest(application, outcome);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.TEST, AuditModule.APPLICATION, AuditResult.FAILURE,
-                    "Application availability test failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.TEST, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, id, applicationName(id))
+                    .description("Test de connexion impossible").failed(e));
             throw e;
         }
     }
@@ -331,8 +360,13 @@ public class ApplicationServiceImpl implements ApplicationService {
         application.setStatusMessage(message.length() > 1000 ? message.substring(0, 1000) : message);
         application.setStatusCheckedAt(Instant.now());
         applicationRepository.save(application);
-        auditLogService.record(AuditAction.TEST, AuditModule.APPLICATION, AuditResult.SUCCESS,
-                "Application availability tested: " + application.getName() + " -> " + outcome.status());
+        auditLogService.record(AuditEvent.of(AuditAction.TEST, AuditModule.APPLICATION)
+                .target(AuditTargetType.APPLICATION, application.getId(), application.getName())
+                .description("Test de connexion : " + switch (outcome.status()) {
+                    case CONNECTED -> "application joignable";
+                    case FAILED -> "authentification refusée";
+                    case ERROR -> "application injoignable";
+                }));
         return new ApplicationTestResponse(outcome.status(), outcome.result().httpStatus(),
                 outcome.result().responseTimeMs(), message);
     }
@@ -340,5 +374,14 @@ public class ApplicationServiceImpl implements ApplicationService {
     private Application findOrThrow(UUID id) {
         return applicationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Application introuvable : " + id));
+    }
+
+    /** Nom de l'application pour le journal, sans jamais lever d'exception. */
+    private String applicationName(UUID id) {
+        try {
+            return applicationRepository.findById(id).map(Application::getName).orElse("Application introuvable");
+        } catch (RuntimeException e) {
+            return "Application introuvable";
+        }
     }
 }

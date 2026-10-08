@@ -2,9 +2,13 @@ package com.loadpilot.backend.service.report;
 
 import com.loadpilot.backend.dto.response.ExecutionTimelineResponse;
 import com.loadpilot.backend.dto.response.ExecutionTimelineResponse.ErrorPoint;
+import com.loadpilot.backend.dto.response.ExecutionTimelineResponse.ExtremeMarker;
 import com.loadpilot.backend.dto.response.ExecutionTimelineResponse.Insight;
 import com.loadpilot.backend.dto.response.ExecutionTimelineResponse.PauseRange;
+import com.loadpilot.backend.dto.response.ExecutionTimelineResponse.ResourceSeries;
+import com.loadpilot.backend.dto.response.ExecutionTimelineResponse.StepEvolution;
 import com.loadpilot.backend.dto.response.ExecutionTimelineResponse.StepSeries;
+import com.loadpilot.backend.dto.response.ExecutionTimelineResponse.StepTrend;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,7 +42,6 @@ public final class TimelineAnalyzer {
     static final int MIN_RAMP_USERS = 3;
     static final double DEGRADATION_RATIO = 1.3;
     static final long DEGRADATION_MIN_MS = 20;
-    static final int DEGRADATION_MIN_REQUESTS = 5;
 
     /** Une requete terminee : fin (epoch ms), temps de reponse, resultat, etape, utilisateur virtuel. */
     public record Sample(long endMs, long responseMs, boolean success, Integer httpStatus, String error, String stepKey,
@@ -58,11 +61,12 @@ public final class TimelineAnalyzer {
      *                         (anciennes executions : deduits des requetes si le VU est connu)
      * @param pauses           intervalles de pause (vides si aucune)
      */
-    public static ExecutionTimelineResponse analyze(List<Sample> samples, List<Interval> recordedVus, List<Interval> pauses) {
+    public static ExecutionTimelineResponse analyze(List<Sample> samples, List<Interval> recordedVus, List<Interval> pauses,
+            Resources resources) {
         List<Interval> pauseList = pauses == null ? List.of() : pauses;
         if (samples == null || samples.isEmpty()) {
             return new ExecutionTimelineResponse("NONE", false, 1, 0, List.of(), List.of(), List.of(), List.of(), List.of(),
-                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null, null, 0L, null, null,
                     "Aucune requête enregistrée pour cette exécution : analyse dans le temps impossible.");
         }
 
@@ -183,9 +187,69 @@ public final class TimelineAnalyzer {
             pauseRanges.add(new PauseRange(round1((p.startMs() - t0) / 1000.0), round1((p.endMs() - t0) / 1000.0)));
         }
 
-        List<Insight> insights = insights(sorted, t0, bucketSeconds, active, throughput, p95, steps, vusAvailable, span);
+        StepEvolution evolution = StepEvolutionAnalyzer.analyze(sorted, t0, tEnd, vus, pauseList);
+        List<Insight> insights = insights(sorted, t0, bucketSeconds, active, throughput, p95, evolution, vusAvailable);
         return new ExecutionTimelineResponse(source, vusAvailable, bucketSeconds, span, t, active, requests, throughput, avg, p95,
-                errorList, pausedRatio, steps, new ArrayList<>(typeIndex.keySet()), errorPoints, pauseRanges, insights, null);
+                errorList, pausedRatio, steps, new ArrayList<>(typeIndex.keySet()), errorPoints, pauseRanges, insights, evolution,
+                resourceSeries(resources, t0, bucketMs, n), t0, extreme(sorted, t0, bucketMs, n, false), extreme(sorted, t0, bucketMs, n, true),
+                null);
+    }
+
+    /**
+     * Requete la plus rapide (ou la plus lente) : meme ordre que les cartes Minimum / Maximum du
+     * rapport et que GET /extremes (temps de reponse, puis la plus ancienne d'abord).
+     */
+    static ExtremeMarker extreme(List<Sample> sortedByEnd, long t0, long bucketMs, int n, boolean slowest) {
+        Sample best = null;
+        for (Sample s : sortedByEnd) {
+            if (best == null || (slowest ? s.responseMs() > best.responseMs() : s.responseMs() < best.responseMs())) best = s;
+        }
+        if (best == null) return null;
+        int b = (int) Math.min(n - 1, Math.max(0, (best.endMs() - t0) / bucketMs));
+        return new ExtremeMarker(b, best.responseMs(), round1((best.endMs() - t0) / 1000.0));
+    }
+
+    /** Mesures CPU / RAM du processus teste (voir ExecutionTimelineService) ; null = pas de monitoring. */
+    public record Resources(String source, int intervalSeconds, String memoryMetric, String message, List<ResourcePoint> samples) {
+    }
+
+    public record ResourcePoint(long atMs, Double cpuPercent, Double memoryMb) {
+    }
+
+    public static ExecutionTimelineResponse analyze(List<Sample> samples, List<Interval> recordedVus, List<Interval> pauses) {
+        return analyze(samples, recordedVus, pauses, null);
+    }
+
+    /** Moyenne des mesures de chaque intervalle (mesure rangee a son instant ; hors du test : ignoree). */
+    static ResourceSeries resourceSeries(Resources resources, long t0, long bucketMs, int n) {
+        if (resources == null) return null;
+        double[] cpuSum = new double[n];
+        int[] cpuCount = new int[n];
+        double[] memSum = new double[n];
+        int[] memCount = new int[n];
+        int used = 0;
+        for (ResourcePoint p : resources.samples()) {
+            long offset = p.atMs() - t0;
+            if (offset < 0 || offset >= n * bucketMs) continue;
+            int b = (int) (offset / bucketMs);
+            used++;
+            if (p.cpuPercent() != null) {
+                cpuSum[b] += p.cpuPercent();
+                cpuCount[b]++;
+            }
+            if (p.memoryMb() != null) {
+                memSum[b] += p.memoryMb();
+                memCount[b]++;
+            }
+        }
+        List<Double> cpu = new ArrayList<>(n);
+        List<Double> mem = new ArrayList<>(n);
+        for (int b = 0; b < n; b++) {
+            cpu.add(cpuCount[b] == 0 ? null : round1(cpuSum[b] / cpuCount[b]));
+            mem.add(memCount[b] == 0 ? null : round1(memSum[b] / memCount[b]));
+        }
+        return new ResourceSeries(resources.source(), resources.intervalSeconds(), resources.memoryMetric(), resources.message(),
+                used, cpu, mem);
     }
 
     /** Plus petit pas de BUCKET_STEPS donnant au plus MAX_BUCKETS intervalles. */
@@ -215,17 +279,16 @@ public final class TimelineAnalyzer {
      *    tPlateau = premier instant ou il atteint PLATEAU_SHARE (90 %) de ce niveau. Si, APRES cet
      *    instant, le nombre d'utilisateurs actifs augmente encore d'au moins 25 % (PLATEAU_MORE_USERS)
      *    sans que le debit ne depasse ce maximum : « le debit plafonne ». Sinon : « aucun plafond ».
-     * 2. Etape la plus degradee - P95 du premier tiers du test compare a celui du dernier tiers, pour
-     *    chaque etape ayant au moins DEGRADATION_MIN_REQUESTS requetes dans chacun ; candidate si le P95
-     *    augmente d'au moins 30 % (DEGRADATION_RATIO) ET de 20 ms (DEGRADATION_MIN_MS) ; la plus
-     *    degradee est celle dont le P95 augmente le plus en millisecondes.
+     * 2. Etape la plus degradee - meme calcul que le tableau « Évolution des étapes » (voir
+     *    StepEvolutionAnalyzer : P95 des 20 % du debut et de la fin de la phase stable) : premiere etape
+     *    du tableau si elle est « Dégradée » ou « À surveiller ».
      * 3. Premieres erreurs - heure de la premiere requete en echec, son type et son etape.
      */
     static List<Insight> insights(List<Sample> sorted, long t0, int bucketSeconds, List<Integer> active, List<Double> throughput,
-            List<Long> p95, List<StepSeries> steps, boolean vusAvailable, long spanMs) {
+            List<Long> p95, StepEvolution evolution, boolean vusAvailable) {
         List<Insight> out = new ArrayList<>();
         out.add(plateauInsight(bucketSeconds, active, throughput, p95, vusAvailable));
-        out.add(degradationInsight(sorted, t0, spanMs));
+        out.add(degradationInsight(evolution));
         out.add(errorInsight(sorted, t0));
         return out;
     }
@@ -292,45 +355,14 @@ public final class TimelineAnalyzer {
                 + fmtRps(max) + " req/s avec " + maxVu + " utilisateurs).");
     }
 
-    private static Insight degradationInsight(List<Sample> sorted, long t0, long spanMs) {
-        long third = spanMs / 3;
-        Map<String, List<Long>> first = new LinkedHashMap<>();
-        Map<String, List<Long>> last = new LinkedHashMap<>();
-        Map<String, String> names = new HashMap<>();
-        for (Sample s : sorted) {
-            long offset = s.endMs() - t0;
-            names.putIfAbsent(s.stepKey(), s.stepName());
-            if (offset <= third) first.computeIfAbsent(s.stepKey(), k -> new ArrayList<>()).add(s.responseMs());
-            else if (offset >= spanMs - third) last.computeIfAbsent(s.stepKey(), k -> new ArrayList<>()).add(s.responseMs());
+    private static Insight degradationInsight(StepEvolution evolution) {
+        if (!evolution.comparable()) return new Insight("INFO", evolution.message());
+        StepTrend worst = evolution.steps().get(0); // tableau trie : la plus degradee en premier
+        if (!StepEvolutionAnalyzer.DEGRADED.equals(worst.trend()) && !StepEvolutionAnalyzer.WATCH.equals(worst.trend())) {
+            return new Insight("INFO", "Aucune étape ne se dégrade nettement : P95 du début et de la fin du test proches pour toutes les étapes.");
         }
-        String worst = null;
-        double worstRatio = 0;
-        long worstFirst = 0;
-        long worstLast = 0;
-        for (Map.Entry<String, List<Long>> e : first.entrySet()) {
-            List<Long> end = last.get(e.getKey());
-            if (e.getValue().size() < DEGRADATION_MIN_REQUESTS || end == null || end.size() < DEGRADATION_MIN_REQUESTS) continue;
-            long a = PercentileCalculator.percentile(e.getValue(), 95);
-            long b = PercentileCalculator.percentile(end, 95);
-            double ratio = a <= 0 ? (b > 0 ? Double.MAX_VALUE : 1) : (double) b / a;
-            // Classement par hausse ABSOLUE (ms) : +100 ms sur une etape a 20 ms (x6) pese moins que
-            // +200 ms sur une etape a 280 ms ; les seuils (30 % et 20 ms) restent obligatoires.
-            if (ratio >= DEGRADATION_RATIO && b - a >= DEGRADATION_MIN_MS && b - a > worstLast - worstFirst) {
-                worst = e.getKey();
-                worstRatio = ratio;
-                worstFirst = a;
-                worstLast = b;
-            }
-        }
-        if (worst == null) {
-            boolean comparable = first.entrySet().stream().anyMatch(e -> e.getValue().size() >= DEGRADATION_MIN_REQUESTS
-                    && last.getOrDefault(e.getKey(), List.of()).size() >= DEGRADATION_MIN_REQUESTS);
-            return new Insight("INFO", comparable
-                    ? "Aucune étape ne se dégrade nettement : P95 du début et de la fin du test à moins de 30 % d'écart."
-                    : "Pas assez de requêtes au début et à la fin du test pour comparer les étapes.");
-        }
-        return new Insight("DEGRADATION", "L'étape la plus dégradée est " + names.get(worst) + " : P95 de " + worstFirst
-                + " ms au début, " + worstLast + " ms à la fin.");
+        return new Insight("DEGRADATION", "L'étape la plus dégradée est " + worst.name() + " : P95 de " + worst.startP95Ms()
+                + " ms au début, " + worst.endP95Ms() + " ms à la fin.");
     }
 
     private static Insight errorInsight(List<Sample> sorted, long t0) {

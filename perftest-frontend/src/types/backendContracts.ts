@@ -22,25 +22,30 @@ export type BackendApplicationStatus = 'CONNECTED' | 'FAILED' | 'ERROR'
 /** DRAFT : brouillon de l'assistant (ni exécutable ni planifiable). */
 export type BackendScenarioStatus = 'ACTIVE' | 'INACTIVE' | 'DRAFT'
 export type BackendStepStatus = 'ACTIVE' | 'INACTIVE'
-export type BackendExecutionStatus = 'QUEUED' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'FAILED' | 'CANCELLED'
+/** THRESHOLDS_EXCEEDED : test allé au bout, mais un seuil de réussite du scénario est dépassé. */
+export type BackendExecutionStatus = 'QUEUED' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'THRESHOLDS_EXCEEDED' | 'FAILED' | 'CANCELLED'
 export type BackendHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type BackendAuditAction =
-  | 'CREATE' | 'READ' | 'UPDATE' | 'DELETE' | 'TEST' | 'EXECUTE' | 'RETRY' | 'CANCEL' | 'PAUSE' | 'RESUME' | 'LOGIN' | 'LOGOUT'
-  // P1-B — cycle de vie d'une ScheduledExecution (module SCHEDULING).
-  | 'ENABLE' | 'DISABLE' | 'TRIGGER'
-  // P1-C — traçabilité de la consultation de l'historique/des rapports.
-  | 'VIEW_HISTORY' | 'EXPORT_REPORT' | 'EXPORT_CSV'
-  // Suppression coherente : archivage logique et restauration.
-  | 'ARCHIVE' | 'RESTORE'
+  | 'CREATE' | 'READ' | 'UPDATE' | 'DELETE' | 'TEST' | 'EXECUTE' | 'FINISH' | 'RETRY' | 'CANCEL' | 'PAUSE' | 'RESUME'
+  | 'LOGIN' | 'LOGOUT' | 'ENABLE' | 'DISABLE' | 'TRIGGER'
+  | 'VIEW_HISTORY' | 'VIEW_REPORT' | 'EXPORT_REPORT' | 'EXPORT_CSV' | 'ARCHIVE' | 'RESTORE'
+  | 'LOGIN_FAILED' | 'ACCOUNT_LOCKED' | 'PASSWORD_SET' | 'PASSWORD_RESET_LINK' | 'PASSWORD_CHANGED' | 'ROLE_CHANGE' | 'PURGE'
 export type BackendAuditModule =
   | 'AUTH' | 'USER' | 'APPLICATION' | 'SCENARIO' | 'STEP' | 'EXECUTION' | 'METRIC' | 'DASHBOARD' | 'ADMIN'
-  | 'SCHEDULING'
+  | 'SCHEDULING' | 'SECURITY' | 'SETTINGS'
+/** Categories du filtre de la page Journal d'audit (regroupent des modules). */
+export type BackendAuditCategory = 'APPLICATIONS' | 'SCENARIOS' | 'EXECUTIONS' | 'SCHEDULING' | 'USERS' | 'SECURITY' | 'SETTINGS'
 export type BackendAuditResult = 'SUCCESS' | 'FAILURE'
 
 // P1-B — voir enums.NotificationType/ScheduleType côté backend.
 export type BackendNotificationType =
-  | 'EXECUTION_SUCCESS' | 'EXECUTION_FAILED' | 'EXECUTION_CANCELLED' | 'SCHEDULE_TRIGGERED' | 'SCHEDULE_FAILED'
+  | 'EXECUTION_SUCCESS' | 'EXECUTION_THRESHOLDS_EXCEEDED' | 'EXECUTION_FAILED' | 'EXECUTION_CANCELLED' | 'SCHEDULE_TRIGGERED' | 'SCHEDULE_FAILED' | 'SCHEDULE_REGRESSION'
 export type BackendScheduleType = 'ONE_TIME' | 'RECURRING_CRON'
+/** ALWAYS : à chaque fin d'exécution ; PROBLEMS : seulement en cas d'échec ou de régression. */
+export type BackendScheduleNotifyMode = 'ALWAYS' | 'PROBLEMS'
+/** État calculé côté serveur (voir ScheduleViewService). */
+export type BackendScheduleState = 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'COMPLETED' | 'EXPIRED'
+export type BackendScheduledRunOutcome = 'SKIPPED_RUNNING' | 'SKIPPED_CAPACITY' | 'MISSED' | 'FAILED'
 
 // ---- Profile (GET /api/profile) ----
 
@@ -111,6 +116,39 @@ export interface BackendApplicationRequest {
   url: string
   /** Absent = aucune authentification à la création, inchangée en mise à jour. */
   auth?: BackendApplicationAuthRequest
+  /** Absent = aucun monitoring à la création, inchangé en mise à jour. */
+  monitoring?: BackendMonitoringRequest
+}
+
+export type BackendMonitoringType = 'NONE' | 'PROMETHEUS' | 'ACTUATOR'
+export type BackendMonitoringAuthType = 'NONE' | 'BEARER' | 'HEADER'
+
+/** Monitoring CPU / RAM du processus de l'application testée. Secret vide en modification = inchangé. */
+export interface BackendMonitoringRequest {
+  type: BackendMonitoringType
+  url: string | null
+  authType: BackendMonitoringAuthType
+  headerName: string | null
+  secret: string | null
+  intervalSeconds: number
+}
+
+export interface BackendMonitoringResponse {
+  type: BackendMonitoringType
+  url: string | null
+  authType: BackendMonitoringAuthType
+  headerName: string | null
+  secretConfigured: boolean
+  intervalSeconds: number
+}
+
+/** « Tester le monitoring » : CPU en % d'un cœur, RAM en Mo. */
+export interface BackendMonitoringTestResponse {
+  success: boolean
+  message: string
+  cpuPercent: number | null
+  memoryMb: number | null
+  memoryMetric: string | null
 }
 
 export interface BackendApplicationResponse {
@@ -119,6 +157,8 @@ export interface BackendApplicationResponse {
   description: string | null
   url: string
   auth: BackendApplicationAuthResponse
+  /** Monitoring CPU / RAM (absent : serveur antérieur, équivaut à NONE). */
+  monitoring?: BackendMonitoringResponse
   /** Archivage logique : masquée des listes par défaut, restaurable. */
   archived: boolean
   archivedAt: string | null
@@ -180,6 +220,9 @@ export interface BackendScenarioRequest {
   csvDistribution?: BackendCsvDistribution | null
   /** Détail des requêtes conservé à l'exécution ; null/absent = inchangé. */
   requestDetailMode?: BackendRequestDetailMode | null
+  /** Seuils de réussite : taux d'erreurs maximal (%) ; P95 maximal (ms, 0 = aucun). */
+  maxErrorRatePercent?: number | null
+  maxP95Ms?: number | null
 }
 
 /** PUT /api/scenarios/{id}/full : informations + étapes (avec id = modifiée, sans id = créée, absente = supprimée ; ordre = position). */
@@ -231,6 +274,9 @@ export interface BackendScenarioResponse {
   variables: string | null
   csvDistribution: BackendCsvDistribution
   requestDetailMode: BackendRequestDetailMode
+  /** Seuils de réussite : taux d'erreurs maximal (%, défaut 1) et P95 maximal (ms, null = aucun). */
+  maxErrorRatePercent?: number | null
+  maxP95Ms?: number | null
 }
 
 // ---- Steps ----
@@ -427,6 +473,26 @@ export interface BackendExecutionStatusResponse {
   pausedDurationMs: number
   /** Temps de travail réel (ms), pauses exclues ; null tant que non démarré. */
   activeElapsedMs: number | null
+  /** CPU / RAM du processus de l'application testée ; null/absent sans monitoring. */
+  resources?: BackendExecutionResources | null
+}
+
+/**
+ * CPU (en % d'un cœur : 100 % = un cœur entièrement occupé) et RAM (Mo) du PROCESSUS de
+ * l'application testée — ni la machine entière, ni LoadPilot.
+ */
+export interface BackendExecutionResources {
+  source: BackendMonitoringType | null
+  intervalSeconds: number
+  cpuPercent: number | null
+  memoryMb: number | null
+  cpuAvgPercent: number | null
+  cpuMaxPercent: number | null
+  memoryMaxMb: number | null
+  /** Monitoring indisponible (l'exécution continue normalement). */
+  message: string | null
+  cpuHistory: (number | null)[]
+  memoryHistory: (number | null)[]
 }
 
 export interface BackendLiveStepStats {
@@ -454,7 +520,8 @@ export interface BackendLiveStats {
 }
 
 /** P1-A — GET /api/executions/history (voir ExecutionController#history) :
- * vue allegee pour la page Historique, paginee cote backend.
+ * vue allegee d'une execution pour les listes (page Executions via /page, page Rapports via
+ * /history), paginee cote backend.
  *
  * ABSENCE DOCUMENTEE : aucun champ "createdBy"/"launchedBy" — Execution n'a
  * aucune colonne referencant un utilisateur (voir ExecutionHistoryResponse
@@ -483,6 +550,20 @@ export interface BackendExecutionHistoryResponse {
   /** P1-C — requêtes réellement exécutées / durée (s), même formule que
    * PerformanceStatisticsService — `null` si non calculable. */
   throughput: number | null
+  /** CPU moyen / max du processus testé (% d'un cœur) et RAM max (Mo) ; null/absent sans monitoring. */
+  cpuAvgPercent?: number | null
+  cpuMaxPercent?: number | null
+  memoryMaxMb?: number | null
+  /** P95 (ms), même calcul que le rapport ; null tant qu'il n'est pas calculé (exécution en cours). */
+  p95Ms?: number | null
+  /** Raison principale du statut (« Erreurs : 2,5 % », « Annulée par … ») ; null si rien à expliquer. */
+  statusReason?: string | null
+  /** Seuils de réussite copiés au lancement (null = exécution antérieure aux seuils). */
+  maxErrorRatePercent?: number | null
+  maxP95Ms?: number | null
+  /** P95 et date de l'exécution terminée précédente du même scénario. */
+  previousP95Ms?: number | null
+  previousStartedAt?: string | null
 }
 
 /** P1-A — filtres reels de GET /api/executions/history, tous optionnels. */
@@ -496,6 +577,8 @@ export interface ExecutionHistoryFilters {
   page?: number
   size?: number
   sort?: string
+  /** /page seulement : exécutions terminées uniquement (page Rapports). */
+  finished?: boolean
 }
 
 /** P1-A — statistiques REELLEMENT calculees (voir
@@ -555,6 +638,15 @@ export interface BackendReportErrorEntry {
  * P0-A (voir ExecutionReportResponse cote backend), jamais reconstitue ici
  * depuis le Scenario courant (violerait l'immutabilite des parametres
  * historiques d'une execution deja terminee). */
+export interface BackendReportThresholds {
+  maxErrorRatePercent: number
+  errorRatePercent: number
+  errorRateOk: boolean
+  maxP95Ms: number | null
+  p95Ms: number | null
+  p95Ok: boolean | null
+}
+
 export interface BackendExecutionReportResponse {
   id: string
   scenarioId: string
@@ -577,8 +669,8 @@ export interface BackendExecutionReportResponse {
   statistics: BackendExecutionStatistics
   steps: BackendStepReportEntry[]
   errors: BackendReportErrorEntry[]
-  /** Erreurs regroupées par code + étape + message (occurrences, première apparition). */
-  errorGroups?: BackendReportErrorGroup[]
+  /** Seuils de réussite et leur résultat ; null = exécution antérieure aux seuils. */
+  thresholds?: BackendReportThresholds | null
 }
 
 export interface BackendExecutionStepResultResponse {
@@ -602,20 +694,15 @@ export interface BackendExecutionDetailResponse extends BackendExecutionResponse
   results: BackendExecutionStepResultResponse[]
   /** Détail des requêtes conservé (null : exécution antérieure, aucun détail). */
   requestDetailMode?: BackendRequestDetailMode | null
+  /** Seuils de réussite : taux d'erreurs maximal (%) ; P95 maximal (ms, 0 = aucun). */
+  maxErrorRatePercent?: number | null
+  maxP95Ms?: number | null
   /** Plafond mémoire atteint : l'échantillon des requêtes réussies a été arrêté (échecs conservés). */
   detailSampleCapReached?: boolean
   detailedFailures?: number
   detailedSamples?: number
 }
 
-export interface BackendReportErrorGroup {
-  httpStatus: number | null
-  stepName: string
-  method: BackendHttpMethod | null
-  error: string | null
-  count: number
-  firstAt: string | null
-}
 
 /** GET /api/executions/{id}/timeline : analyse dans le temps (séries alignées sur `t`, null = pas de donnée). */
 export interface BackendExecutionTimeline {
@@ -636,7 +723,62 @@ export interface BackendExecutionTimeline {
   errorPoints: { bucket: number; step: number; type: number; count: number }[]
   pauses: { fromSeconds: number; toSeconds: number }[]
   insights: { kind: 'PLATEAU' | 'NO_PLATEAU' | 'DEGRADATION' | 'ERRORS' | 'INFO'; text: string }[]
+  /** Tableau « Évolution des étapes pendant le test » (absent pour une exécution sans requête). */
+  stepEvolution?: BackendStepEvolution | null
+  /** CPU / RAM du processus de l'application testée, alignés sur `t` ; null/absent sans monitoring. */
+  resources?: BackendTimelineResources | null
+  /** Début du test (epoch ms) : t = 0. */
+  startEpochMs?: number
+  /** Intervalle des requêtes la plus rapide / la plus lente (cartes Minimum / Maximum). */
+  fastest?: BackendTimelineExtreme | null
+  slowest?: BackendTimelineExtreme | null
   message: string | null
+}
+
+export interface BackendTimelineExtreme {
+  bucket: number
+  responseTimeMs: number
+  atSeconds: number
+}
+
+/** Moyenne des mesures de chaque intervalle (null : pas de mesure dans cet intervalle). */
+export interface BackendTimelineResources {
+  source: BackendMonitoringType | null
+  intervalSeconds: number
+  memoryMetric: string | null
+  message: string | null
+  sampleCount: number
+  cpuPercent: (number | null)[]
+  memoryMb: (number | null)[]
+}
+
+export type BackendStepTrendKind ='DEGRADED' | 'WATCH' | 'STABLE' | 'INSUFFICIENT'
+
+/** Comparaison début / fin du test par étape ; secondes en temps actif (pauses retirées). */
+export interface BackendStepEvolution {
+  comparable: boolean
+  message: string | null
+  stableSeconds: number
+  startFromSeconds: number
+  startToSeconds: number
+  endFromSeconds: number
+  endToSeconds: number
+  /** Déjà triées : la plus dégradée en premier. */
+  steps: BackendStepTrend[]
+}
+
+export interface BackendStepTrend {
+  key: string
+  name: string
+  method: string | null
+  trend: BackendStepTrendKind
+  startP95Ms: number | null
+  endP95Ms: number | null
+  startRequests: number
+  endRequests: number
+  totalRequests: number
+  deltaMs: number | null
+  deltaPercent: number | null
 }
 
 /** GET /api/executions/{id}/results : une requête (ligne de résumé, toujours présente). */
@@ -663,8 +805,30 @@ export interface ExecutionResultsQuery {
   virtualUser?: number
   iteration?: number
   failedOnly?: boolean
+  /** TIME (chronologique, défaut), SLOWEST (plus lentes d'abord), FASTEST (plus rapides d'abord). */
+  sort?: 'TIME' | 'SLOWEST' | 'FASTEST'
   page: number
   size: number
+}
+
+/**
+ * GET /api/executions/{id}/extremes?kind=MIN|MAX : les 10 requêtes les plus rapides ou les plus
+ * lentes, la première étant exactement celle de la carte Minimum / Maximum.
+ */
+export interface BackendExecutionExtremes {
+  kind: 'MIN' | 'MAX'
+  cardValueMs: number | null
+  measuredRequests: number
+  /** Largeur de l'intervalle de l'analyse dans le temps (1 s pour un test de moins de 5 min). */
+  intervalSeconds: number
+  requests: {
+    request: BackendExecutionRequestRow
+    secondsFromStart: number
+    intervalStartSeconds: number
+    activeVirtualUsers: number | null
+    throughput: number | null
+    p95Ms: number | null
+  }[]
 }
 
 /** GET /api/executions/{id}/results/{resultId}/detail : secrets masqués, corps limités à 10 Ko. */
@@ -745,6 +909,108 @@ export interface BackendTopScenarioResponse {
   avgResponseTime: number | null
 }
 
+/**
+ * GET /api/dashboard/overview?applicationId=&from=&to= : tout le Dashboard, filtré par application
+ * et par période (exécutions lancées dans la période). null = non calculable, jamais inventé.
+ */
+export interface BackendDashboardOverview {
+  applicationId: string | null
+  from: string | null
+  to: string | null
+  kpis: { p95Ms: number | null; errorRate: number | null; requests: number; executions: number; running: number }
+  statusCounts: { success: number; failed: number; cancelled: number; running: number; thresholdsExceeded?: number }
+  watchItems: BackendDashboardWatchItem[]
+  latestByScenario: BackendDashboardScenarioRow[]
+  slowestSteps: { stepName: string; method: string | null; scenarioName: string; executionId: string; p95Ms: number; requests: number }[]
+  running: BackendDashboardExecutionBrief[]
+  recent: BackendDashboardExecutionBrief[]
+  upcoming: { id: string; name: string; scenarioName: string; nextRunAt: string }[]
+}
+
+export interface BackendDashboardWatchItem {
+  kind: 'APPLICATION_FAILED' | 'LAST_EXECUTION_FAILED' | 'THRESHOLDS_EXCEEDED' | 'REGRESSION' | 'MONITORING_DOWN'
+  severity: 'danger' | 'warning'
+  title: string
+  detail: string | null
+  /** Page de l'interface à ouvrir (ex. /executions/report/{id}). */
+  link: string
+}
+
+/** WORSE (rouge), BETTER (vert), SAME (gris, écart faible), NONE (gris, pas de comparaison). */
+export type BackendDashboardTrend = 'WORSE' | 'BETTER' | 'SAME' | 'NONE'
+
+export interface BackendDashboardScenarioRow {
+  executionId: string
+  scenarioId: string
+  scenarioName: string
+  applicationId: string
+  applicationName: string
+  startedAt: string
+  status: BackendExecutionStatus
+  virtualUsers: number | null
+  p95Ms: number | null
+  errorRate: number | null
+  throughputRps: number | null
+  cpuMaxPercent: number | null
+  previousExecutionId: string | null
+  previousP95Ms: number | null
+  p95ChangePercent: number | null
+  trend: BackendDashboardTrend
+}
+
+export interface BackendDashboardExecutionBrief {
+  id: string
+  scenarioName: string
+  applicationName: string
+  status: BackendExecutionStatus
+  startedAt: string
+  duration: number | null
+}
+
+/**
+ * GET /api/dashboard/scenario-trend : exécutions terminées d'un scénario, ordre chronologique.
+ * Avec ?stepName=, chaque point porte aussi P95, taux d'erreurs et requêtes de cette étape.
+ */
+export interface BackendScenarioTrend {
+  scenarioId: string
+  scenarioName: string
+  steps?: { name: string; method: string | null }[]
+  stepName?: string | null
+  points: { executionId: string; startedAt: string; status: BackendExecutionStatus; p95Ms: number | null; errorRate: number | null;
+    throughputRps: number | null; virtualUsers: number | null; stepP95Ms?: number | null; stepErrorRate?: number | null;
+    stepRequests?: number | null }[]
+}
+
+/** GET /api/executions/compare?ids= : 2 à 4 exécutions terminées, valeurs identiques à leurs rapports. */
+export interface BackendExecutionComparison {
+  sameScenario: boolean
+  warning: string | null
+  executions: BackendComparisonColumn[]
+  /** P95 de chaque étape (même nom et méthode) dans chaque exécution, null si absente. */
+  steps: { name: string; method: string | null; p95Ms: (number | null)[] }[]
+}
+
+export interface BackendComparisonColumn {
+  executionId: string
+  scenarioId: string
+  scenarioName: string
+  applicationName: string
+  startedAt: string
+  status: BackendExecutionStatus
+  virtualUsers: number | null
+  rampUpSeconds: number | null
+  durationSeconds: number | null
+  iterations: number | null
+  activeDurationMs: number | null
+  requests: number
+  throughput: number | null
+  p95Ms: number | null
+  p99Ms: number | null
+  errorRate: number | null
+  cpuMaxPercent: number | null
+  memoryMaxMb: number | null
+}
+
 export interface BackendDashboardResponse {
   applications: BackendApplicationsSummary
   scenarios: BackendScenariosSummary
@@ -787,10 +1053,51 @@ export interface BackendUserSummaryResponse {
    * `null` si aucun des 3 (jamais une valeur inventee par defaut). */
   role: BackendAppRole | null
   createdAt: string | null
+  firstName?: string | null
+  lastName?: string | null
+  /** « Prénom Nom » si renseignés dans Keycloak, sinon le username. */
+  displayName?: string | null
+  /** Dernière connexion (événements LOGIN Keycloak) ; null si aucune enregistrée. */
+  lastLoginAt?: string | null
+  /** Exécutions lancées par cet utilisateur dans LoadPilot. */
+  executionCount?: number
 }
 
 export interface BackendUpdateUserRoleRequest {
   role: BackendAppRole
+}
+
+/** POST /api/users. Avec `password` : mot de passe défini tout de suite
+ * (`temporaryPassword` = changement imposé à la 1re connexion), e-mail facultatif.
+ * Sans : un lien est envoyé par e-mail pour le choisir (e-mail obligatoire). */
+export interface BackendCreateUserRequest {
+  username: string
+  email?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  role: BackendAppRole
+  password?: string | null
+  temporaryPassword?: boolean
+}
+
+export interface BackendUserCreatedResponse {
+  user: BackendUserSummaryResponse
+  /** Lien de choix du mot de passe effectivement envoyé par e-mail. */
+  invitationSent: boolean
+  /** Mot de passe défini par l'administrateur (jamais renvoyé). */
+  passwordSet?: boolean
+}
+
+/** GET /api/users/password-policy : règles du realm (0 = pas d'exigence). */
+export interface BackendPasswordPolicy {
+  minLength: number
+  maxLength: number
+  minUpperCase: number
+  minLowerCase: number
+  minDigits: number
+  minSpecialChars: number
+  notUsername: boolean
+  notEmail: boolean
 }
 
 export interface BackendUpdateUserStatusRequest {
@@ -799,16 +1106,46 @@ export interface BackendUpdateUserStatusRequest {
 
 // ---- Audit ----
 
+/** Entree du journal d'audit prete a afficher (libelles francais, phrase, objet, avant -> apres). */
 export interface BackendAuditLogResponse {
   id: string
+  date: string
+  /** USER (utilisateur connecte) ou SYSTEM (action automatique). */
+  actorType: 'USER' | 'SYSTEM'
   userId: string | null
   username: string | null
+  /** Origine d'une action automatique ou importee, ex. « Planification : Test nocturne ». */
+  actorSource: string | null
   action: BackendAuditAction
+  actionLabel: string
   module: BackendAuditModule
-  date: string
-  ip: string | null
+  category: BackendAuditCategory
+  categoryLabel: string
   result: BackendAuditResult
+  resultLabel: string
+  /** Phrase lisible, ex. « Création de l’application « Banking » ». */
+  summary: string
+  /** Detail en francais (ou texte d'origine d'une ancienne ligne). */
+  detail: string | null
+  targetType: 'APPLICATION' | 'SCENARIO' | 'EXECUTION' | 'SCHEDULE' | 'USER' | 'SETTINGS' | null
+  targetId: string | null
+  targetLabel: string | null
+  /** L'objet existe encore (un lien peut etre propose). */
+  targetExists: boolean
+  changes: { label: string; before: string | null; after: string | null }[]
+  ip: string | null
+  /** « localhost » pour la machine elle-meme. */
+  ipLabel: string | null
+  userAgent: string | null
+  /** Ligne anterieure au journal enrichi (texte d'origine, sans objet ni avant / apres). */
+  legacy: boolean
   description: string | null
+}
+
+/** Reglages du journal d'audit (Parametres). */
+export interface BackendAuditSettings {
+  logReads: boolean
+  retentionDays: number
 }
 
 export interface BackendPagedResponse<T> {
@@ -853,6 +1190,9 @@ export interface BackendScheduledExecutionRequest {
   runAt?: string | null
   /** Identifiant de fuseau horaire IANA (ex: "Africa/Casablanca", "UTC") — toujours obligatoire. */
   timezone: string
+  /** Récurrente seulement : aucune occurrence après cet instant (ISO 8601). */
+  endAt?: string | null
+  notifyMode?: BackendScheduleNotifyMode
 }
 
 export interface BackendScheduledExecutionResponse {
@@ -876,6 +1216,59 @@ export interface BackendScheduledExecutionResponse {
   lastExecutionId: string | null
   /** Raison du dernier ÉCHEC DE DÉCLENCHEMENT (avant même la création d'une Execution) — `null` si le dernier déclenchement a réussi ou n'a jamais eu lieu. */
   lastTriggerError: string | null
+  endAt: string | null
+  notifyMode: BackendScheduleNotifyMode
+  state: BackendScheduleState
+  /** Raison de l'état (au survol), en français ; 
+ull pour une planification active. */
+  stateReason: string | null
+  /** Dernière exécution lancée ; p95ChangePercent = écart avec l'exécution précédente de la planification. */
+  lastRun: BackendScheduleLastRun | null
+  /** Dernier lancement non fait (ignoré, manqué), seulement s'il est plus récent que la dernière exécution. */
+  lastEvent: { outcome: BackendScheduledRunOutcome; plannedAt: string; reason: string } | null
+}
+
+export interface BackendScheduleLastRun {
+  executionId: string
+  status: BackendExecutionStatus
+  startedAt: string | null
+  p95Ms: number | null
+  previousP95Ms: number | null
+  p95ChangePercent: number | null
+  errorRatePercent: number | null
+}
+
+export interface BackendSchedulePreviewRequest {
+  scheduleType: BackendScheduleType
+  cronExpression?: string | null
+  runAt?: string | null
+  timezone: string
+  endAt?: string | null
+}
+
+export interface BackendSchedulePreviewResponse {
+  nextRuns: string[]
+  cronExpression: string | null
+}
+
+export interface BackendScheduleHistoryItem {
+  kind: 'EXECUTION' | 'EVENT'
+  at: string
+  executionId: string | null
+  status: BackendExecutionStatus | null
+  p95Ms: number | null
+  errorRatePercent: number | null
+  throughputRps: number | null
+  totalRequests: number | null
+  durationMs: number | null
+  outcome: BackendScheduledRunOutcome | null
+  reason: string | null
+}
+
+export interface BackendScheduleHistoryResponse {
+  scheduleId: string
+  items: BackendScheduleHistoryItem[]
+  truncated: boolean
 }
 
 // ---- Notification Preferences (P1-D — GET/PATCH /api/notification-preferences) ----
@@ -931,7 +1324,7 @@ export interface BackendExecutionPageResponse {
   size: number
   totalElements: number
   totalPages: number
-  counts: { total: number; queued: number; running: number; paused: number; success: number; failed: number; cancelled: number }
+  counts: { total: number; queued: number; running: number; paused: number; success: number; failed: number; cancelled: number; thresholdsExceeded?: number }
 }
 
 /** POST /api/executions/deletion-impact : ce que supprime une suppression d'exécutions. */

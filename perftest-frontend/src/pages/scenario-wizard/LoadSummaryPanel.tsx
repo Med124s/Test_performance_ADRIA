@@ -27,9 +27,11 @@ interface LoadSummaryPanelProps {
   onGoTo: (wizardStep: number) => void
   /** Réglage « Détail des requêtes » (enregistré avec les informations du scénario). */
   onRequestDetailModeChange?: (mode: BackendRequestDetailMode) => void
+  /** Seuils de réussite (enregistrés avec les informations du scénario). */
+  onThresholdsChange?: (patch: { maxErrorRatePercent?: string; maxP95Ms?: string }) => void
 }
 
-function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange }: LoadSummaryPanelProps) {
+function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange, onThresholdsChange }: LoadSummaryPanelProps) {
   const err = (field: string) => (showErrors ? errors[field] : undefined)
   const setField = (patch: Partial<LoadConfig>) => onChange({ ...patch, presetId: 'custom' })
 
@@ -107,6 +109,39 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                 Aucune des deux : chaque utilisateur joue le scénario une seule fois.
               </div>
             </div>
+            {onThresholdsChange && (
+              <div className="col-12">
+                <div className="sw-section-label mt-1">Seuils de réussite</div>
+                <div className="row g-3">
+                  <div className="col-12 col-sm-6">
+                    <label className="pt-form-label" htmlFor="load-max-error-rate">
+                      Taux d’erreurs maximal (%) <span className="sw-required" aria-hidden="true">*</span>
+                    </label>
+                    <input id="load-max-error-rate" className={`pt-form-control ${errors.maxErrorRatePercent ? 'is-invalid' : ''}`} inputMode="decimal"
+                      value={info.maxErrorRatePercent ?? '1'} onChange={(e) => onThresholdsChange({ maxErrorRatePercent: e.target.value })} aria-required />
+                    {errors.maxErrorRatePercent
+                      ? <div className="sw-field-error">{errors.maxErrorRatePercent}</div>
+                      : <div className="sw-field-hint">Au-delà, l’exécution est « Seuils dépassés » (orange) au lieu de « Réussie ». Par défaut 1 %.</div>}
+                  </div>
+                  <div className="col-12 col-sm-6">
+                    <label className="pt-form-label" htmlFor="load-max-p95">
+                      P95 maximal (ms) <span className="sw-optional">optionnel</span>
+                    </label>
+                    <input id="load-max-p95" className={`pt-form-control ${errors.maxP95Ms ? 'is-invalid' : ''}`} inputMode="numeric"
+                      placeholder="Aucun seuil" value={info.maxP95Ms ?? ''} onChange={(e) => onThresholdsChange({ maxP95Ms: e.target.value })} />
+                    {errors.maxP95Ms
+                      ? <div className="sw-field-error">{errors.maxP95Ms}</div>
+                      : <div className="sw-field-hint">95 % des requêtes doivent répondre en moins de ce temps (toutes étapes confondues).</div>}
+                  </div>
+                  <div className="col-12">
+                    <div className="sw-field-hint">
+                      <i className="bi bi-info-circle"></i> « Échouée » (rouge) est réservé à un test qui n’a pas pu se dérouler :
+                      authentification refusée, application injoignable, erreur interne.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             {onRequestDetailModeChange && (
               <div className="col-12">
                 <label className="pt-form-label" htmlFor="load-request-detail">Détail des requêtes</label>

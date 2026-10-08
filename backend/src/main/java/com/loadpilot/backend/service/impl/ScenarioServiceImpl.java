@@ -1,5 +1,8 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.service.audit.AuditEvent;
+import com.loadpilot.backend.service.audit.AuditSnapshots;
+import com.loadpilot.backend.service.audit.AuditTargetType;
 import com.loadpilot.backend.dto.request.ScenarioRequest;
 import com.loadpilot.backend.dto.response.ScenarioResponse;
 import com.loadpilot.backend.entity.AppUser;
@@ -93,12 +96,15 @@ public class ScenarioServiceImpl implements ScenarioService {
             applyVariables(scenario, request);
 
             Scenario saved = scenarioRepository.saveAndFlush(scenario);
-            auditLogService.record(AuditAction.CREATE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                    (draft ? "Scenario draft created: " : "Scenario created: ") + saved.getName());
+            auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, saved.getId(), saved.getName())
+                    .diff(Map.of(), AuditSnapshots.of(saved))
+                    .description(draft ? "Brouillon de scénario créé" : "Scénario créé"));
             return scenarioMapper.toResponse(saved);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.CREATE, AuditModule.SCENARIO, AuditResult.FAILURE,
-                    "Scenario creation failed: " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, null, request.name())
+                    .description("Création refusée").failed(e));
             throw e;
         }
     }
@@ -174,6 +180,7 @@ public class ScenarioServiceImpl implements ScenarioService {
     public ScenarioResponse update(UUID id, ScenarioRequest request) {
         try {
             Scenario scenario = findOrThrow(id);
+            Map<String, Object> before = AuditSnapshots.of(scenario);
             Application application = findApplicationOrThrow(request.applicationId());
             checkCsv(request.csvData());
             if (deletionService.runningForScenario(id) > 0) {
@@ -192,12 +199,15 @@ public class ScenarioServiceImpl implements ScenarioService {
             }
 
             Scenario saved = scenarioRepository.saveAndFlush(scenario);
-            auditLogService.record(AuditAction.UPDATE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                    "Scenario updated: " + saved.getName());
+            AuditEvent audit = AuditEvent.of(AuditAction.UPDATE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, saved.getId(), saved.getName())
+                    .diff(before, AuditSnapshots.of(saved));
+            auditLogService.record(audit.description(audit.changes().isEmpty() ? "Scénario enregistré sans changement de ses réglages" : "Scénario modifié"));
             return scenarioMapper.toResponse(saved);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.UPDATE, AuditModule.SCENARIO, AuditResult.FAILURE,
-                    "Scenario update failed for id " + id + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, id, scenarioName(id))
+                    .description("Modification refusée").failed(e));
             throw e;
         }
     }
@@ -248,8 +258,10 @@ public class ScenarioServiceImpl implements ScenarioService {
         scenario.setWizardStep(null);
         scenario.setDraftState(null);
         Scenario saved = scenarioRepository.saveAndFlush(scenario);
-        auditLogService.record(AuditAction.UPDATE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                "Scenario draft published: " + saved.getName());
+        auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.SCENARIO)
+                .target(AuditTargetType.SCENARIO, saved.getId(), saved.getName())
+                .change("Statut", "Brouillon", "Actif")
+                .description("Brouillon publié : le scénario peut être lancé"));
         return scenarioMapper.toResponse(saved);
     }
 
@@ -324,9 +336,10 @@ public class ScenarioServiceImpl implements ScenarioService {
         stepRepository.deleteAll(removed);
         stepRepository.flush();
         List<Step> saved = stepRepository.saveAllAndFlush(ordered);
-        auditLogService.record(AuditAction.UPDATE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                "Scenario fully updated: " + scenario.getName() + " (" + created + " step(s) created, " + modified
-                        + " updated, " + removed.size() + " deleted)");
+        auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.SCENARIO)
+                .target(AuditTargetType.SCENARIO, scenario.getId(), scenario.getName())
+                .change("Nombre d’étapes", existing.size(), saved.size())
+                .description("Étapes enregistrées : " + created + " ajoutée(s), " + modified + " conservée(s), " + removed.size() + " supprimée(s)"));
         return new ScenarioFullResponse(getById(id), stepMapper.toResponseList(saved));
     }
 
@@ -345,6 +358,15 @@ public class ScenarioServiceImpl implements ScenarioService {
             scenario.setRequestDetailMode(request.requestDetailMode());
         } else if (scenario.getRequestDetailMode() == null) {
             scenario.setRequestDetailMode(com.loadpilot.backend.enums.RequestDetailMode.FAILURES_AND_SAMPLE);
+        }
+        // Seuils de reussite : null = inchange ; P95 maximal 0 = aucun seuil de P95.
+        if (request.maxErrorRatePercent() != null) {
+            scenario.setMaxErrorRatePercent(request.maxErrorRatePercent());
+        } else if (scenario.getMaxErrorRatePercent() == null) {
+            scenario.setMaxErrorRatePercent(1.0);
+        }
+        if (request.maxP95Ms() != null) {
+            scenario.setMaxP95Ms(request.maxP95Ms() > 0 ? request.maxP95Ms() : null);
         }
     }
 
@@ -381,5 +403,14 @@ public class ScenarioServiceImpl implements ScenarioService {
     private Application findApplicationOrThrow(UUID applicationId) {
         return applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Application introuvable : " + applicationId));
+    }
+
+    /** Nom du scenario pour le journal, sans jamais lever d'exception. */
+    private String scenarioName(UUID id) {
+        try {
+            return scenarioRepository.findById(id).map(Scenario::getName).orElse("Scénario introuvable");
+        } catch (RuntimeException e) {
+            return "Scénario introuvable";
+        }
     }
 }

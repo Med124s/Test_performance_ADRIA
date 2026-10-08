@@ -369,20 +369,23 @@ const integrations = [
   { name: 'PagerDuty', icon: 'bi-bell-fill', desc: "Acheminement des incidents critiques" },
 ]
 
-function SettingsIntegrations() {
+/** embedded : affichée dans un onglet (Paramètres, Utilisateurs et rôles), sans son propre en-tête. */
+function SettingsIntegrations({ embedded = false }: { embedded?: boolean } = {}) {
   const { darkMode, setDarkMode } = useDarkMode()
 
   return (
-    <div className="pt-content">
-      <div className="d-flex align-items-center justify-content-between mb-4">
-        <div>
-          <h1 className="h4 fw-bold mb-1" style={{ color: 'var(--pt-text)' }}>Intégrations</h1>
-          <p className="text-muted mb-0" style={{ fontSize: '13.5px' }}>
-            État réel des intégrations tierces et de l'apparence
-          </p>
+    <div className={embedded ? undefined : 'pt-content'}>
+      {!embedded && (
+        <div className="d-flex align-items-center justify-content-between mb-4">
+          <div>
+            <h1 className="h4 fw-bold mb-1" style={{ color: 'var(--pt-text)' }}>Intégrations</h1>
+            <p className="text-muted mb-0" style={{ fontSize: '13.5px' }}>
+              État réel des intégrations tierces et de l'apparence
+            </p>
+          </div>
+          <TopBar searchPlaceholder="" />
         </div>
-        <TopBar searchPlaceholder="" />
-      </div>
+      )}
 
       <div className="row g-4">
         <div className="col-12 col-xl-7">
@@ -446,10 +449,10 @@ function SettingsIntegrations() {
                   session pilotable depuis ce frontend (géré côté royaume
                   Keycloak). */}
               <span className="pt-pill info w-100 justify-content-center">
-                <i className="bi bi-shield-check me-1"></i> Keycloak (OIDC)
+                <i className="bi bi-shield-check me-1"></i> Connexion unique (OIDC)
               </span>
               <p className="text-muted mt-2 mb-0" style={{ fontSize: '11.5px' }}>
-                2FA et durée de session sont configurées dans le royaume Keycloak, pas ici.
+                La double authentification et la durée de session se règlent sur le serveur d’authentification, pas ici.
               </p>
             </div>
           </div>

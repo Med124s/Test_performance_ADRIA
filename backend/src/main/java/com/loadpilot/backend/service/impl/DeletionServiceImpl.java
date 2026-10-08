@@ -1,5 +1,7 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.service.audit.AuditTargetType;
+import com.loadpilot.backend.service.audit.AuditEvent;
 import com.loadpilot.backend.dto.response.DeletionImpactResponse;
 import com.loadpilot.backend.entity.Application;
 import com.loadpilot.backend.entity.Scenario;
@@ -48,6 +50,7 @@ public class DeletionServiceImpl {
     private final ScenarioRepository scenarioRepository;
     private final AuditLogService auditLogService;
     private final com.loadpilot.backend.service.execution.RunningExecutionRegistry registry;
+    private final ScheduleResumer scheduleResumer;
 
     /**
      * Refus clair (409) si une execution concernee est terminee en base mais enregistre encore ses
@@ -142,12 +145,14 @@ public class DeletionServiceImpl {
             application.setArchived(true);
             application.setArchivedAt(Instant.now());
             int disabled = disableSchedules("s.application_id = :id", id);
-            auditLogService.record(AuditAction.ARCHIVE, AuditModule.APPLICATION, AuditResult.SUCCESS,
-                    "Application archived: " + application.getName() + (disabled > 0 ? " (" + disabled + " schedule(s) disabled)" : ""));
+            auditLogService.record(AuditEvent.of(AuditAction.ARCHIVE, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, id, application.getName())
+                    .description("Application archivée" + (disabled > 0 ? " — " + disabled + " planification(s) suspendue(s)" : "")));
             return applicationRepository.saveAndFlush(application);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.ARCHIVE, AuditModule.APPLICATION, AuditResult.FAILURE,
-                    "Application archive failed: " + application.getName() + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.ARCHIVE, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, id, application.getName())
+                    .description("Archivage refusé").failed(e));
             throw e;
         }
     }
@@ -158,9 +163,13 @@ public class DeletionServiceImpl {
         if (!application.isArchived()) return application;
         application.setArchived(false);
         application.setArchivedAt(null);
-        auditLogService.record(AuditAction.RESTORE, AuditModule.APPLICATION, AuditResult.SUCCESS,
-                "Application restored: " + application.getName());
-        return applicationRepository.saveAndFlush(application);
+        Application saved = applicationRepository.saveAndFlush(application);
+        // Les planifications suspendues par l'archivage reprennent pour les scenarios actifs et non archives.
+        ScheduleResumer.Result resumed = scheduleResumer.resumeForApplication(id);
+        auditLogService.record(AuditEvent.of(AuditAction.RESTORE, AuditModule.APPLICATION)
+                .target(AuditTargetType.APPLICATION, id, application.getName())
+                .description("Application restaurée" + (resumed.resumed() > 0 ? " — " + resumed.resumed() + " planification(s) reprise(s)" : "")));
+        return saved;
     }
 
     @Transactional
@@ -183,12 +192,14 @@ public class DeletionServiceImpl {
             nativeDelete("DELETE FROM scenario WHERE application_id = :id", id);
             nativeDelete("DELETE FROM application WHERE id = :id", id);
             entityManager.clear();
-            auditLogService.record(AuditAction.DELETE, AuditModule.APPLICATION, AuditResult.SUCCESS,
-                    "Application permanently deleted: " + application.getName() + " (" + impact.scenarios() + " scenario(s), "
-                            + impact.steps() + " step(s), " + impact.executions() + " execution(s))");
+            auditLogService.record(AuditEvent.of(AuditAction.DELETE, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, id, application.getName())
+                    .description("Application supprimée définitivement avec " + impact.scenarios() + " scénario(s), "
+                            + impact.steps() + " étape(s) et " + impact.executions() + " exécution(s)"));
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.DELETE, AuditModule.APPLICATION, AuditResult.FAILURE,
-                    "Application deletion failed: " + application.getName() + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.DELETE, AuditModule.APPLICATION)
+                    .target(AuditTargetType.APPLICATION, id, application.getName())
+                    .description("Suppression définitive refusée").failed(e));
             throw e;
         }
     }
@@ -204,12 +215,14 @@ public class DeletionServiceImpl {
             scenario.setArchived(true);
             scenario.setArchivedAt(Instant.now());
             int disabled = disableSchedules("s.id = :id", id);
-            auditLogService.record(AuditAction.ARCHIVE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                    "Scenario archived: " + scenario.getName() + (disabled > 0 ? " (" + disabled + " schedule(s) disabled)" : ""));
+            auditLogService.record(AuditEvent.of(AuditAction.ARCHIVE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, id, scenario.getName())
+                    .description("Scénario archivé" + (disabled > 0 ? " — " + disabled + " planification(s) suspendue(s)" : "")));
             return scenarioRepository.saveAndFlush(scenario);
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.ARCHIVE, AuditModule.SCENARIO, AuditResult.FAILURE,
-                    "Scenario archive failed: " + scenario.getName() + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.ARCHIVE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, id, scenario.getName())
+                    .description("Archivage refusé").failed(e));
             throw e;
         }
     }
@@ -224,9 +237,13 @@ public class DeletionServiceImpl {
         if (!scenario.isArchived()) return scenario;
         scenario.setArchived(false);
         scenario.setArchivedAt(null);
-        auditLogService.record(AuditAction.RESTORE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                "Scenario restored: " + scenario.getName());
-        return scenarioRepository.saveAndFlush(scenario);
+        Scenario saved = scenarioRepository.saveAndFlush(scenario);
+        // Planifications suspendues par l'archivage : reprennent si le scenario est actif.
+        ScheduleResumer.Result resumed = scheduleResumer.resume(saved);
+        auditLogService.record(AuditEvent.of(AuditAction.RESTORE, AuditModule.SCENARIO)
+                .target(AuditTargetType.SCENARIO, id, scenario.getName())
+                .description("Scénario restauré" + (resumed.resumed() > 0 ? " — " + resumed.resumed() + " planification(s) reprise(s)" : "")));
+        return saved;
     }
 
     @Transactional
@@ -247,12 +264,14 @@ public class DeletionServiceImpl {
             nativeDelete("DELETE FROM step WHERE scenario_id = :id", id);
             nativeDelete("DELETE FROM scenario WHERE id = :id", id);
             entityManager.clear();
-            auditLogService.record(AuditAction.DELETE, AuditModule.SCENARIO, AuditResult.SUCCESS,
-                    "Scenario permanently deleted: " + scenario.getName() + " (" + impact.steps() + " step(s), "
-                            + impact.executions() + " execution(s))");
+            auditLogService.record(AuditEvent.of(AuditAction.DELETE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, id, scenario.getName())
+                    .description("Scénario supprimé définitivement avec " + impact.steps() + " étape(s) et "
+                            + impact.executions() + " exécution(s)"));
         } catch (RuntimeException e) {
-            auditLogService.record(AuditAction.DELETE, AuditModule.SCENARIO, AuditResult.FAILURE,
-                    "Scenario deletion failed: " + scenario.getName() + ": " + e.getClass().getSimpleName());
+            auditLogService.record(AuditEvent.of(AuditAction.DELETE, AuditModule.SCENARIO)
+                    .target(AuditTargetType.SCENARIO, id, scenario.getName())
+                    .description("Suppression définitive refusée").failed(e));
             throw e;
         }
     }
@@ -280,7 +299,7 @@ public class DeletionServiceImpl {
     /** Desactive les planifications des scenarios concernes (un element
      * archive ne doit plus etre declenche automatiquement). */
     private int disableSchedules(String scenarioCondition, UUID id) {
-        return entityManager.createNativeQuery("UPDATE scheduled_execution SET enabled = FALSE WHERE enabled = TRUE "
+        return entityManager.createNativeQuery("UPDATE scheduled_execution SET enabled = FALSE, paused_by_scenario = TRUE WHERE enabled = TRUE "
                         + "AND scenario_id IN (SELECT s.id FROM scenario s WHERE " + scenarioCondition + ")")
                 .setParameter("id", id)
                 .executeUpdate();

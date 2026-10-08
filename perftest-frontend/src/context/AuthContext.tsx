@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react'
 import { AUTH_PROVIDER } from '../services/auth/keycloakConfig'
 import {
   getCurrentClaims,
@@ -7,10 +7,13 @@ import {
   logout as keycloakLogout,
 } from '../services/auth/keycloakClient'
 import { backendRolesToFrontendRole } from '../utils/roleMapping'
+import { initialsOf } from '../utils/userDisplay'
 
 export type UserRole = 'Visiteur' | 'Testeur' | 'Admin'
 
 export interface AuthUser {
+  /** Identifiant Keycloak (claim « sub ») : reconnaît son propre compte dans la page Utilisateurs. */
+  id: string
   name: string
   email: string
   role: UserRole
@@ -23,7 +26,7 @@ interface AuthContextValue {
   /** `true` UNIQUEMENT pendant le traitement initial du retour Keycloak
    * (échange du code d'autorisation contre les tokens, avant de savoir si
    * l'utilisateur est réellement authentifié) — `ProtectedRoute` doit
-   * attendre cette résolution avant de rediriger vers `/login`, sous peine
+   * attendre cette résolution avant de rediriger vers Keycloak, sous peine
    * de boucle de redirection. */
   isLoading: boolean
   /** Source de vérité unique pour le contrôle d'accès en écriture : false
@@ -42,54 +45,53 @@ interface AuthContextValue {
    * utils/roleMapping.ts). */
   rawRoles: string[]
   /** Redirige vers la vraie page de login Keycloak (aucun mot de passe ne
-   * transite par React, voir services/auth/keycloakClient.ts). */
-  loginWithKeycloak: () => void
+   * transite par React, voir services/auth/keycloakClient.ts). `returnTo` :
+   * page de l'application à rouvrir après la connexion. */
+  loginWithKeycloak: (returnTo?: string) => void
   logout: () => void
+  /** Page demandée avant la connexion, à rouvrir une seule fois juste après
+   * le retour de Keycloak (voir ProtectedRoute) ; `null` sinon. */
+  returnTo: string | null
+  clearReturnTo: () => void
+  /** Échec du retour de Keycloak (échange du code refusé, état invalide…) :
+   * la redirection automatique est alors suspendue pour éviter une boucle. */
+  authError: string | null
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
-
-function getInitials(email: string) {
-  const namePart = email.split('@')[0].replace(/[._]/g, ' ')
-  const words = namePart.trim().split(' ').filter(Boolean)
-  if (words.length === 0) return 'AU'
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
-  return (words[0][0] + words[1][0]).toUpperCase()
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [rawRoles, setRawRoles] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [returnTo, setReturnTo] = useState<string | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      let requestedPath: string | null = null
       try {
         // Traite un éventuel ?code=&state= de retour Keycloak (voir
         // keycloakClient.ts) — no-op si absent (accès direct à l'app).
-        await handleRedirectCallback()
+        requestedPath = await handleRedirectCallback()
       } catch (err) {
         // Jamais de session fabriquée en cas d'échec de l'échange réel.
-        console.error('Échec du traitement du retour Keycloak :', err)
+        console.error('Échec du traitement du retour de connexion :', err)
+        if (!cancelled) setAuthError(err instanceof Error ? err.message : 'Échec de la connexion.')
       }
       if (cancelled) return
+      setReturnTo(requestedPath)
 
       const claims = await getCurrentClaims()
       const roles = claims?.realm_access?.roles ?? []
       const role = claims ? backendRolesToFrontendRole(roles) : null
 
       setRawRoles(roles)
-      setUser(
-        claims && role
-          ? {
-              name: claims.name || claims.preferred_username || 'Utilisateur',
-              email: claims.email || '',
-              role,
-              initials: getInitials(claims.email || claims.preferred_username || claims.sub),
-            }
-          : null
-      )
+      // Initiales calculées sur le nom AFFICHÉ (« Admin Test » -> « AT »),
+      // jamais sur l'e-mail, pour que l'avatar corresponde au nom à côté.
+      const name = claims?.name || claims?.preferred_username || 'Utilisateur'
+      setUser(claims && role ? { id: claims.sub, name, email: claims.email || '', role, initials: initialsOf(name) } : null)
       setIsLoading(false)
     })()
     return () => {
@@ -97,9 +99,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const loginWithKeycloak = () => {
-    void redirectToLogin()
+  const loginWithKeycloak = (path?: string) => {
+    void redirectToLogin(path)
   }
+
+  const clearReturnTo = useCallback(() => setReturnTo(null), [])
 
   const logout = () => {
     // Invalide la VRAIE session SSO Keycloak — ne se contente jamais de
@@ -120,6 +124,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         rawRoles,
         loginWithKeycloak,
         logout,
+        returnTo,
+        clearReturnTo,
+        authError,
       }}
     >
       {children}

@@ -16,12 +16,18 @@ package com.loadpilot.backend.enums;
  * utilisateurs virtuels n'envoient plus aucune nouvelle requete jusqu'a la
  * reprise (retour a RUNNING) ou l'annulation. Le temps passe en pause n'est
  * compte ni dans la duree de travail du test ni dans le debit.
+ *
+ * THRESHOLDS_EXCEEDED : le test est alle au bout, mais un seuil de reussite du scenario (taux
+ * d'erreurs maximal, P95 maximal) est depasse. FAILED est reserve a un test qui n'a pas pu se
+ * derouler (authentification refusee, application injoignable, erreur interne). Les executions
+ * anterieures aux seuils gardent leur statut d'origine.
  */
 public enum ExecutionStatus {
     QUEUED,
     RUNNING,
     PAUSED,
     SUCCESS,
+    THRESHOLDS_EXCEEDED,
     FAILED,
     CANCELLED;
 

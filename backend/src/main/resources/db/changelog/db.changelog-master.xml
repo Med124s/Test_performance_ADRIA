@@ -130,5 +130,31 @@
         Chronologie d'une execution (VU actifs, pauses) - voir changes/024-execution-timeline.xml.
     -->
     <include file="db/changelog/changes/024-execution-timeline.xml"/>
+    <!--
+        Monitoring CPU / RAM de l'application testee - voir changes/025-application-monitoring.xml.
+    -->
+    <include file="db/changelog/changes/025-application-monitoring.xml"/>
+    <!--
+        Resume par execution (P95, debit, P95 par etape) et index pour le Dashboard - voir changes/026-execution-stats-dashboard.xml.
+    -->
+    <include file="db/changelog/changes/026-execution-stats-dashboard.xml"/>
+    <!--
+        Index (execution, temps de reponse) : requetes extremes et tri - voir changes/027-result-response-time-index.xml.
+    -->
+    <include file="db/changelog/changes/027-result-response-time-index.xml"/>
+    <!--
+        Planification : historique (execution.schedule_id, lancements ignores / manques), date de fin,
+        mode de notification - voir changes/028-schedule-history-and-rules.xml.
+    -->
+    <include file="db/changelog/changes/028-schedule-history-and-rules.xml"/>
+    <!--
+        Seuils de reussite par scenario et statut THRESHOLDS_EXCEEDED - voir changes/029-success-thresholds.xml.
+    -->
+    <include file="db/changelog/changes/029-success-thresholds.xml"/>
+
+    <!--
+        Journal d'audit enrichi (acteur, objet, avant/apres, evenements de securite) et reglages - voir changes/030-audit-enrichment-and-settings.xml.
+    -->
+    <include file="db/changelog/changes/030-audit-enrichment-and-settings.xml"/>
 
 </databaseChangeLog>

@@ -4,8 +4,10 @@ import { executionsBackendApi } from '../services/api/executionsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { STATUS_LABEL, isTerminal, progressOf, useExecutionMonitor } from '../context/ExecutionMonitorContext'
+import { liveStatusLabel, isTerminal, progressOf, useExecutionMonitor } from '../context/ExecutionMonitorContext'
+import { executionStatusMeta } from '../utils/executionStatus'
 import { NoFailedSteps, OnlyFailedToggle, StepPagerFooter, useStepPaging } from '../components/StepTablePager'
+import LiveResources from '../components/application-monitoring/LiveResources'
 
 // ============================================================
 // Suivi en direct d'une exécution (/executions/live/:id) : statut, progression,
@@ -122,7 +124,7 @@ function ExecutionLive() {
           </Link>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>{execution?.scenarioName || status?.scenarioName || 'Exécution'}</h1>
           <div className="em-muted mt-1" aria-live="polite">
-            {status ? <span className={paused ? 'em-status-paused' : undefined}>{STATUS_LABEL[status.status]}</span> : 'Connexion…'}
+            {status ? <span className={paused ? 'em-status-paused' : undefined}>{liveStatusLabel(status.status)}</span> : 'Connexion…'}
             {status && <> · {status.virtualUsers} utilisateur(s) · ramp-up {status.rampUpSeconds ?? 0} s
               {status.durationSeconds ? ` · durée ${status.durationSeconds} s` : ''}{status.iterations ? ` · ${status.iterations} itération(s)` : ''}</>}
           </div>
@@ -168,7 +170,7 @@ function ExecutionLive() {
           <span className="em-muted">{progress.label}{progress.percent != null ? ` · ${progress.percent} %` : ''}</span>
         </div>
         <div className="em-progress lg" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent ?? undefined}>
-          <div className={`em-progress-bar ${progress.percent == null && !paused ? 'indeterminate' : ''} ${paused ? 'paused' : ''} ${finished ? (status?.status === 'SUCCESS' ? 'ok' : 'ko') : ''}`}
+          <div className={`em-progress-bar ${progress.percent == null && !paused ? 'indeterminate' : ''} ${paused ? 'paused' : ''} ${finished ? ({ ok: 'ok', warn: 'warn', ko: 'ko', neutral: 'ko', active: '' } as const)[executionStatusMeta(status?.status).tone] : ''}`}
             style={{ width: `${progress.percent ?? 30}%` }}></div>
         </div>
         {finished && status?.errorMessage && status.status !== 'SUCCESS' && <div className="em-muted mt-2">{status.errorMessage}</div>}
@@ -185,6 +187,8 @@ function ExecutionLive() {
         <div className="em-kpi"><strong>{live ? live.throughputRps : report?.statistics.throughput != null ? Math.round(report.statistics.throughput * 10) / 10 : '—'}</strong><span>{live ? 'req/s (5 dernières s)' : 'req/s (moyenne)'}</span></div>
         <div className="em-kpi"><strong>{avg != null ? `${Math.round(avg)} ms` : '—'}</strong><span>temps de réponse moyen</span></div>
       </div>
+
+      <LiveResources resources={status?.resources} finished={finished} />
 
       <div className="pt-card" style={{ padding: 0 }}>
         <div className="p-3 em-steps-head" style={{ borderBottom: '1px solid var(--pt-border)' }}>

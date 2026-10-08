@@ -135,10 +135,9 @@ describe('Scénarios — pagination serveur, sélection et actions groupées', (
     expect(within(bar()).queryByRole('button', { name: /Supprimer définitivement/ })).toBeNull()
   })
 
-  it('scénario inactif : badge, « Exécuter » désactivé, réactivation qui propose de reprendre les planifications', async () => {
+  it('scénario inactif : badge, « Exécuter » désactivé, réactivation qui reprend les planifications d’office', async () => {
     serve([scenario({ id: 'x', name: 'Nocturne', status: 'INACTIVE', pausedSchedules: 2 })])
     api.activate.mockResolvedValue(scenario({ id: 'x', name: 'Nocturne' }))
-    api.bulkResumeSchedules.mockResolvedValue({ results: [{ id: 'x', name: 'Nocturne', success: true, message: '2 planification(s) réactivée(s).' }], succeeded: 1, failed: 0 })
     renderPage()
     await screen.findByText('Nocturne')
 
@@ -149,8 +148,8 @@ describe('Scénarios — pagination serveur, sélection et actions groupées', (
 
     fireEvent.click(screen.getByRole('button', { name: 'Activer Nocturne' }))
     await waitFor(() => expect(api.activate).toHaveBeenCalledWith('x'))
-    expect(await screen.findByText('Réactiver les planifications ?')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Réactiver les planifications' }))
-    await waitFor(() => expect(api.bulkResumeSchedules).toHaveBeenCalledWith(['x']))
+    expect(await screen.findByText(/2 planification\(s\) suspendue\(s\) reprennent leur cours/)).toBeTruthy()
+    expect(screen.queryByText('Réactiver les planifications ?')).toBeNull()
+    expect(api.bulkResumeSchedules).not.toHaveBeenCalled()
   })
 })

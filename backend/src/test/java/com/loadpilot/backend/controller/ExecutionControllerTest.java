@@ -357,14 +357,16 @@ class ExecutionControllerTest {
     // ------------------------------------------------------------
 
     @Test
-    void failingStep_producesFailedExecutionWithError() throws Exception {
+    void failingStep_testRanToTheEnd_thresholdsExceededWithError() throws Exception {
+        // Le test est alle au bout (l'application a repondu, en erreur) : seuil de taux d'erreurs depasse,
+        // pas « Echouee » (reserve a un test qui n'a pas pu se derouler).
         String scenarioId = scenarioWithFailingStep("status-failed");
         String executionId = executeScenarioAndGetId(scenarioId);
 
         mockMvc.perform(get("/api/executions/" + executionId).with(AS_VIEWER))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("FAILED"))
-                .andExpect(jsonPath("$.errorMessage").exists())
+                .andExpect(jsonPath("$.status").value("THRESHOLDS_EXCEEDED"))
+                .andExpect(jsonPath("$.errorMessage").value(org.hamcrest.Matchers.startsWith("Seuils dépassés : taux d'erreurs 100 % > 1 %")))
                 .andExpect(jsonPath("$.successfulSteps").value(0))
                 .andExpect(jsonPath("$.failedSteps").value(1))
                 .andExpect(jsonPath("$.results[0].success").value(false))

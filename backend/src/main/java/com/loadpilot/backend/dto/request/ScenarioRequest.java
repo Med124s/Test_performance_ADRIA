@@ -90,15 +90,32 @@ public record ScenarioRequest(
         CsvDistribution csvDistribution,
 
         // Detail des requetes conserve a l'execution : NONE, FAILURES ou FAILURES_AND_SAMPLE (defaut).
-        com.loadpilot.backend.enums.RequestDetailMode requestDetailMode
+        com.loadpilot.backend.enums.RequestDetailMode requestDetailMode,
+
+        /** Seuil de reussite : taux d'erreurs maximal (%) ; null = inchange (defaut 1 % a la creation). */
+        @jakarta.validation.constraints.DecimalMin(value = "0.0", message = "Le taux d'erreurs maximal ne peut pas être négatif.")
+        @jakarta.validation.constraints.DecimalMax(value = "100.0", message = "Le taux d'erreurs maximal ne peut pas dépasser 100 %.")
+        Double maxErrorRatePercent,
+
+        /** Seuil de reussite optionnel : P95 maximal (ms) ; null = inchange, 0 = aucun seuil de P95. */
+        @Min(value = 0, message = "Le P95 maximal ne peut pas être négatif.")
+        Long maxP95Ms
 ) {
+    public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
+            Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
+            String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
+            String variables, CsvDistribution csvDistribution, com.loadpilot.backend.enums.RequestDetailMode requestDetailMode) {
+        this(applicationId, name, description, virtualUsers, rampUpSeconds, durationSeconds, iterations,
+                thinkTimeMs, csvData, targetRps, draft, wizardStep, draftState, variables, csvDistribution, requestDetailMode, null, null);
+    }
+
     /** Compatibilite : requete sans reglage du detail des requetes (inchange / defaut). */
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
             String variables, CsvDistribution csvDistribution) {
         this(applicationId, name, description, virtualUsers, rampUpSeconds, durationSeconds, iterations,
-                thinkTimeMs, csvData, targetRps, draft, wizardStep, draftState, variables, csvDistribution, null);
+                thinkTimeMs, csvData, targetRps, draft, wizardStep, draftState, variables, csvDistribution, null, null, null);
     }
 
     /** Compatibilite : construit une requete sans parametre de charge

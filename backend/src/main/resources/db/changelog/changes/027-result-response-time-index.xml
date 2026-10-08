@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Requetes les plus rapides / les plus lentes d'une execution (cartes Minimum / Maximum du
+        rapport) et tri par temps de reponse : lecture des 10 premieres lignes de l'index, sans
+        trier toutes les requetes, meme au-dela de 10 000.
+    -->
+    <changeSet id="027-result-response-time-index" author="loadpilot">
+        <createIndex indexName="idx_result_execution_response_time" tableName="execution_step_result">
+            <column name="execution_id"/>
+            <column name="response_time_ms"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

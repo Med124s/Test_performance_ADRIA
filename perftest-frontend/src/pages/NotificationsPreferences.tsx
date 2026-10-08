@@ -20,31 +20,37 @@ import { ApiError } from '../services/api/httpClient'
 
 const typeLabel: Record<BackendNotificationType, string> = {
   EXECUTION_SUCCESS: 'Exécution réussie',
+  EXECUTION_THRESHOLDS_EXCEEDED: 'Seuils de réussite dépassés',
   EXECUTION_FAILED: 'Exécution échouée',
   EXECUTION_CANCELLED: 'Exécution annulée',
   SCHEDULE_TRIGGERED: 'Planification déclenchée',
-  SCHEDULE_FAILED: 'Échec de déclenchement de planification',
+  SCHEDULE_FAILED: 'Planification non lancée',
+  SCHEDULE_REGRESSION: 'Régression d’une exécution planifiée',
 }
 const typeDescription: Record<BackendNotificationType, string> = {
   EXECUTION_SUCCESS: "Une exécution que vous avez lancée (manuellement ou via une planification) s'est terminée avec succès.",
-  EXECUTION_FAILED: "Une exécution que vous avez lancée s'est terminée en échec.",
+  EXECUTION_THRESHOLDS_EXCEEDED: "Une exécution est allée au bout, mais un seuil de réussite du scénario (taux d'erreurs ou P95 maximal) est dépassé.",
+  EXECUTION_FAILED: "Une exécution n'a pas pu se dérouler (authentification refusée, application injoignable, erreur interne).",
   EXECUTION_CANCELLED: 'Une exécution que vous avez lancée a été annulée.',
   SCHEDULE_TRIGGERED: 'Une de vos planifications vient de démarrer une exécution.',
-  SCHEDULE_FAILED: "Une de vos planifications n'a pas pu démarrer d'exécution (ex: limite de capacité atteinte).",
+  SCHEDULE_FAILED: "Un lancement prévu n'a pas eu lieu : ignoré (exécution précédente en cours, capacité insuffisante), manqué (LoadPilot arrêté) ou refusé.",
+  SCHEDULE_REGRESSION: "Le P95 d'une exécution planifiée a augmenté de plus de 20 % par rapport à l'exécution précédente (même seuil que le Dashboard).",
 }
 const typeIcon: Record<BackendNotificationType, string> = {
   EXECUTION_SUCCESS: 'bi-check-circle-fill',
+  EXECUTION_THRESHOLDS_EXCEEDED: 'bi-exclamation-triangle-fill',
   EXECUTION_FAILED: 'bi-x-circle-fill',
   EXECUTION_CANCELLED: 'bi-slash-circle-fill',
   SCHEDULE_TRIGGERED: 'bi-calendar-check-fill',
   SCHEDULE_FAILED: 'bi-calendar-x-fill',
+  SCHEDULE_REGRESSION: 'bi-graph-up-arrow',
 }
 
 function describeApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     switch (err.status) {
       case 0: return err.message
-      case 401: return 'Vous devez être connecté (Keycloak) pour gérer vos préférences.'
+      case 401: return 'Vous devez être connecté pour gérer vos préférences.'
       default: return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
     }
   }
@@ -113,12 +119,13 @@ function NotificationsPreferences() {
           </div>
         ) : !preferences ? null : (
           <div>
-            {preferences.map((pref) => (
+            {/* « Planification déclenchée » n'est plus envoyée : la fin de l'exécution planifiée est notifiée à la place. */}
+            {preferences.filter((pref) => pref.type !== 'SCHEDULE_TRIGGERED').map((pref) => (
               <div key={pref.type} className="d-flex align-items-center gap-3 p-3" style={{ borderBottom: '1px solid var(--pt-border)' }}>
-                <i className={`bi ${typeIcon[pref.type]}`} style={{ fontSize: '18px', color: 'var(--pt-primary)' }}></i>
+                <i className={`bi ${typeIcon[pref.type] ?? 'bi-bell-fill'}`} style={{ fontSize: '18px', color: 'var(--pt-primary)' }}></i>
                 <div className="flex-grow-1">
-                  <div style={{ fontSize: '13.5px', fontWeight: 600 }}>{typeLabel[pref.type]}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>{typeDescription[pref.type]}</div>
+                  <div style={{ fontSize: '13.5px', fontWeight: 600 }}>{typeLabel[pref.type] ?? pref.type}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>{typeDescription[pref.type] ?? ''}</div>
                 </div>
                 <label className="pt-toggle">
                   <input

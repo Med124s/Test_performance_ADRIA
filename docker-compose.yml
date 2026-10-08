@@ -49,6 +49,22 @@ services:
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD doit etre defini (voir .env.example)}
+      # Serveur d'e-mails du realm (mot de passe oublie, etc.), lu par
+      # realm-export.json a l'import (placeholders ${KC_SMTP_...}).
+      # Par defaut : Mailpit ci-dessous (aucun e-mail ne sort de la machine).
+      # En production : definir ces variables dans .env (voir .env.example).
+      KC_SMTP_HOST: ${KC_SMTP_HOST:-mailpit}
+      KC_SMTP_PORT: ${KC_SMTP_PORT:-1025}
+      KC_SMTP_FROM: ${KC_SMTP_FROM:-no-reply@loadpilot.local}
+      KC_SMTP_FROM_NAME: ${KC_SMTP_FROM_NAME:-LoadPilot}
+      KC_SMTP_STARTTLS: ${KC_SMTP_STARTTLS:-false}
+      KC_SMTP_SSL: ${KC_SMTP_SSL:-false}
+      KC_SMTP_AUTH: ${KC_SMTP_AUTH:-false}
+      KC_SMTP_USER: ${KC_SMTP_USER:-}
+      KC_SMTP_PASSWORD: ${KC_SMTP_PASSWORD:-}
+    depends_on:
+      mailpit:
+        condition: service_started
     ports:
       - "8081:8080"
     volumes:
@@ -56,6 +72,24 @@ services:
       # keycloak/README.md) - aucun utilisateur, aucun secret reel dans ce
       # fichier (secret du client confidentiel masque a l'export).
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      # Theme de connexion LoadPilot (FreeMarker, herite de keycloak.v2) :
+      # charge au demarrage ; en start-dev le cache des themes est desactive,
+      # une modification des fichiers est visible au rechargement de la page.
+      - ./keycloak/themes/loadpilot:/opt/keycloak/themes/loadpilot:ro
+
+  # Serveur SMTP local de developpement / demo : capture TOUS les e-mails
+  # envoyes par Keycloak (rien n'est reellement delivre) et les affiche sur
+  # http://localhost:8025. Inutile en production si KC_SMTP_HOST pointe
+  # vers un vrai serveur.
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "8025:8025" # interface web
+      - "1025:1025" # SMTP
 
   # Master prompt final (Lot E) — build reel depuis backend/Dockerfile
   # (multi-stage Maven, voir ce fichier). "keycloak: service_started"

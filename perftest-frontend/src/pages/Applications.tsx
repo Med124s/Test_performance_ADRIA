@@ -21,6 +21,10 @@ import ApplicationAuthFields, {
 } from '../components/application-auth/ApplicationAuthFields'
 import AuthTestProgress, { PHASE_LABELS, TestPhase, phasesFor, testPhasesFor } from '../components/application-auth/AuthTestProgress'
 import DeletionDialog, { DeletionMode } from '../components/deletion/DeletionDialog'
+import MonitoringFields from '../components/application-monitoring/MonitoringFields'
+import {
+  EMPTY_MONITORING_FORM, MONITORING_TYPE_LABELS, MonitoringForm, monitoringFormFromResponse, monitoringFormToRequest, validateMonitoringForm,
+} from '../components/application-monitoring/monitoringModel'
 
 // ============================================================
 // Phase 17 — ce module (et lui seul) parle désormais au vrai backend Spring
@@ -99,7 +103,7 @@ function describeApiError(err: unknown, fallback: string): string {
       case 400:
         return `Données invalides : ${err.message}`
       case 401:
-        return 'Vous devez être connecté (Keycloak) pour effectuer cette action.'
+        return 'Vous devez être connecté pour effectuer cette action.'
       case 403:
         return "Action refusée : votre rôle ne dispose pas des permissions nécessaires."
       case 404:
@@ -312,6 +316,7 @@ function Applications() {
   const [touched, setTouched] = useState<{ name?: boolean; url?: boolean }>({})
   const [authForm, setAuthForm] = useState<AuthForm>(EMPTY_AUTH_FORM)
   const [showAuthErrors, setShowAuthErrors] = useState(false)
+  const [monitoringForm, setMonitoringForm] = useState<MonitoringForm>(EMPTY_MONITORING_FORM)
 
   const nameError = firstError(
     validateRequired(form.name, "Le nom de l'application"),
@@ -320,7 +325,9 @@ function Applications() {
   const urlError = firstError(validateRequired(form.url, "L'URL"), validateAbsoluteUrl(form.url))
   const descriptionError = validateMaxLength(form.description, DESCRIPTION_MAX_LENGTH, 'La description')
   const authErrors = validateAuthForm(authForm, editingApp?.auth)
+  const monitoringErrors = validateMonitoringForm(monitoringForm, editingApp?.monitoring)
   const isFormValid = !nameError && !urlError && !descriptionError && Object.keys(authErrors).length === 0
+    && Object.keys(monitoringErrors).length === 0
 
   const totalItems = pageData.totalElements
   const totalPages = Math.max(1, pageData.totalPages)
@@ -410,6 +417,7 @@ function Applications() {
     setEditingApp(null)
     setForm(emptyForm)
     setAuthForm(EMPTY_AUTH_FORM)
+    setMonitoringForm(EMPTY_MONITORING_FORM)
     setShowAuthErrors(false)
     resetFlow()
     setActionError(null)
@@ -427,6 +435,7 @@ function Applications() {
       url: app.url,
     })
     setAuthForm(authFormFromResponse(app.auth))
+    setMonitoringForm(monitoringFormFromResponse(app.monitoring))
     setShowAuthErrors(false)
     resetFlow()
     setActionError(null)
@@ -470,6 +479,7 @@ function Applications() {
     description: form.description.trim() || null,
     url: form.url.trim(),
     auth: authFormToRequest(authForm),
+    monitoring: monitoringFormToRequest(monitoringForm),
   })
 
   // "Tester et ajouter" (création) ou "Enregistrer et tester" (modification) :
@@ -912,6 +922,15 @@ function Applications() {
                     )}
                   </div>
                 </div>
+                <div className="col-12">
+                  <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Monitoring (CPU / RAM de l’application)</div>
+                  <div style={{ fontSize: '13.5px', fontWeight: 500 }}>
+                    <i className="bi bi-cpu me-1"></i>{MONITORING_TYPE_LABELS[editingApp.monitoring?.type ?? 'NONE']}
+                    {editingApp.monitoring && editingApp.monitoring.type !== 'NONE' && (
+                      <span style={{ color: 'var(--pt-text-muted)' }}> — {editingApp.monitoring.url}, toutes les {editingApp.monitoring.intervalSeconds} s</span>
+                    )}
+                  </div>
+                </div>
                 {editingApp.statusMessage && (
                   <div className="col-12">
                     <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>
@@ -982,6 +1001,22 @@ function Applications() {
                     showErrors={showAuthErrors}
                     existing={editingApp?.auth}
                     baseUrl={form.url}
+                  />
+                </div>
+              </div>
+              <div className="col-12">
+                <div style={{ borderTop: '1px solid var(--pt-border)', paddingTop: '1rem', marginTop: '0.25rem' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '8px', display: 'block' }}>
+                    <i className="bi bi-cpu me-2"></i>Monitoring <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel — CPU et RAM de l’application pendant les exécutions</span>
+                  </label>
+                  <MonitoringFields
+                    value={monitoringForm}
+                    onChange={setMonitoringForm}
+                    errors={monitoringErrors}
+                    showErrors={showAuthErrors}
+                    existing={editingApp?.monitoring}
+                    appUrl={form.url}
+                    applicationId={editingApp?.id}
                   />
                 </div>
               </div>

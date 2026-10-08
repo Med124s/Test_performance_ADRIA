@@ -29,6 +29,19 @@ public interface ExecutionStepResultRepository extends JpaRepository<ExecutionSt
     @Query("SELECT r FROM ExecutionStepResult r LEFT JOIN FETCH r.step WHERE r.execution.id = :executionId ORDER BY r.timestamp ASC")
     List<ExecutionStepResult> findByExecutionIdOrderByTimestampAsc(@Param("executionId") UUID executionId);
 
+    /** Requetes les plus rapides (ASC) : temps de reponse croissant, puis la plus ancienne d'abord (index execution_id, response_time_ms). */
+    @Query("SELECT r FROM ExecutionStepResult r LEFT JOIN FETCH r.step WHERE r.execution.id = :executionId AND r.responseTime IS NOT NULL "
+            + "ORDER BY r.responseTime ASC, r.timestamp ASC")
+    List<ExecutionStepResult> findFastest(@Param("executionId") UUID executionId, org.springframework.data.domain.Pageable page);
+
+    /** Requetes les plus lentes : temps de reponse decroissant, puis la plus ancienne d'abord. */
+    @Query("SELECT r FROM ExecutionStepResult r LEFT JOIN FETCH r.step WHERE r.execution.id = :executionId AND r.responseTime IS NOT NULL "
+            + "ORDER BY r.responseTime DESC, r.timestamp ASC")
+    List<ExecutionStepResult> findSlowest(@Param("executionId") UUID executionId, org.springframework.data.domain.Pageable page);
+
+    @Query("SELECT COUNT(r) FROM ExecutionStepResult r WHERE r.execution.id = :executionId AND r.responseTime IS NOT NULL")
+    long countMeasured(@Param("executionId") UUID executionId);
+
     // ---- Phase 11 (Dashboard) - "steps reellement executes" = nombre de
     // lignes ExecutionStepResult, PAS le nombre de Step configures sur les
     // scenarios (voir Phase 9 : politique stop-on-failure). Une seule
