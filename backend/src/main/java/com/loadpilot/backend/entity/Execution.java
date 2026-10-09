@@ -181,6 +181,19 @@ public class Execution {
     @Column(name = "schedule_id", updatable = false)
     private UUID scheduleId;
 
+    /** Option « Conserver » : resultats et detail des requetes jamais purges. */
+    @Builder.Default
+    @Column(name = "keep_results", nullable = false)
+    private boolean keepResults = false;
+
+    /** Date de suppression des resultats (une ligne par requete) ; null = encore presents. */
+    @Column(name = "results_purged_at")
+    private Instant resultsPurgedAt;
+
+    /** Date de suppression des en-tetes / corps des requetes ; null = encore presents. */
+    @Column(name = "request_details_purged_at")
+    private Instant requestDetailsPurgedAt;
+
     @Builder.Default
     @OneToMany(mappedBy = "execution", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ExecutionStepResult> results = new ArrayList<>();

@@ -40,6 +40,7 @@ public class ExecutionComparisonService {
     private final ExecutionRepository executionRepository;
     private final ExecutionStepResultRepository resultRepository;
     private final PerformanceStatisticsService statisticsService;
+    private final ReportSnapshots reportSnapshots;
 
     @Transactional(readOnly = true)
     public ExecutionComparisonResponse compare(List<UUID> ids) {
@@ -64,15 +65,18 @@ public class ExecutionComparisonService {
         Map<String, String[]> stepInfo = new LinkedHashMap<>();
         for (int i = 0; i < executions.size(); i++) {
             Execution e = executions.get(i);
-            List<ExecutionStepResult> results = resultRepository.findByExecutionIdOrderByTimestampAsc(e.getId());
-            long pausedMs = ExecutionServiceImpl.pausedDurationMs(e, Instant.now());
+            // Detail des requetes supprime : statistiques et etapes du rapport fige (memes valeurs que le rapport).
+            com.loadpilot.backend.service.report.ReportSnapshot frozen = ReportSnapshots.purged(e)
+                    ? reportSnapshots.read(e).orElse(null) : null;
+            List<ExecutionStepResult> results = frozen != null ? List.of() : resultRepository.findByExecutionIdOrderByTimestampAsc(e.getId());
+            long pausedMs = frozen != null ? frozen.pausedDurationMs() : ExecutionServiceImpl.pausedDurationMs(e, Instant.now());
             Long activeMs = e.getDuration() != null ? Math.max(0L, e.getDuration() - pausedMs) : null;
-            ExecutionStatistics s = statisticsService.computeOverallStatistics(results, activeMs);
+            ExecutionStatistics s = frozen != null ? frozen.statistics() : statisticsService.computeOverallStatistics(results, activeMs);
             columns.add(new Column(e.getId().toString(), e.getScenario().getId().toString(), e.getScenario().getName(),
                     e.getScenario().getApplication().getName(), e.getStartedAt(), e.getStatus(), e.getVirtualUsers(), e.getRampUpSeconds(),
                     e.getDurationSeconds(), e.getIterations(), activeMs, s.totalRequests(), s.throughput(), s.p95(), s.p99(), s.errorRate(),
                     e.getCpuMaxPercent(), e.getMemoryMaxMb()));
-            for (StepReportEntry step : statisticsService.computeStepBreakdown(results)) {
+            for (StepReportEntry step : frozen != null ? frozen.steps() : statisticsService.computeStepBreakdown(results)) {
                 String method = step.method() == null ? null : step.method().name();
                 String key = method + " " + step.stepName();
                 stepInfo.putIfAbsent(key, new String[] {step.stepName(), method});

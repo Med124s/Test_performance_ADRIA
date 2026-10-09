@@ -44,3 +44,11 @@ app:
       enabled: false
     # Purge jamais declenchee par l'horloge en test (appelee directement par les tests).
     purge-cron: "-"
+  mail:
+    # Aucun serveur e-mail en test (les tests d'envoi utilisent leur propre faux serveur SMTP).
+    enabled: false
+  results:
+    # Purge et rattrapage des rapports figes appeles directement par les tests.
+    purge-cron: "-"
+    snapshot-backfill:
+      enabled: false

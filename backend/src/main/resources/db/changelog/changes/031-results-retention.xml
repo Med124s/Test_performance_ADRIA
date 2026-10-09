@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Conservation des resultats detailles (aucune donnee supprimee par cette migration) :
+        - execution_report_snapshot : rapport fige (statistiques, etapes, erreurs, seuils, analyse
+          dans le temps, requetes extremes) enregistre a la fin de l'execution ; sert de rapport une
+          fois le detail purge. Table separee : les listes d'executions ne lisent jamais ce JSON.
+          Supprime avec son execution (ON DELETE CASCADE) ;
+        - keep_results : option « Conserver » (jamais purgee) ;
+        - results_purged_at / request_details_purged_at : dates de purge du detail des requetes
+          (resultats) et des en-tetes / corps (detail des requetes).
+    -->
+    <changeSet id="031-results-retention" author="loadpilot">
+        <addColumn tableName="execution">
+            <column name="keep_results" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="results_purged_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="request_details_purged_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </addColumn>
+        <createIndex indexName="idx_execution_finished_at" tableName="execution">
+            <column name="finished_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="031-execution-report-snapshot" author="loadpilot">
+        <createTable tableName="execution_report_snapshot">
+            <column name="execution_id" type="UUID">
+                <constraints primaryKey="true" nullable="false"
+                             foreignKeyName="fk_report_snapshot_execution" referencedTableName="execution"
+                             referencedColumnNames="id" deleteCascade="true"/>
+            </column>
+            <column name="snapshot" type="VARCHAR(1000000)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="captured_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

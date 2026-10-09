@@ -36,6 +36,7 @@ public class ExecutionTimelineService {
     private final ExecutionStepResultRepository resultRepository;
     private final RunningExecutionRegistry registry;
     private final ObjectMapper objectMapper;
+    private final ReportSnapshots reportSnapshots;
 
     private final Map<UUID, ExecutionTimelineResponse> cache = java.util.Collections.synchronizedMap(
             new LinkedHashMap<>(16, 0.75f, true) {
@@ -52,6 +53,16 @@ public class ExecutionTimelineService {
                 .orElseThrow(() -> { cache.remove(executionId); return new ResourceNotFoundException("Execution introuvable : " + executionId); });
         ExecutionTimelineResponse cached = cache.get(executionId);
         if (cached != null) return cached;
+
+        // Detail des requetes supprime : analyse du rapport fige (calculee a la fin de l'execution).
+        if (ReportSnapshots.purged(execution)) {
+            ExecutionTimelineResponse frozen = reportSnapshots.read(execution)
+                    .map(com.loadpilot.backend.service.report.ReportSnapshot::timeline).orElse(null);
+            if (frozen != null) {
+                cache.put(executionId, frozen);
+                return frozen;
+            }
+        }
 
         List<Sample> samples = new ArrayList<>();
         for (Object[] row : resultRepository.findTimelineRows(executionId)) {

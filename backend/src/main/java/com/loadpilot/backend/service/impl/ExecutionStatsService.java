@@ -44,7 +44,8 @@ public class ExecutionStatsService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void compute(UUID executionId) {
         Execution execution = executionRepository.findById(executionId).orElse(null);
-        if (execution == null || execution.getStatus() == null || execution.getStatus().isActive()) return;
+        if (execution == null || execution.getStatus() == null || execution.getStatus().isActive()
+                || execution.getResultsPurgedAt() != null) return;
         List<ExecutionStepResult> results = resultRepository.findByExecutionIdOrderByTimestampAsc(executionId);
         long pausedMs = ExecutionServiceImpl.pausedDurationMs(execution, Instant.now());
         Long activeDurationMs = execution.getDuration() != null ? Math.max(0L, execution.getDuration() - pausedMs) : null;
@@ -75,7 +76,7 @@ public class ExecutionStatsService {
 
     /** Vrai si le resume doit encore etre calcule (execution terminee, jamais resumee). */
     public static boolean needsComputation(Execution e) {
-        if (e.getStatus() == null || e.getStatus().isActive()) return false;
+        if (e.getStatus() == null || e.getStatus().isActive() || e.getResultsPurgedAt() != null) return false;
         // Resume absent, ou anterieur a l'ajout des echecs par etape : recalcule une fois.
         String json = e.getStepStatsJson();
         return e.getStatsComputedAt() == null || (json != null && json.contains("\"name\"") && !json.contains("\"failed\""));

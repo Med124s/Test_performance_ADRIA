@@ -153,4 +153,25 @@ public interface ExecutionRepository extends JpaRepository<Execution, UUID>, Jpa
             + "(com.loadpilot.backend.enums.ExecutionStatus.SUCCESS, com.loadpilot.backend.enums.ExecutionStatus.THRESHOLDS_EXCEEDED, "
             + "com.loadpilot.backend.enums.ExecutionStatus.FAILED) ORDER BY e.startedAt DESC")
     List<Execution> findPreviousFinishedByScenario(@Param("scenarioId") UUID scenarioId, @Param("before") Instant before, Pageable pageable);
+
+    // ---- Conservation des resultats detailles (voir ResultsRetentionJob, ReportSnapshotService) ----
+
+    String TERMINATED = "e.status NOT IN (com.loadpilot.backend.enums.ExecutionStatus.QUEUED, "
+            + "com.loadpilot.backend.enums.ExecutionStatus.RUNNING, com.loadpilot.backend.enums.ExecutionStatus.PAUSED)";
+
+    /** Executions terminees, detail encore present, sans rapport fige. */
+    @Query("SELECT e.id FROM Execution e WHERE " + TERMINATED + " AND e.resultsPurgedAt IS NULL "
+            + "AND NOT EXISTS (SELECT 1 FROM ExecutionReportSnapshot s WHERE s.executionId = e.id) ORDER BY e.startedAt")
+    List<UUID> findFinishedIdsWithoutSnapshot();
+
+    /** Executions terminees avant "cutoff", non conservees, dont les resultats sont encore presents (plus anciennes d'abord). */
+    @Query("SELECT e.id FROM Execution e WHERE " + TERMINATED + " AND e.keepResults = false AND e.resultsPurgedAt IS NULL "
+            + "AND COALESCE(e.finishedAt, e.startedAt) < :cutoff ORDER BY COALESCE(e.finishedAt, e.startedAt)")
+    List<UUID> findResultsToPurge(@Param("cutoff") Instant cutoff, Pageable pageable);
+
+    /** Idem pour le detail des requetes (en-tetes et corps). */
+    @Query("SELECT e.id FROM Execution e WHERE " + TERMINATED + " AND e.keepResults = false AND e.resultsPurgedAt IS NULL "
+            + "AND e.requestDetailsPurgedAt IS NULL AND COALESCE(e.finishedAt, e.startedAt) < :cutoff "
+            + "ORDER BY COALESCE(e.finishedAt, e.startedAt)")
+    List<UUID> findRequestDetailsToPurge(@Param("cutoff") Instant cutoff, Pageable pageable);
 }

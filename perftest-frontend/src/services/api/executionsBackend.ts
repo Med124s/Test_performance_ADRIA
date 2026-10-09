@@ -38,6 +38,7 @@ import {
   BackendExecutionTimeline,
   BackendExecutionRequestRow,
   BackendExecutionExtremes,
+  BackendResultsRetention,
   BackendExecutionComparison,
   ExecutionResultsQuery,
   ExecutionHistoryFilters,
@@ -120,6 +121,8 @@ export const executionsBackendApi = {
   deletionImpact: (ids: string[]) => springHttp.post<BackendExecutionDeletionImpact>(`${RESOURCE}/deletion-impact`, { ids }),
   /** Suppression définitive d'une exécution terminée ; 409 si active. */
   remove: (id: string) => springHttp.delete<void>(`${RESOURCE}/${id}`),
+  /** Option « Conserver » : true = jamais purgée ; false = suit la durée de conservation. */
+  setKeep: (id: string, keep: boolean) => springHttp.patch<BackendResultsRetention>(`${RESOURCE}/${id}/keep`, { keep }),
   /** Suppression groupée : résultat par exécution (succès partiels possibles). */
   bulkDelete: (ids: string[]) => springHttp.post<BackendBulkActionResponse>(`${RESOURCE}/bulk-delete`, { ids }),
   /** P1-A — rapport statistique complet (percentiles réels, agrégation par

@@ -19,6 +19,7 @@ import { useAuth } from '../context/AuthContext'
 import { BackendExecutionDetailResponse, BackendMetricResponse, BackendStepReportEntry } from '../types/backendContracts'
 import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
 import StepRequestsExplorer from './execution-detail/StepRequestsExplorer'
+import { RetentionNotice } from './execution-report/Retention'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { metricsBackendApi } from '../services/api/metricsBackend'
 import { ApiError } from '../services/api/httpClient'
@@ -298,6 +299,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
         ))}
       </div>
 
+      <RetentionNotice retention={execution.retention} />
       <StepRequestsExplorer
         executionId={id}
         virtualUsers={execution.virtualUsers}

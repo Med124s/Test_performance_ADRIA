@@ -104,6 +104,9 @@ public class ExecutionServiceImpl implements ExecutionService {
     private final com.loadpilot.backend.repository.ExecutionRequestDetailRepository requestDetailRepository;
     private final ResourceMonitor resourceMonitor;
     private final ExecutionStatsService executionStatsService;
+    private final ReportSnapshots reportSnapshots;
+    /** Fourni a la demande : ReportSnapshotService depend lui-meme de ce service (getReport). */
+    private final org.springframework.beans.factory.ObjectProvider<ReportSnapshotService> reportSnapshotService;
     private final ScheduleNotifier scheduleNotifier;
 
     /** Plafond memoire du detail des requetes par execution (Mo) - voir RequestDetailRecorder. */
@@ -199,6 +202,7 @@ public class ExecutionServiceImpl implements ExecutionService {
 
     private void runAsync(PreparedExecution prepared, RunningExecutionHandle handle, MonitoringConfig monitoring) {
         ResourceMonitor.Session monitoringSession = null;
+        UUID finishedId = null;
         try {
             ScenarioExecutionOutcome outcome;
             // P0-B : markRunning() peut desormais echouer a transitionner
@@ -266,6 +270,7 @@ public class ExecutionServiceImpl implements ExecutionService {
             } catch (Exception e) {
                 log.warn("Resume non calcule pour l'execution {} : {}", finalized.getId(), e.getClass().getSimpleName());
             }
+            finishedId = finalized.getId();
             if (prepared.scheduleId() != null) notifyScheduled(prepared, finalized.getStatus());
         } catch (RuntimeException e) {
             log.error("Echec inattendu de l'execution asynchrone {} : {}", prepared.executionId(), e.getClass().getSimpleName());
@@ -276,6 +281,16 @@ public class ExecutionServiceImpl implements ExecutionService {
         } finally {
             if (monitoringSession != null) monitoringSession.stop();
             registry.unregister(prepared.executionId());
+        }
+        // Rapport fige (sert de rapport une fois le detail purge), APRES liberation de la place :
+        // ce calcul ne retarde jamais l'execution suivante. Best-effort, rattrape sinon au
+        // demarrage ou juste avant la purge (voir ReportSnapshotService, ResultsRetentionJob).
+        if (finishedId != null) {
+            try {
+                reportSnapshotService.getObject().capture(finishedId);
+            } catch (Exception e) {
+                log.warn("Rapport fige non enregistre pour l'execution {} : {}", finishedId, e.getClass().getSimpleName());
+            }
         }
     }
 
@@ -359,7 +374,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 base.iterations(), base.totalSteps(), base.successfulSteps(), base.failedSteps(),
                 base.duration(), base.errorMessage(), resultResponses, execution.getRequestDetailMode(),
                 execution.isDetailSampleCapReached(), requestDetailRepository.countByExecutionIdAndKind(id, "FAILURE"),
-                requestDetailRepository.countByExecutionIdAndKind(id, "SAMPLE"));
+                requestDetailRepository.countByExecutionIdAndKind(id, "SAMPLE"), reportSnapshots.retention(execution, false, false));
     }
 
     @Override
@@ -751,15 +766,31 @@ public class ExecutionServiceImpl implements ExecutionService {
     public ExecutionReportResponse getReport(UUID id) {
         Execution execution = executionRepository.findByIdWithScenarioAndApplication(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + id));
-        List<ExecutionStepResult> results = executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id);
 
+        // Detail des requetes supprime (conservation) : rapport fige a la fin de l'execution.
+        if (ReportSnapshots.purged(execution)) {
+            java.util.Optional<com.loadpilot.backend.service.report.ReportSnapshot> frozen = reportSnapshots.read(execution);
+            if (frozen.isPresent()) {
+                com.loadpilot.backend.service.report.ReportSnapshot s = frozen.get();
+                return report(execution, s.pausedDurationMs(), s.statistics(), s.steps(), s.errors(), s.thresholds(),
+                        reportSnapshots.retention(execution, true, s.errorsTruncated()));
+            }
+        }
+
+        List<ExecutionStepResult> results = executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id);
         // Debit calcule sur le temps de travail reel : le temps passe en pause est exclu.
         long pausedMs = pausedDurationMs(execution, Instant.now());
         Long activeDurationMs = execution.getDuration() != null ? Math.max(0L, execution.getDuration() - pausedMs) : null;
         ExecutionStatistics statistics = performanceStatisticsService.computeOverallStatistics(results, activeDurationMs);
         List<StepReportEntry> steps = performanceStatisticsService.computeStepBreakdown(results);
         List<ReportErrorEntry> errors = performanceStatisticsService.extractErrors(results);
+        return report(execution, pausedMs, statistics, steps, errors, thresholds(execution, results, statistics),
+                reportSnapshots.retention(execution, false, false));
+    }
 
+    private static ExecutionReportResponse report(Execution execution, long pausedMs, ExecutionStatistics statistics,
+            List<StepReportEntry> steps, List<ReportErrorEntry> errors, ExecutionReportResponse.Thresholds thresholds,
+            com.loadpilot.backend.dto.response.ResultsRetentionResponse retention) {
         return new ExecutionReportResponse(
                 execution.getId().toString(),
                 execution.getScenario().getId().toString(),
@@ -780,7 +811,8 @@ public class ExecutionServiceImpl implements ExecutionService {
                 statistics,
                 steps,
                 errors,
-                thresholds(execution, results, statistics));
+                thresholds,
+                retention);
     }
 
     /** Seuils copies au lancement et leur resultat (meme P95 que le rapport) ; null pour une execution anterieure aux seuils. */

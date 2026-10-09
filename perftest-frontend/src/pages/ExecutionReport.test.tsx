@@ -7,6 +7,7 @@ import { BackendExecutionReportResponse, BackendStepReportEntry } from '../types
 // Graphiques de l'analyse dans le temps (canvas absent de jsdom) et barre du haut hors du périmètre de ces tests.
 vi.mock('react-chartjs-2', () => ({ Bar: () => <div />, Line: () => <div /> }))
 vi.mock('../components/TopBar', () => ({ default: () => <div /> }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ authProvider: 'keycloak', rawRoles: ['ROLE_PERFORMANCE_ENGINEER'] }) }))
 const api = vi.hoisted(() => ({ getReport: vi.fn(), exportReportCsv: vi.fn(), getTimeline: vi.fn(), getExtremes: vi.fn(), getResultDetail: vi.fn() }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: api }))
 

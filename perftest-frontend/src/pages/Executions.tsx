@@ -1,3 +1,4 @@
+import { useRegressionThreshold } from '../utils/thresholds'
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -82,6 +83,7 @@ function Executions() {
   const navigate = useNavigate()
   const { authProvider, rawRoles } = useAuth()
   const { showToast } = useToast()
+  const regressionThreshold = useRegressionThreshold()
   const monitor = useExecutionMonitor()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -281,6 +283,18 @@ function Executions() {
     }
   }
 
+  // Option « Conserver » : résultats détaillés jamais supprimés par la purge automatique.
+  const handleKeep = async (exec: BackendExecutionHistoryResponse) => {
+    try {
+      const retention = await executionsBackendApi.setKeep(exec.id, !exec.keepResults)
+      setData((prev) => (prev ? { ...prev, content: prev.content.map((r) => (r.id === exec.id ? { ...r, keepResults: retention.keep } : r)) } : prev))
+      showToast(retention.keep ? `Exécution de ${exec.scenarioName} conservée : ses résultats détaillés ne seront jamais supprimés.`
+        : `Conservation retirée : les résultats détaillés de ${exec.scenarioName} suivront la durée de conservation.`, 'success')
+    } catch (err) {
+      showToast(describeApiError(err, 'Impossible de modifier la conservation.'), 'danger')
+    }
+  }
+
   const handleCancel = async (exec: { id: string; scenarioName: string; status: BackendExecutionStatus }) => {
     if (!canWrite || cancellingId || !isActive(exec.status)) return
     setCancellingId(exec.id)
@@ -365,6 +379,8 @@ function Executions() {
       { label: 'Relancer', icon: 'bi-arrow-repeat', onSelect: () => setRetryConfirm(exec) },
       ...(active ? [{ label: cancellingId === exec.id ? 'Annulation…' : 'Annuler l’exécution', icon: 'bi-slash-circle', onSelect: () => handleCancel(exec),
         disabled: cancellingId === exec.id }] : []),
+      ...(exec.resultsPurgedAt ? [] : [{ label: exec.keepResults ? 'Ne plus conserver' : 'Conserver', icon: exec.keepResults ? 'bi-bookmark-x' : 'bi-bookmark',
+        onSelect: () => handleKeep(exec) }]),
       { label: 'Supprimer', icon: 'bi-trash3', danger: true, onSelect: () => setDeletion([exec.id]), disabled: active,
         reason: 'Impossible de supprimer une exécution en attente, en cours ou en pause : annulez-la d’abord.' },
     ]
@@ -483,7 +499,7 @@ function Executions() {
                 <th className="num" title={MONITORING_SCOPE_TEXT}>CPU app.</th>
                 {sortHeader('duration', 'Durée', 'num')}
                 {sortHeader('startedAt', 'Démarrée')}
-                <th className="ex-col-actions"><span className="visually-hidden">Actions</span></th>
+                <th className="ex-col-actions">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -519,7 +535,13 @@ function Executions() {
                     </td>
                     <td data-label="Scénario" className="ex-scenario">
                       <span className="ex-scenario-name" title={exec.scenarioName}>{exec.scenarioName}</span>
-                      <span className="ex-scenario-app">{exec.applicationName}</span>
+                      <span className="ex-scenario-app">
+                        {exec.applicationName}
+                        {exec.keepResults && <span className="ex-retention" title="Conservée : résultats détaillés jamais supprimés">
+                          <i className="bi bi-bookmark-check-fill" aria-hidden="true"></i> Conservée</span>}
+                        {exec.resultsPurgedAt && <span className="ex-retention muted" title="Détail des requêtes supprimé, résumé conservé">
+                          <i className="bi bi-archive" aria-hidden="true"></i> Résumé seul</span>}
+                      </span>
                     </td>
                     <td data-label="Statut" className="ex-status">
                       <span className={`pt-pill ${statusPill(status)} ex-pill`}><span className="ex-dot" aria-hidden="true"></span>{statusLabel(status)}</span>
@@ -543,7 +565,7 @@ function Executions() {
                     <td data-label="Débit" className="num">{exec.throughput == null ? '—' : formatRps(exec.throughput)}</td>
                     <td data-label="P95" className="num" data-testid="p95-cell">
                       {(() => {
-                        const delta = p95Delta(exec.p95Ms, exec.previousP95Ms)
+                        const delta = p95Delta(exec.p95Ms, exec.previousP95Ms, regressionThreshold)
                         const title = exec.previousP95Ms != null && exec.previousStartedAt
                           ? `Exécution précédente du scénario : P95 ${formatMs(exec.previousP95Ms)}, le ${formatDate(exec.previousStartedAt)}`
                           : 'Pas d’exécution précédente terminée pour ce scénario.'

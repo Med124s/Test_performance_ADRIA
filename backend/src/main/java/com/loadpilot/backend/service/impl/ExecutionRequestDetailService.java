@@ -110,7 +110,9 @@ public class ExecutionRequestDetailService {
                 .filter(r -> r.getExecution().getId().equals(executionId))
                 .orElseThrow(() -> new ResourceNotFoundException("Requête introuvable dans cette exécution."));
         ExecutionRequestDetail d = detailRepository.findByResultId(resultId)
-                .orElseThrow(() -> new ResourceNotFoundException(DETAIL_NOT_KEPT));
+                .orElseThrow(() -> new ResourceNotFoundException(result.getExecution().getRequestDetailsPurgedAt() != null
+                        ? "En-têtes et corps de cette requête supprimés (durée de conservation dépassée) ; la ligne de résumé reste disponible."
+                        : DETAIL_NOT_KEPT));
         ExecutionRequestDetailResponse.Checks checks = d.getChecks() == null ? null : read(d.getChecks(), new TypeReference<ExecutionRequestDetailResponse.Checks>() { });
         return new ExecutionRequestDetailResponse(
                 toRow(result, d.getKind()),

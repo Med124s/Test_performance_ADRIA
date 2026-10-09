@@ -102,6 +102,9 @@ public final class AuditLabels {
      */
     public static String summary(AuditAction action, AuditModule module, AuditTargetType targetType, String targetLabel, String legacyDescription) {
         String verb = action(action, legacyDescription);
+        if (action == AuditAction.PURGE && module == AuditModule.EXECUTION) {
+            return "Purge des résultats détaillés des exécutions";
+        }
         if (action == AuditAction.EXPORT_CSV && targetType == AuditTargetType.SETTINGS && targetLabel != null) {
             return "Export CSV du " + targetLabel.substring(0, 1).toLowerCase() + targetLabel.substring(1);
         }

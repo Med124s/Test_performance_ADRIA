@@ -48,6 +48,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -82,6 +83,7 @@ public class ExecutionController {
     private final com.loadpilot.backend.service.impl.ExecutionTimelineService timelineService;
     private final com.loadpilot.backend.service.impl.ExecutionExtremesService extremesService;
     private final com.loadpilot.backend.service.impl.ExecutionComparisonService comparisonService;
+    private final com.loadpilot.backend.service.impl.ExecutionKeepService keepService;
 
     /** ?scenarioId= filtre par scenario (meme convention que Scenarios/Steps). */
     @GetMapping
@@ -171,6 +173,17 @@ public class ExecutionController {
     @ApiResponse(responseCode = "409", description = "Execution en attente, en cours ou en pause")
     public void delete(@PathVariable UUID id) {
         deletionService.delete(id);
+    }
+
+    @PatchMapping("/{id}/keep")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
+    @Operation(summary = "Conserver une execution (jamais purgee)",
+            description = "keep = true : resultats et detail des requetes jamais supprimes par la purge automatique ; false : suivent "
+                    + "la duree de conservation. Refuse (409) si le detail a deja ete supprime. Memes roles que la suppression.")
+    @ApiResponse(responseCode = "409", description = "Detail des requetes deja supprime")
+    public com.loadpilot.backend.dto.response.ResultsRetentionResponse keep(@PathVariable UUID id,
+            @Valid @RequestBody com.loadpilot.backend.dto.request.ExecutionKeepRequest request) {
+        return keepService.setKeep(id, request.keep());
     }
 
     @PostMapping("/bulk-delete")

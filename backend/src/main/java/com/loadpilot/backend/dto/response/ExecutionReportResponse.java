@@ -52,7 +52,9 @@ public record ExecutionReportResponse(
         List<StepReportEntry> steps,
         List<ReportErrorEntry> errors,
         /** Seuils de reussite de cette execution et leur resultat ; null = execution anterieure aux seuils. */
-        Thresholds thresholds
+        Thresholds thresholds,
+        /** Conservation : rapport issu du rapport fige si le detail des requetes a ete supprime. */
+        ResultsRetentionResponse retention
 ) {
     /** Seuil de taux d'erreurs (toujours present) et seuil de P95 (null = aucun) ; ok = seuil respecte. */
     public record Thresholds(double maxErrorRatePercent, double errorRatePercent, boolean errorRateOk,

@@ -10,6 +10,7 @@ import { executionStatusMeta } from '../utils/executionStatus'
 import { formatNumber, formatPercent } from '../utils/numberFormat'
 import TimelineAnalysis from './execution-report/TimelineAnalysis'
 import ExtremesPanel from './execution-report/ExtremesPanel'
+import { KeepToggle, RetentionNotice } from './execution-report/Retention'
 
 // ============================================================
 // Phase 23 — même politique de double chaîne que ExecutionDetail.tsx : un
@@ -147,7 +148,9 @@ function SpringExecutionReport({ id }: { id: string }) {
           </div>
           <p>Exécution lancée le {new Date(report.startedAt).toLocaleString('fr-FR')} sur <strong>{report.applicationName}</strong></p>
         </div>
-        <div className="d-flex align-items-center gap-2">
+        <div className="d-flex align-items-center gap-2 flex-wrap">
+          <KeepToggle executionId={id} retention={report.retention}
+            onChange={(retention) => setReport((r) => (r ? { ...r, retention } : r))} />
           <button className="pt-btn-outline" onClick={handleExport} disabled={exporting}>
             <i className={`bi ${exporting ? 'bi-arrow-repeat pt-spin' : 'bi-download'}`}></i>
             {exporting ? 'Export...' : 'Exporter CSV'}
@@ -155,6 +158,8 @@ function SpringExecutionReport({ id }: { id: string }) {
           <TopBar searchPlaceholder="" />
         </div>
       </div>
+
+      <RetentionNotice retention={report.retention} />
 
       <div className="pt-card mb-3 py-2 px-3">
         <div className="row g-2 align-items-center text-muted" style={{ fontSize: '13px' }}>

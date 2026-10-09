@@ -35,13 +35,19 @@ public class ExecutionExtremesService {
     private final ExecutionStepResultRepository resultRepository;
     private final ExecutionRequestDetailService requestDetailService;
     private final ExecutionTimelineService timelineService;
+    private final ReportSnapshots reportSnapshots;
 
     @Transactional(readOnly = true)
     public ExecutionExtremesResponse extremes(UUID executionId, boolean slowest) {
-        if (!executionRepository.existsById(executionId)) {
-            throw new ResourceNotFoundException("Exécution introuvable : " + executionId);
-        }
+        com.loadpilot.backend.entity.Execution execution = executionRepository.findById(executionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Exécution introuvable : " + executionId));
         String kind = slowest ? "MAX" : "MIN";
+        // Detail des requetes supprime : requetes extremes du rapport fige (sans en-tetes ni corps).
+        if (ReportSnapshots.purged(execution)) {
+            ExecutionExtremesResponse frozen = reportSnapshots.read(execution)
+                    .map(s -> slowest ? s.slowest() : s.fastest()).orElse(null);
+            return frozen != null ? ReportSnapshots.withoutDetail(frozen) : new ExecutionExtremesResponse(kind, null, 0, 1, List.of());
+        }
         List<ExecutionStepResult> results = slowest
                 ? resultRepository.findSlowest(executionId, PageRequest.of(0, LIMIT))
                 : resultRepository.findFastest(executionId, PageRequest.of(0, LIMIT));

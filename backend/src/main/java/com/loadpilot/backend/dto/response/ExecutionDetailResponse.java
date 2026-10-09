@@ -26,6 +26,8 @@ public record ExecutionDetailResponse(
         /** Plafond memoire atteint : l'echantillon des requetes reussies a ete arrete en cours de route. */
         boolean detailSampleCapReached,
         long detailedFailures,
-        long detailedSamples
+        long detailedSamples,
+        /** Conservation : detail des requetes ou en-tetes / corps supprimes, option « Conserver ». */
+        ResultsRetentionResponse retention
 ) {
 }

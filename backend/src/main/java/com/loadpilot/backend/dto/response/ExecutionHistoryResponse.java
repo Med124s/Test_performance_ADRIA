@@ -53,12 +53,16 @@ public record ExecutionHistoryResponse(
         Long maxP95Ms,
         /** P95 et date de l'execution terminee precedente du meme scenario (liste Executions seulement). */
         Long previousP95Ms,
-        Instant previousStartedAt
+        Instant previousStartedAt,
+        /** Option « Conserver » : resultats jamais purges. */
+        boolean keepResults,
+        /** Date de suppression du detail des requetes (rapport fige conserve) ; null = detail present. */
+        Instant resultsPurgedAt
 ) {
     public ExecutionHistoryResponse withPrevious(Long p95, Instant startedAt) {
         return new ExecutionHistoryResponse(id, scenarioId, scenarioName, applicationId, applicationName, status, this.startedAt,
                 finishedAt, duration, virtualUsers, rampUpSeconds, durationSeconds, iterations, totalSteps, successfulSteps,
                 failedSteps, triggeredByUsername, throughput, cpuAvgPercent, cpuMaxPercent, memoryMaxMb, p95Ms, statusReason,
-                maxErrorRatePercent, maxP95Ms, p95, startedAt);
+                maxErrorRatePercent, maxP95Ms, p95, startedAt, keepResults, resultsPurgedAt);
     }
 }
