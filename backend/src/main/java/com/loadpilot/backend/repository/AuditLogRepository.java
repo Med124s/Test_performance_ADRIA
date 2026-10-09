@@ -29,6 +29,8 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID>, JpaSp
     @Query("SELECT a.action, COUNT(a) FROM AuditLog a GROUP BY a.action")
     List<Object[]> countGroupedByAction();
 
+    boolean existsByActionAndUserIdAndDateAfter(com.loadpilot.backend.enums.AuditAction action, String userId, java.time.Instant after);
+
     boolean existsByExternalId(String externalId);
 
     /** Utilisateurs ayant au moins une action (filtre « Utilisateur ») : comptes reels uniquement. */

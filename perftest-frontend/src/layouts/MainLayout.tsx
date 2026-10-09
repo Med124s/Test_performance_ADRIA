@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import TopBarIcons from '../components/TopBarIcons'
 import { useDarkMode } from '../utils/useDarkMode'
+import { applyProfileTheme, setThemeSaver } from '../utils/theme'
+import { profileBackendApi } from '../services/api/profileBackend'
 import { ExecutionMonitorProvider } from '../context/ExecutionMonitorContext'
 
 // P1-B — useScheduledExecutions() (100% frontend : setInterval + JSON
@@ -18,6 +20,16 @@ function MainLayout() {
   // Tiroir mobile/tablette : fermé par défaut, ouvert via le bouton menu
   // de la TopBar, fermé au clic sur le fond ou après une navigation.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
+  // Apparence mémorisée sur le profil : retrouvée à la connexion, enregistrée à chaque choix
+  // (bouton de la barre latérale ou Paramètres). Un échec réseau ne change rien à l'affichage.
+  useEffect(() => {
+    setThemeSaver((preference) => {
+      profileBackendApi.updateTheme(preference.toUpperCase() as 'LIGHT' | 'DARK' | 'SYSTEM').catch(() => {})
+    })
+    profileBackendApi.get().then((p) => applyProfileTheme(p.theme)).catch(() => {})
+    return () => setThemeSaver(null)
+  }, [])
 
   // Suivi en direct des exécutions : monté ici pour survivre aux changements de page.
   return (

@@ -1,13 +1,11 @@
 // ============================================================
-// P1-D — accès réel à GET/PATCH /api/profile (voir ProfileController côté
-// backend). Aucun service frontend n'existait pour ce endpoint avant cette
-// phase (vérifié par recherche exhaustive) — Settings.tsx était un pur
-// placeholder ComingSoonPage. Seul "timezone" est modifiable (username/
-// name/email restent la propriété de Keycloak, jamais éditables ici).
+// Profil de l'utilisateur connecté (GET/PATCH /api/profile) et sécurité de son compte :
+// sessions ouvertes, déconnexion de tous les appareils, journalisation du changement de
+// mot de passe fait sur la page du système d'authentification (jamais le mot de passe).
 // ============================================================
 
 import { springHttp } from './httpClient'
-import { BackendProfileResponse, BackendProfileUpdateRequest } from '../../types/backendContracts'
+import { BackendProfileResponse, BackendProfileSecurity, BackendProfileUpdateRequest } from '../../types/backendContracts'
 
 const RESOURCE = '/api/profile'
 
@@ -15,4 +13,9 @@ export const profileBackendApi = {
   get: () => springHttp.get<BackendProfileResponse>(RESOURCE),
   updateTimezone: (timezone: string) =>
     springHttp.patch<BackendProfileResponse>(RESOURCE, { timezone } satisfies BackendProfileUpdateRequest),
+  updateTheme: (theme: 'LIGHT' | 'DARK' | 'SYSTEM') =>
+    springHttp.patch<BackendProfileResponse>(RESOURCE, { theme } satisfies BackendProfileUpdateRequest),
+  security: () => springHttp.get<BackendProfileSecurity>(`${RESOURCE}/security`),
+  logoutEverywhere: () => springHttp.post<void>(`${RESOURCE}/logout-everywhere`),
+  passwordChanged: () => springHttp.post<{ recorded: boolean }>(`${RESOURCE}/password-changed`),
 }

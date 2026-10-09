@@ -70,6 +70,10 @@ public class AppUser {
     @Column(name = "timezone")
     private String timezone;
 
+    /** Apparence choisie dans Parametres : LIGHT, DARK ou SYSTEM (suit l'appareil) ; null = jamais choisie. */
+    @Column(name = "theme", length = 10)
+    private String theme;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

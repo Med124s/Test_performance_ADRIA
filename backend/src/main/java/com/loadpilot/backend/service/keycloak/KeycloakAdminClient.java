@@ -69,4 +69,32 @@ public interface KeycloakAdminClient {
     /** Politique de mot de passe du realm, au format Keycloak, ex.
      * "length(8) and digits(1)" ; chaine vide si aucune. */
     String getPasswordPolicy();
+
+    /** Sessions ouvertes d'un utilisateur (API d'administration : sans navigateur ni systeme). */
+    default List<KeycloakSession> userSessions(String userId) {
+        return List.of();
+    }
+
+    /**
+     * Sessions de l'utilisateur via l'API « compte » de Keycloak, avec SON jeton (navigateur, systeme,
+     * session courante). Leve KeycloakAdminException si l'API est indisponible.
+     */
+    default List<KeycloakSession> accountSessions(String userAccessToken) {
+        throw new com.loadpilot.backend.exception.KeycloakAdminException("Sessions indisponibles.");
+    }
+
+    /** Ferme toutes les sessions d'un utilisateur (tous les appareils). */
+    default void logoutUser(String userId) {
+        throw new com.loadpilot.backend.exception.KeycloakAdminException("Déconnexion indisponible.");
+    }
+
+    /** Dernieres connexions reussies d'un utilisateur, de la plus recente a la plus ancienne. */
+    default List<KeycloakLogin> recentLogins(String userId, int max) {
+        return List.of();
+    }
+
+    /** Serveur e-mail du realm (null si aucun), jamais d'identifiant ni de mot de passe. */
+    default KeycloakSmtpInfo smtpInfo() {
+        return null;
+    }
 }

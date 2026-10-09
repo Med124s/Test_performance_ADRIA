@@ -24,8 +24,14 @@ public interface NotificationPreferenceService {
      */
     NotificationPreferenceResponse setEnabled(CurrentUser currentUser, NotificationType type, boolean enabled);
 
+    /** Canaux d'un type : dans l'application et par e-mail ; null = inchange. */
+    NotificationPreferenceResponse update(CurrentUser currentUser, NotificationType type, Boolean enabled, Boolean emailEnabled);
+
     /** Utilise UNIQUEMENT par NotificationServiceImpl.create() avant de
      * generer une Notification - jamais expose directement via l'API.
      * true si aucune preference explicite n'existe (modele "opt-out"). */
     boolean isEnabled(UUID appUserId, NotificationType type);
+
+    /** Aussi par e-mail (desactive par defaut, en l'absence de ligne). */
+    boolean isEmailEnabled(UUID appUserId, NotificationType type);
 }

@@ -117,6 +117,9 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD doit etre defini (voir .env.example)}
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/loadpilot
       KEYCLOAK_ADMIN_SERVER_URL: http://keycloak:8080
+      # Serveur e-mail de LoadPilot (notifications par e-mail) : Mailpit en developpement.
+      LOADPILOT_MAIL_HOST: ${LOADPILOT_MAIL_HOST:-mailpit}
+      LOADPILOT_MAIL_PORT: ${LOADPILOT_MAIL_PORT:-1025}
       # Genere par Keycloak a l'import du realm (jamais une valeur connue a
       # l'avance) - voir keycloak/README.md, section "Apres l'import".
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:?KEYCLOAK_ADMIN_CLIENT_SECRET doit etre recupere dans la Console Admin Keycloak apres import (voir keycloak/README.md)}

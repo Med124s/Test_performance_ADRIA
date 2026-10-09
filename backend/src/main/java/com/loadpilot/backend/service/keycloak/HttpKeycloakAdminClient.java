@@ -248,6 +248,109 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
         return realm.path("passwordPolicy").asText("");
     }
 
+    @Override
+    public List<KeycloakSession> userSessions(String userId) {
+        JsonNode sessions = get("/admin/realms/" + properties.getRealm() + "/users/" + encode(userId) + "/sessions");
+        List<KeycloakSession> result = new ArrayList<>();
+        if (sessions.isArray()) {
+            for (JsonNode s : sessions) {
+                List<String> clients = new ArrayList<>();
+                s.path("clients").forEach(c -> clients.add(c.asText()));
+                result.add(new KeycloakSession(s.path("id").asText(null), text(s, "ipAddress"), epochMillis(s, "start"),
+                        epochMillis(s, "lastAccess"), clients, null, null, null, false, false));
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public List<KeycloakSession> accountSessions(String userAccessToken) {
+        // API « compte » : appelee avec le jeton de l'utilisateur lui-meme (jamais le compte de service).
+        HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getServerUrl() + "/realms/" + properties.getRealm()
+                        + "/account/sessions/devices"))
+                .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
+                .header("Authorization", "Bearer " + userAccessToken)
+                .header("Accept", "application/json")
+                .GET().build();
+        HttpResponse<String> response = send(request);
+        if (response.statusCode() != 200) {
+            throw new KeycloakAdminException("Sessions indisponibles (statut " + response.statusCode() + ").");
+        }
+        JsonNode devices;
+        try {
+            devices = objectMapper.readTree(response.body());
+        } catch (IOException e) {
+            throw new KeycloakAdminException("Réponse du service d'authentification illisible.");
+        }
+        List<KeycloakSession> result = new ArrayList<>();
+        for (JsonNode d : devices) {
+            String os = text(d, "os");
+            String osVersion = text(d, "osVersion");
+            String osLabel = os == null || "Other".equalsIgnoreCase(os) ? null
+                    : osVersion == null || "Unknown".equalsIgnoreCase(osVersion) ? os : os + " " + osVersion;
+            String device = text(d, "device");
+            for (JsonNode s : d.path("sessions")) {
+                List<String> clients = new ArrayList<>();
+                s.path("clients").forEach(c -> clients.add(c.hasNonNull("clientName") && !c.get("clientName").asText().isBlank()
+                        ? c.get("clientName").asText() : c.path("clientId").asText()));
+                String browser = text(s, "browser");
+                result.add(new KeycloakSession(s.path("id").asText(null), text(s, "ipAddress"), epochSeconds(s, "started"),
+                        epochSeconds(s, "lastAccess"), clients, browser, osLabel,
+                        device == null || "Other".equalsIgnoreCase(device) ? null : device,
+                        d.path("mobile").asBoolean(false), s.path("current").asBoolean(false)));
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public void logoutUser(String userId) {
+        String path = "/admin/realms/" + properties.getRealm() + "/users/" + encode(userId) + "/logout";
+        HttpResponse<String> response = send(newRequest(path, "POST").POST(HttpRequest.BodyPublishers.noBody()).build());
+        if (response.statusCode() == 404) {
+            throw new ResourceNotFoundException("Utilisateur introuvable : " + userId);
+        }
+        requireSuccess(response, path);
+    }
+
+    @Override
+    public List<KeycloakLogin> recentLogins(String userId, int max) {
+        JsonNode events = get("/admin/realms/" + properties.getRealm() + "/events?type=LOGIN&user=" + encode(userId)
+                + "&first=0&max=" + Math.max(1, max));
+        List<KeycloakLogin> result = new ArrayList<>();
+        if (events.isArray()) {
+            for (JsonNode e : events) {
+                long time = e.path("time").asLong(0);
+                if (time > 0) result.add(new KeycloakLogin(Instant.ofEpochMilli(time), text(e, "ipAddress")));
+            }
+        }
+        result.sort((a, b) -> b.time().compareTo(a.time()));
+        return result;
+    }
+
+    @Override
+    public KeycloakSmtpInfo smtpInfo() {
+        JsonNode smtp = get("/admin/realms/" + properties.getRealm()).path("smtpServer");
+        if (!smtp.isObject() || text(smtp, "host") == null) return null;
+        // Jamais "user" ni "password" : seuls l'hote, le port et l'expediteur sont lus.
+        return new KeycloakSmtpInfo(text(smtp, "host"), text(smtp, "port"), text(smtp, "from"), text(smtp, "fromDisplayName"),
+                "true".equalsIgnoreCase(text(smtp, "auth")));
+    }
+
+    private static String text(JsonNode node, String field) {
+        return node.hasNonNull(field) && !node.get(field).asText().isBlank() ? node.get(field).asText() : null;
+    }
+
+    private static Instant epochMillis(JsonNode node, String field) {
+        long v = node.path(field).asLong(0);
+        return v > 0 ? Instant.ofEpochMilli(v) : null;
+    }
+
+    private static Instant epochSeconds(JsonNode node, String field) {
+        long v = node.path(field).asLong(0);
+        return v > 0 ? Instant.ofEpochSecond(v) : null;
+    }
+
     private ObjectNode passwordCredential(String password, boolean temporary) {
         ObjectNode credential = objectMapper.createObjectNode();
         credential.put("type", "password");

@@ -33,20 +33,28 @@ public class NotificationPreferenceServiceImpl implements NotificationPreference
     @Override
     @Transactional(readOnly = true)
     public List<NotificationPreferenceResponse> list(String keycloakSubject) {
-        Map<NotificationType, Boolean> existing = appUserRepository.findByKeycloakSubject(keycloakSubject)
+        Map<NotificationType, NotificationPreference> existing = appUserRepository.findByKeycloakSubject(keycloakSubject)
                 .map(u -> notificationPreferenceRepository.findByAppUserId(u.getId()).stream()
-                        .collect(java.util.stream.Collectors.toMap(
-                                NotificationPreference::getNotificationType, NotificationPreference::isEnabled)))
+                        .collect(java.util.stream.Collectors.toMap(NotificationPreference::getNotificationType, p -> p)))
                 .orElse(Map.of());
 
         return java.util.Arrays.stream(NotificationType.values())
-                .map(type -> new NotificationPreferenceResponse(type, existing.getOrDefault(type, true)))
+                .map(type -> {
+                    NotificationPreference p = existing.get(type);
+                    return new NotificationPreferenceResponse(type, p == null || p.isEnabled(), p != null && p.isEmailEnabled());
+                })
                 .toList();
     }
 
     @Override
     @Transactional
     public NotificationPreferenceResponse setEnabled(CurrentUser currentUser, NotificationType type, boolean enabled) {
+        return update(currentUser, type, enabled, null);
+    }
+
+    @Override
+    @Transactional
+    public NotificationPreferenceResponse update(CurrentUser currentUser, NotificationType type, Boolean enabled, Boolean emailEnabled) {
         // sync() cree reellement l'AppUser au besoin (premiere action d'un
         // utilisateur qui n'a encore jamais declenche AppUserSyncService -
         // ex: la toute premiere chose qu'il fait apres connexion est de
@@ -61,10 +69,12 @@ public class NotificationPreferenceServiceImpl implements NotificationPreference
                 .orElseGet(() -> NotificationPreference.builder()
                         .appUser(appUser)
                         .notificationType(type)
+                        .enabled(true)
                         .build());
-        preference.setEnabled(enabled);
+        if (enabled != null) preference.setEnabled(enabled);
+        if (emailEnabled != null) preference.setEmailEnabled(emailEnabled);
         preference = notificationPreferenceRepository.save(preference);
-        return new NotificationPreferenceResponse(preference.getNotificationType(), preference.isEnabled());
+        return new NotificationPreferenceResponse(preference.getNotificationType(), preference.isEnabled(), preference.isEmailEnabled());
     }
 
     @Override
@@ -73,5 +83,13 @@ public class NotificationPreferenceServiceImpl implements NotificationPreference
         return notificationPreferenceRepository.findByAppUserIdAndNotificationType(appUserId, type)
                 .map(NotificationPreference::isEnabled)
                 .orElse(true);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isEmailEnabled(UUID appUserId, NotificationType type) {
+        return notificationPreferenceRepository.findByAppUserIdAndNotificationType(appUserId, type)
+                .map(NotificationPreference::isEmailEnabled)
+                .orElse(false);
     }
 }

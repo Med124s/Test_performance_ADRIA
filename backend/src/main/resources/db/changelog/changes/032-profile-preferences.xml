@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Parametres > Mon profil (aucune donnee existante modifiee) :
+        - app_user.theme : apparence choisie (LIGHT, DARK, SYSTEM) ; null = jamais choisie ;
+        - notification_preference.email_enabled : notification aussi envoyee par e-mail
+          (desactive par defaut ; les lignes existantes gardent l'in-app tel quel).
+    -->
+    <changeSet id="032-profile-preferences" author="loadpilot">
+        <addColumn tableName="app_user">
+            <column name="theme" type="VARCHAR(10)"/>
+        </addColumn>
+        <addColumn tableName="notification_preference">
+            <column name="email_enabled" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

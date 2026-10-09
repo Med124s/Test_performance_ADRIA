@@ -1114,6 +1114,16 @@ body {
   border: 1px solid var(--pt-danger);
 }
 
+.pt-alert-banner.info {
+  background: var(--pt-primary-light);
+  color: var(--pt-text);
+  border: 1px solid var(--pt-border);
+}
+
+.pt-alert-banner.info > i {
+  color: var(--pt-primary);
+}
+
 .pt-alert-banner.warning {
   background: var(--pt-warning-light);
   color: var(--pt-warning);

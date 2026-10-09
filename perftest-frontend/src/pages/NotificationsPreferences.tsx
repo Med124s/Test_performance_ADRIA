@@ -34,7 +34,7 @@ const typeDescription: Record<BackendNotificationType, string> = {
   EXECUTION_CANCELLED: 'Une exécution que vous avez lancée a été annulée.',
   SCHEDULE_TRIGGERED: 'Une de vos planifications vient de démarrer une exécution.',
   SCHEDULE_FAILED: "Un lancement prévu n'a pas eu lieu : ignoré (exécution précédente en cours, capacité insuffisante), manqué (LoadPilot arrêté) ou refusé.",
-  SCHEDULE_REGRESSION: "Le P95 d'une exécution planifiée a augmenté de plus de 20 % par rapport à l'exécution précédente (même seuil que le Dashboard).",
+  SCHEDULE_REGRESSION: "Le P95 d'une exécution planifiée a augmenté de plus que le seuil de régression par rapport à l'exécution précédente (même seuil que le Dashboard).",
 }
 const typeIcon: Record<BackendNotificationType, string> = {
   EXECUTION_SUCCESS: 'bi-check-circle-fill',

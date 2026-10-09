@@ -25,7 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
  * - fin d'une execution planifiee, selon le reglage de la planification (ALWAYS : chaque fin ;
  *   PROBLEMS : echec ou regression seulement) : « Test nocturne : réussi · P95 314 ms »,
  *   « … : échoué · 5 % d'erreurs », « … : régression · P95 +35 % par rapport à l'exécution précédente »
- *   (meme seuil que le Dashboard, DashboardRules.REGRESSION_PERCENT) ; lien vers le rapport
+ *   (meme seuil reglable que le Dashboard, AppSettingsService.regressionPercent) ; lien vers le rapport
  *   (relatedExecutionId) ;
  * - lancement non fait (ignore, manque, refuse) : toujours notifie, quel que soit le reglage.
  */
@@ -42,6 +42,7 @@ public class ScheduleNotifier {
     private final ExecutionRepository executionRepository;
     private final ExecutionStatsService statsService;
     private final EntityManager entityManager;
+    private final com.loadpilot.backend.service.AppSettingsService settings;
 
     /** Fin d'une execution planifiee (statut terminal deja enregistre). */
     @Transactional
@@ -60,7 +61,7 @@ public class ScheduleNotifier {
         Double change = DashboardRules.changePercent(execution.getP95Ms(), prevP95);
         Double errorRate = errorRatePercent(execution);
 
-        Decision decision = decide(name, execution.getStatus(), execution.getP95Ms(), errorRate, change, mode);
+        Decision decision = decide(name, execution.getStatus(), execution.getP95Ms(), errorRate, change, mode, settings.regressionPercent());
         if (decision.type() == null) return;
         notificationService.create(recipientAppUserId, decision.type(), decision.title(),
                 message(execution, errorRate, prevP95), executionId, scheduleId);
@@ -74,6 +75,12 @@ public class ScheduleNotifier {
     /** Regle de notification de fin, sans acces a la base (testee directement). */
     public static Decision decide(String name, ExecutionStatus status, Long p95Ms, Double errorRatePercent,
                                   Double p95ChangePercent, ScheduleNotifyMode mode) {
+        return decide(name, status, p95Ms, errorRatePercent, p95ChangePercent, mode, DashboardRules.REGRESSION_PERCENT);
+    }
+
+    /** Idem avec le seuil de regression reglable (Parametres > Systeme). */
+    public static Decision decide(String name, ExecutionStatus status, Long p95Ms, Double errorRatePercent,
+                                  Double p95ChangePercent, ScheduleNotifyMode mode, double regressionPercent) {
         if (status == ExecutionStatus.FAILED) {
             String rate = errorRatePercent == null ? "" : " · " + DashboardRules.format(errorRatePercent) + " % d'erreurs";
             return new Decision(NotificationType.EXECUTION_FAILED, name + " : échoué" + rate);
@@ -89,7 +96,7 @@ public class ScheduleNotifier {
                     : new Decision(null, null);
         }
         if (status != ExecutionStatus.SUCCESS) return new Decision(null, null);
-        if (DashboardRules.isRegression(p95ChangePercent)) {
+        if (DashboardRules.isRegression(p95ChangePercent, regressionPercent)) {
             return new Decision(NotificationType.SCHEDULE_REGRESSION, name + " : régression · P95 +"
                     + DashboardRules.format(p95ChangePercent) + " % par rapport à l'exécution précédente");
         }

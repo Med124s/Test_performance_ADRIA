@@ -1,463 +1,187 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import TopBar from '../components/TopBar'
-import { useDarkMode } from '../utils/useDarkMode'
+import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
+import { settingsBackendApi } from '../services/api/settingsBackend'
+import type { BackendIntegrations } from '../types/backendContracts'
+import { describeSettingsError } from './settings/settingsErrors'
+import './settings/settings.css'
 
 // ============================================================
-// P1-D — NETTOYAGE CIBLÉ (voir rapport P1-D, section "Settings", pour
-// l'analyse complète). Retiré entièrement, car 100% fictif et sans aucun
-// effet réel sur l'application :
-//   - Carte "Préférences système" (mode maintenance/génération de données
-//     de test/debug verbose/timeout/upload/VUs max) : aucun de ces
-//     contrôles n'était lu par quoi que ce soit, ni persisté côté backend.
-//     Les VRAIES limites opérationnelles existent (voir /configurations,
-//     lecture seule, SUPER_ADMIN) mais ne sont pas éditables ici.
-//   - Carte "Général" (nom d'organisation/email de contact/fuseau horaire
-//     par défaut) : aucun équivalent backend ; le fuseau horaire RÉEL est
-//     désormais sur /settings (par utilisateur, réellement persisté).
-//   - Carte "Sécurité" (2FA obligatoire, expiration de session) : LoadPilot
-//     délègue entièrement l'authentification à Keycloak — ces réglages ne
-//     peuvent pas être honorés depuis ce frontend (conservé uniquement :
-//     la mention honnête "Authentification : Keycloak (OIDC)").
-//   - Carte "Actions rapides" (export JSON / vider le cache / réinitialiser)
-//     : 3 boutons sans aucun gestionnaire, opérant sur des données qui
-//     n'existent plus après ce nettoyage.
-//   - Sélecteur de thème/couleurs/densité : jamais appliqué à aucun style
-//     réel (vérifié : `primaryColor`/`secondaryColor`/`density` n'étaient
-//     utilisés que dans l'aperçu de CETTE carte, jamais sur `document`).
-//   - Barre d'onglets (General/Securite/.../Sauvegarde) : décorative,
-//     aucun contenu ne changeait selon l'onglet sélectionné.
-//
-// Conservé et rendu RÉEL : la bascule clair/sombre (déjà fonctionnelle
-// avant cette phase, mais non persistée — voir utils/useDarkMode.ts, un
-// vrai bug corrigé ici) et l'aperçu honnête des intégrations tierces (dont
-// aucune n'est réellement implémentée à ce jour).
+// Paramètres > « Intégrations » (Super administrateur) — état RÉEL, aucun secret affiché :
+//  - serveur e-mail de LoadPilot (notifications par e-mail) : type, expéditeur, connexion
+//    vérifiée à l'ouverture, e-mail de test à mon adresse ;
+//  - e-mails du service de connexion (mot de passe oublié…) : serveur et expéditeur ;
+//  - monitoring CPU / RAM : une lecture réelle par application configurée.
 // ============================================================
 
-const integrations = [
-  { name: 'Slack', icon: 'bi-slack', desc: 'Alertes en canal et notifications temps réel' },
-  { name: 'Microsoft Teams', icon: 'bi-chat-left-dots-fill', desc: 'Webhooks de notification pour les équipes' },
-  { name: 'Webhooks HTTP', icon: 'bi-diagram-3-fill', desc: 'Déclencheurs personnalisés vers des services tiers' },
-  { name: 'Jira Software', icon: 'bi-kanban-fill', desc: 'Création automatique de tickets sur anomalie de test' },
-  { name: 'PagerDuty', icon: 'bi-bell-fill', desc: "Acheminement des incidents critiques" },
-]
+const MONITORING_TYPE: Record<string, string> = { PROMETHEUS: 'Prometheus', ACTUATOR: 'Spring Boot Actuator' }
 
-/** embedded : affichée dans un onglet (Paramètres, Utilisateurs et rôles), sans son propre en-tête. */
+/** embedded : affichée dans un onglet (Paramètres), sans son propre en-tête. */
 function SettingsIntegrations({ embedded = false }: { embedded?: boolean } = {}) {
-  const { darkMode, setDarkMode } = useDarkMode()
+  const { authProvider, rawRoles } = useAuth()
+  const { showToast } = useToast()
+  const isSuperAdmin = authProvider === 'keycloak' && rawRoles.includes('ROLE_SUPER_ADMIN')
+  const [data, setData] = useState<BackendIntegrations | null>(null)
+  const [loading, setLoading] = useState(isSuperAdmin)
+  const [error, setError] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+
+  const load = useCallback(() => {
+    if (!isSuperAdmin) return
+    setLoading(true)
+    setError(null)
+    settingsBackendApi.integrations()
+      .then(setData)
+      .catch((err) => setError(describeSettingsError(err, 'Impossible de lire l’état des intégrations.')))
+      .finally(() => setLoading(false))
+  }, [isSuperAdmin])
+
+  useEffect(() => { load() }, [load])
+
+  const sendTest = async () => {
+    setSending(true)
+    try {
+      const { sentTo } = await settingsBackendApi.sendTestEmail()
+      showToast(data?.mail.kind === 'MAILPIT'
+        ? `E-mail de test envoyé à ${sentTo} : visible dans Mailpit (http://localhost:8025).`
+        : `E-mail de test envoyé à ${sentTo}.`, 'success')
+    } catch (err) {
+      showToast(describeSettingsError(err, 'L’e-mail de test n’a pas pu être envoyé.'), 'danger')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="pt-empty-state">
+        <i className="bi bi-shield-lock" style={{ fontSize: '28px', color: 'var(--pt-text-light)' }} aria-hidden="true"></i>
+        <p>Cette page est réservée au Super administrateur.</p>
+      </div>
+    )
+  }
+
+  const mail = data?.mail
+  const monitoring = data?.monitoring ?? []
+  const down = monitoring.filter((m) => !m.reachable).length
 
   return (
     <div className={embedded ? undefined : 'pt-content'}>
       {!embedded && (
-        <div className="d-flex align-items-center justify-content-between mb-4">
-          <div>
-            <h1 className="h4 fw-bold mb-1" style={{ color: 'var(--pt-text)' }}>Intégrations</h1>
-            <p className="text-muted mb-0" style={{ fontSize: '13.5px' }}>
-              État réel des intégrations tierces et de l'apparence
-            </p>
+        <div className="pt-page-header">
+          <div className="page-title">
+            <h1>Intégrations</h1>
+            <p>Serveur e-mail et monitoring des applications</p>
           </div>
           <TopBar searchPlaceholder="" />
         </div>
       )}
 
-      <div className="row g-4">
-        <div className="col-12 col-xl-7">
-          <div className="pt-card h-100">
-            <div className="d-flex align-items-center justify-content-between mb-3">
-              <div className="pt-card-title mb-0">
-                <i className="bi bi-plug-fill me-2 text-primary fs-5"></i>
-                Intégrations tierces
-              </div>
-              <span className="pt-pill neutral">Aucune active</span>
-            </div>
-            <div className="pt-alert-banner info mb-3" style={{ fontSize: '12.5px' }}>
-              <i className="bi bi-info-circle-fill"></i>
-              Aucune intégration tierce n'est actuellement implémentée dans LoadPilot — les notifications restent
-              in-app uniquement (voir <a href="/notifications/preferences">Préférences de notifications</a>). Cette
-              liste est indicative d'un possible développement futur.
-            </div>
-            <div className="d-flex flex-column gap-2">
-              {integrations.map((item) => (
-                <div key={item.name} className="p-3 border rounded d-flex align-items-center gap-3" style={{ background: 'var(--pt-bg)' }}>
-                  <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: '38px', height: '38px', background: '#F3F4F6', color: 'var(--pt-text-muted)' }}>
-                    <i className={`bi ${item.icon} fs-6`}></i>
-                  </div>
-                  <div>
-                    <div className="d-flex align-items-center gap-2">
-                      <span className="fw-semibold text-dark" style={{ fontSize: '13.5px' }}>{item.name}</span>
-                      <span className="pt-pill neutral" style={{ fontSize: '10.5px' }}>Non implémenté</span>
-                    </div>
-                    <small className="text-muted" style={{ fontSize: '11.5px' }}>{item.desc}</small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+      {error && (
+        <div className="pt-alert-banner danger mb-3" role="alert">
+          <i className="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>{error}
+          <button className="pt-btn-outline ms-auto" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={load}>Réessayer</button>
         </div>
+      )}
 
-        <div className="col-12 col-xl-5">
-          <div className="d-flex flex-column gap-4 h-100">
-            <div className="pt-card">
-              <div className="pt-card-title mb-3">
-                <i className="bi bi-moon-stars-fill me-2 text-primary fs-5"></i>
-                Apparence
+      {loading && !data ? (
+        <div className="pt-empty-state">
+          <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }} aria-hidden="true"></i>
+          <p>Vérification des intégrations…</p>
+        </div>
+      ) : data && (
+        <div className="row g-4">
+          <div className="col-12 col-xl-6">
+            <section className="pt-card h-100 st-card" aria-labelledby="st-mail-title">
+              <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                <h2 className="st-card-title" id="st-mail-title"><i className="bi bi-envelope" aria-hidden="true"></i>Serveur e-mail</h2>
+                {mail && (!mail.enabled ? <span className="st-status off">Désactivé</span>
+                  : mail.reachable ? <span className="st-status ok"><i className="bi bi-check-circle-fill" aria-hidden="true"></i>Joignable</span>
+                    : <span className="st-status ko"><i className="bi bi-x-circle-fill" aria-hidden="true"></i>Injoignable</span>)}
               </div>
-              <div className="d-flex align-items-center justify-content-between">
-                <span style={{ fontSize: '13.5px' }}>Mode sombre</span>
-                <label className="pt-toggle">
-                  <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} />
-                  <span className="toggle-slider"></span>
-                </label>
+              <p className="st-note mt-0">Utilisé par LoadPilot pour les notifications par e-mail.</p>
+              {mail && (
+                <dl className="st-facts">
+                  <dt>Type</dt>
+                  <dd>{mail.kind === 'MAILPIT' ? 'Mailpit (développement)' : 'Serveur SMTP réel'}</dd>
+                  <dt>Serveur</dt>
+                  <dd>{mail.host}:{mail.port}</dd>
+                  <dt>Expéditeur</dt>
+                  <dd>{mail.fromName ? `${mail.fromName} <${mail.from}>` : mail.from}</dd>
+                  <dt>Authentification</dt>
+                  <dd>{mail.authenticated ? 'Oui' : 'Non'}</dd>
+                </dl>
+              )}
+              {mail?.message && <p className="st-note" role="status">{mail.message}</p>}
+              {mail?.kind === 'MAILPIT' && (
+                <p className="st-note">En développement, les e-mails ne partent pas réellement : ils s’affichent dans Mailpit (http://localhost:8025).</p>
+              )}
+              <div className="st-actions">
+                <button type="button" className="pt-btn-outline" onClick={sendTest} disabled={sending || !mail?.enabled}>
+                  <i className="bi bi-send" aria-hidden="true"></i> {sending ? 'Envoi…' : 'Envoyer un e-mail de test'}
+                </button>
               </div>
-            </div>
+            </section>
+          </div>
 
-            <div className="pt-card">
-              <div className="pt-card-title mb-3">
-                <i className="bi bi-shield-lock-fill me-2 text-primary fs-5"></i>
-                Authentification
+          <div className="col-12 col-xl-6">
+            <section className="pt-card h-100 st-card" aria-labelledby="st-authmail-title">
+              <h2 className="st-card-title" id="st-authmail-title"><i className="bi bi-shield-lock" aria-hidden="true"></i>E-mails du service de connexion</h2>
+              <p className="st-note mt-0">Mot de passe oublié, lien pour choisir son mot de passe. Réglés sur le service de connexion.</p>
+              {data.authenticationMail ? (
+                <dl className="st-facts">
+                  <dt>Serveur</dt>
+                  <dd>{data.authenticationMail.host}{data.authenticationMail.port ? `:${data.authenticationMail.port}` : ''}</dd>
+                  <dt>Expéditeur</dt>
+                  <dd>{data.authenticationMail.from
+                    ? (data.authenticationMail.fromName ? `${data.authenticationMail.fromName} <${data.authenticationMail.from}>` : data.authenticationMail.from)
+                    : '—'}</dd>
+                  <dt>Authentification</dt>
+                  <dd>{data.authenticationMail.authenticated ? 'Oui' : 'Non'}</dd>
+                </dl>
+              ) : <p className="st-note">Non configuré, ou illisible pour le moment.</p>}
+              <p className="st-note">Connexion unique (OIDC) : la double authentification et la durée de session se règlent sur le service de connexion.</p>
+            </section>
+          </div>
+
+          <div className="col-12">
+            <section className="pt-card st-card" aria-labelledby="st-monitoring-title">
+              <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                <h2 className="st-card-title" id="st-monitoring-title"><i className="bi bi-cpu" aria-hidden="true"></i>Monitoring CPU / RAM</h2>
+                <button type="button" className="pt-btn-ghost" onClick={load} disabled={loading}>
+                  <i className={`bi bi-arrow-clockwise${loading ? ' pt-spin' : ''}`} aria-hidden="true"></i> Vérifier à nouveau
+                </button>
               </div>
-              {/* Phase 38 — l'authentification réelle du produit est Keycloak
-                  (OIDC, Authorization Code + PKCE S256) ; aucune intégration
-                  SAML/Okta distincte n'existe, aucune 2FA/expiration de
-                  session pilotable depuis ce frontend (géré côté royaume
-                  Keycloak). */}
-              <span className="pt-pill info w-100 justify-content-center">
-                <i className="bi bi-shield-check me-1"></i> Connexion unique (OIDC)
-              </span>
-              <p className="text-muted mt-2 mb-0" style={{ fontSize: '11.5px' }}>
-                La double authentification et la durée de session se règlent sur le serveur d’authentification, pas ici.
+              <p className="st-note mt-0">
+                {monitoring.length === 0 ? 'Aucune application n’a de monitoring configuré.'
+                  : `${monitoring.length} application${monitoring.length > 1 ? 's configurées' : ' configurée'}`
+                    + (down > 0 ? ` · ${down} ne répond${down > 1 ? 'ent' : ''} pas.` : ' · toutes répondent.')}
+                {' '}Le monitoring se configure dans la fiche de chaque application.
               </p>
-            </div>
+              {monitoring.length > 0 && (
+                <ul className="st-monitoring">
+                  {monitoring.map((m) => (
+                    <li key={m.applicationId}>
+                      <div className="st-monitoring-text">
+                        <Link to={`/applications?q=${encodeURIComponent(m.applicationName)}`}>{m.applicationName}</Link>
+                        <span className="st-muted">
+                          {MONITORING_TYPE[m.type] ?? m.type}{m.endpoint ? ` · ${m.endpoint}` : ''}{m.archived ? ' · archivée' : ''}
+                        </span>
+                        {!m.reachable && m.message && <span className="st-muted">{m.message}</span>}
+                      </div>
+                      {m.reachable
+                        ? <span className="st-status ok"><i className="bi bi-check-circle-fill" aria-hidden="true"></i>Répond</span>
+                        : <span className="st-status ko"><i className="bi bi-x-circle-fill" aria-hidden="true"></i>Ne répond pas</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

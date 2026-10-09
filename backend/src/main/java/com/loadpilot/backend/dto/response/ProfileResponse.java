@@ -19,6 +19,12 @@ public record ProfileResponse(
         /** P1-D — preference REELLE persistee (voir entity.AppUser.timezone),
          * jamais issue du Jwt (Keycloak n'a aucune notion de ce champ).
          * Null si l'utilisateur n'a jamais choisi de fuseau. */
-        String timezone
+        String timezone,
+        /** Role applicatif (SUPER_ADMIN, PERFORMANCE_ENGINEER, VIEWER) ; null si aucun. Jamais les roles techniques. */
+        String appRole,
+        /** Libelle francais du role applicatif : « Super administrateur », « Ingénieur performance », « Observateur ». */
+        String appRoleLabel,
+        /** Apparence choisie : LIGHT, DARK ou SYSTEM ; null = jamais choisie. */
+        String theme
 ) {
 }

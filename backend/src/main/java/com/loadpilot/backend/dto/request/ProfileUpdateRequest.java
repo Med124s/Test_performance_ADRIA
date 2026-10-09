@@ -1,16 +1,20 @@
 package com.loadpilot.backend.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Pattern;
 
 /**
- * P1-D — PATCH /api/profile. Volontairement UN SEUL champ modifiable :
- * "timezone" est la seule preference reellement possedee par l'utilisateur
- * (jamais username/name/email, qui restent la propriete de Keycloak et
- * seraient silencieusement ecrases au prochain login par
- * AppUserSyncService.sync - voir ProfileServiceImpl).
+ * PATCH /api/profile : preferences reellement possedees par l'utilisateur, chacune facultative
+ * (null = inchangee) : fuseau horaire (identifiant IANA) et apparence (LIGHT, DARK, SYSTEM).
+ * Jamais username/name/email, proprietes du systeme d'authentification.
  */
 public record ProfileUpdateRequest(
-        @NotBlank(message = "Le fuseau horaire est obligatoire (identifiant IANA, ex: Africa/Casablanca).")
-        String timezone
+        String timezone,
+        @Pattern(regexp = "LIGHT|DARK|SYSTEM", message = "Apparence attendue : LIGHT, DARK ou SYSTEM.")
+        String theme
 ) {
+    @AssertTrue(message = "Le fuseau horaire est obligatoire (identifiant IANA, ex: Africa/Casablanca).")
+    public boolean isTimezoneValidWhenPresent() {
+        return timezone == null ? theme != null : !timezone.isBlank();
+    }
 }

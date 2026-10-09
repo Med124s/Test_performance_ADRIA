@@ -39,6 +39,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final AppUserRepository appUserRepository;
     private final NotificationMapper notificationMapper;
     private final NotificationPreferenceService notificationPreferenceService;
+    private final com.loadpilot.backend.service.mail.MailService mailService;
 
     @Override
     @Transactional
@@ -64,7 +65,12 @@ public class NotificationServiceImpl implements NotificationService {
             // (voir NotificationPreferenceService, modele "opt-out") :
             // jamais un simple affichage cote frontend qui prétendrait
             // couper des notifications toujours generees cote backend.
-            if (!notificationPreferenceService.isEnabled(recipientAppUserId, type)) {
+            boolean inApp = notificationPreferenceService.isEnabled(recipientAppUserId, type);
+            boolean email = mailService.available() && notificationPreferenceService.isEmailEnabled(recipientAppUserId, type);
+            if (email) {
+                sendEmail(recipient.get(), title, message, relatedExecutionId);
+            }
+            if (!inApp) {
                 return;
             }
             Notification notification = Notification.builder()
@@ -83,6 +89,20 @@ public class NotificationServiceImpl implements NotificationService {
             log.warn("Creation de notification echouee (type={}, recipientAppUserId={}) : {}",
                     type, recipientAppUserId, e.getClass().getSimpleName());
         }
+    }
+
+    /** Copie de la notification par e-mail, en arriere-plan (jamais bloquant, jamais d'exception). */
+    private void sendEmail(AppUser recipient, String title, String message, UUID relatedExecutionId) {
+        String to = recipient.getEmail();
+        if (to == null || to.isBlank()) return;
+        StringBuilder body = new StringBuilder();
+        body.append(title == null ? "" : title).append("\n\n");
+        if (message != null && !message.isBlank()) body.append(message).append("\n\n");
+        if (relatedExecutionId != null) {
+            body.append("Voir le rapport : ").append(mailService.appUrl()).append("/executions/report/").append(relatedExecutionId).append("\n\n");
+        }
+        body.append("—\nLoadPilot. Pour ne plus recevoir ces e-mails : Paramètres > Mon profil > Notifications.");
+        mailService.sendAsync(to, "[LoadPilot] " + (title == null ? "Notification" : title), body.toString());
     }
 
     @Override

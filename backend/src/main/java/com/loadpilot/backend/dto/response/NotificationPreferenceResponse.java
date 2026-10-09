@@ -7,6 +7,9 @@ import com.loadpilot.backend.enums.NotificationType;
  * "enabled=true" par defaut en l'absence de toute preference explicite). */
 public record NotificationPreferenceResponse(
         NotificationType type,
-        boolean enabled
+        /** Dans l'application (actif par defaut). */
+        boolean enabled,
+        /** Par e-mail (desactive par defaut). */
+        boolean emailEnabled
 ) {
 }

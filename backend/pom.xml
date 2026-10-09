@@ -38,6 +38,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!-- Envoi d'e-mails (notifications, e-mail de test) : SMTP via Jakarta Mail (Angus). -->
+        <dependency>
+            <groupId>org.eclipse.angus</groupId>
+            <artifactId>angus-mail</artifactId>
+        </dependency>
 
         <!-- Securite (Phase 4) : Resource Server OAuth2 / JWT, aucun systeme
              d'authentification parallele (pas de UserDetailsService local,

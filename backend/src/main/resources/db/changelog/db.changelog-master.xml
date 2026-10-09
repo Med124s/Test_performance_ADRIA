@@ -157,4 +157,14 @@
     -->
     <include file="db/changelog/changes/030-audit-enrichment-and-settings.xml"/>
 
+    <!--
+        Conservation des resultats detailles (rapport fige, option « Conserver », dates de purge) - voir changes/031-results-retention.xml.
+    -->
+    <include file="db/changelog/changes/031-results-retention.xml"/>
+
+    <!--
+        Preferences du profil (apparence, notifications par e-mail) - voir changes/032-profile-preferences.xml.
+    -->
+    <include file="db/changelog/changes/032-profile-preferences.xml"/>
+
 </databaseChangeLog>

@@ -39,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class NotificationPreferenceController {
 
     private final NotificationPreferenceService notificationPreferenceService;
+    private final com.loadpilot.backend.service.mail.MailService mailService;
 
     @GetMapping
     @Operation(summary = "Lister mes preferences de notification", description = "Les 5 types reels de Notification (voir NotificationType), chacun avec son etat reel (actif par defaut).")
@@ -46,13 +47,23 @@ public class NotificationPreferenceController {
         return notificationPreferenceService.list(jwt.getSubject());
     }
 
+    @GetMapping("/channels")
+    @Operation(summary = "Canaux disponibles", description = "email : un serveur e-mail est configure et le compte a une adresse.")
+    public java.util.Map<String, Object> channels(@AuthenticationPrincipal Jwt jwt) {
+        String email = jwt.getClaimAsString("email");
+        boolean hasEmail = email != null && !email.isBlank();
+        return java.util.Map.of("inApp", true, "email", mailService.available() && hasEmail, "emailServer", mailService.available(),
+                "emailAddress", hasEmail ? email : "");
+    }
+
     @PatchMapping("/{type}")
-    @Operation(summary = "Activer/desactiver un type de notification", description = "N'affecte que les notifications in-app futures - n'efface jamais l'historique deja recu.")
+    @Operation(summary = "Activer/desactiver un type de notification",
+            description = "enabled : dans l'application ; emailEnabled : par e-mail (null = inchange). N'affecte que les notifications futures.")
     public NotificationPreferenceResponse setEnabled(@AuthenticationPrincipal Jwt jwt,
                                                        Authentication authentication,
                                                        @PathVariable NotificationType type,
                                                        @Valid @RequestBody NotificationPreferenceUpdateRequest request) {
         CurrentUser currentUser = CurrentUser.from(jwt, authentication);
-        return notificationPreferenceService.setEnabled(currentUser, type, request.enabled());
+        return notificationPreferenceService.update(currentUser, type, request.enabled(), request.emailEnabled());
     }
 }

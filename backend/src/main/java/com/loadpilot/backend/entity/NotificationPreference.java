@@ -61,6 +61,10 @@ public class NotificationPreference {
     @Column(name = "enabled", nullable = false)
     private boolean enabled;
 
+    /** Aussi par e-mail (si un serveur e-mail est configure) ; desactive par defaut. */
+    @Column(name = "email_enabled", nullable = false)
+    private boolean emailEnabled;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

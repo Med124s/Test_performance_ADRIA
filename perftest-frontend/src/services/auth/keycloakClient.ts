@@ -93,10 +93,29 @@ export function safeReturnPath(path: string | null | undefined): string | null {
  * mot de passe est saisi sur cette page Keycloak, jamais dans React).
  * `returnTo` : page de l'application à rouvrir une fois connecté. */
 export async function redirectToLogin(returnTo?: string): Promise<void> {
+  await redirectToAuthorization(returnTo)
+}
+
+/** Action du compte faite sur une page du système d'authentification (thème LoadPilot). */
+export type AccountAction = 'UPDATE_PASSWORD'
+/** Résultat rapporté au retour : réussie, annulée par l'utilisateur, ou erreur. */
+export interface AccountActionResult {
+  action: AccountAction
+  status: 'success' | 'cancelled' | 'error'
+}
+const ACTION_RESULT_KEY = 'loadpilot_kc_action_result'
+
+/** Ouvre la page « changer mon mot de passe » du système d'authentification (le mot de passe
+ * n'est jamais saisi dans React) ; retour sur `returnTo` avec le résultat (voir consumeAccountActionResult). */
+export async function redirectToAccountAction(action: AccountAction, returnTo: string): Promise<void> {
+  await redirectToAuthorization(returnTo, action)
+}
+
+async function redirectToAuthorization(returnTo?: string, action?: AccountAction): Promise<void> {
   const verifier = generateCodeVerifier()
   const challenge = await generateCodeChallenge(verifier)
   const state = generateState()
-  sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier, state, returnTo: safeReturnPath(returnTo) }))
+  sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier, state, returnTo: safeReturnPath(returnTo), action: action ?? null }))
 
   const params = new URLSearchParams({
     client_id: KEYCLOAK_CLIENT_ID,
@@ -107,7 +126,26 @@ export async function redirectToLogin(returnTo?: string): Promise<void> {
     code_challenge_method: 'S256',
     state,
   })
+  if (action) params.set('kc_action', action)
   window.location.assign(`${KEYCLOAK_ENDPOINTS.authorization()}?${params.toString()}`)
+}
+
+/** Résultat de la dernière action du compte (lu une seule fois), ou null. */
+export function consumeAccountActionResult(): AccountActionResult | null {
+  try {
+    const raw = sessionStorage.getItem(ACTION_RESULT_KEY)
+    if (!raw) return null
+    sessionStorage.removeItem(ACTION_RESULT_KEY)
+    return JSON.parse(raw) as AccountActionResult
+  } catch {
+    return null
+  }
+}
+
+/** Oublie la session locale (après « se déconnecter de tous les appareils ») puis renvoie à la connexion. */
+export async function forgetSessionAndLogin(returnTo?: string): Promise<void> {
+  clearTokens()
+  await redirectToLogin(returnTo)
 }
 
 /** À appeler au montage de l'application : si l'URL contient
@@ -139,7 +177,9 @@ async function processRedirectCallback(): Promise<string | null> {
   sessionStorage.removeItem(PKCE_STORAGE_KEY)
   if (!pkceRaw) return null // callback inattendu (état PKCE absent) : ignoré, jamais deviné
 
-  const { verifier, state: expectedState, returnTo } = JSON.parse(pkceRaw) as { verifier: string; state: string; returnTo?: string | null }
+  const { verifier, state: expectedState, returnTo, action } = JSON.parse(pkceRaw) as {
+    verifier: string; state: string; returnTo?: string | null; action?: AccountAction | null
+  }
   if (state !== expectedState) {
     throw new Error('État OAuth2 invalide (protection CSRF) — connexion refusée.')
   }
@@ -174,7 +214,19 @@ async function processRedirectCallback(): Promise<string | null> {
     expiresAt: claims.exp * 1000,
   })
 
+  // Action du compte (ex. changement de mot de passe) : son résultat est gardé pour la page de retour.
+  if (action) {
+    const raw = url.searchParams.get('kc_action_status')
+    const status = raw === 'success' || raw === 'cancelled' ? raw : 'error'
+    try {
+      sessionStorage.setItem(ACTION_RESULT_KEY, JSON.stringify({ action, status } satisfies AccountActionResult))
+    } catch {
+      // stockage indisponible : simplement pas de message au retour
+    }
+  }
+
   // Nettoie ?code=&state= de l'URL visible sans recharger la page.
+  url.searchParams.delete('kc_action_status')
   url.searchParams.delete('code')
   url.searchParams.delete('state')
   url.searchParams.delete('session_state')

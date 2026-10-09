@@ -1,22 +1,21 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import TopBar from '../components/TopBar'
 import { profileBackendApi } from '../services/api/profileBackend'
+import { consumeAccountActionResult, redirectToAccountAction } from '../services/auth/keycloakClient'
 import { BackendProfileResponse } from '../types/backendContracts'
-import { ApiError } from '../services/api/httpClient'
-import { useDarkMode } from '../utils/useDarkMode'
+import { useToast } from '../context/ToastContext'
+import AppearanceCard from './settings/AppearanceCard'
+import NotificationsCard from './settings/NotificationsCard'
+import SecurityCard from './settings/SecurityCard'
+import { describeSettingsError } from './settings/settingsErrors'
+import './settings/settings.css'
 
 // ============================================================
-// P1-D — page RÉELLE (remplace l'ancien ComingSoonPage) : profil réel
-// (GET /api/profile, identité/rôles Keycloak) + SEULE préférence
-// réellement modifiable, le fuseau horaire (PATCH /api/profile — voir
-// ProfileController côté backend). username/name/email sont affichés en
-// LECTURE SEULE : ce sont des propriétés de Keycloak, jamais éditables
-// depuis LoadPilot (les modifier ici serait silencieusement écrasé au
-// prochain login, voir ProfileServiceImpl côté backend).
-//
-// Le mode clair/sombre (déjà réel, voir Sidebar.tsx) est exposé ici comme
-// second réglage réel — désormais persisté (voir utils/useDarkMode.ts).
+// Paramètres > « Mon profil » (tout utilisateur connecté) :
+//  - Profil : identité en lecture seule (propriété du système d'authentification), rôle
+//    applicatif en français, « Changer mon mot de passe » (page du système d'authentification,
+//    thème LoadPilot : le mot de passe n'est jamais saisi dans React) ;
+//  - Fuseau horaire, Apparence (Clair · Sombre · Système), Notifications, Sécurité.
 // ============================================================
 
 const COMMON_TIMEZONES = [
@@ -24,27 +23,9 @@ const COMMON_TIMEZONES = [
   'America/Los_Angeles', 'Asia/Dubai', 'Asia/Tokyo', 'Australia/Sydney',
 ]
 
-function describeApiError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    switch (err.status) {
-      case 0: return err.message
-      case 401: return 'Vous devez être connecté pour accéder à vos paramètres.'
-      case 400: return err.message
-      default: return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
-    }
-  }
-  return err instanceof Error ? err.message : fallback
-}
-
-const roleLabel: Record<string, string> = {
-  ROLE_SUPER_ADMIN: 'Super Administrateur',
-  ROLE_PERFORMANCE_ENGINEER: 'Ingénieur Performance',
-  ROLE_VIEWER: 'Observateur',
-}
-
-/** embedded : affichée dans un onglet (Paramètres, Utilisateurs et rôles), sans son propre en-tête. */
+/** embedded : affichée dans un onglet (Paramètres), sans son propre en-tête. */
 function Settings({ embedded = false }: { embedded?: boolean } = {}) {
-  const { darkMode, setDarkMode } = useDarkMode()
+  const { showToast } = useToast()
   const [profile, setProfile] = useState<BackendProfileResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +34,8 @@ function Settings({ embedded = false }: { embedded?: boolean } = {}) {
   const [savingTimezone, setSavingTimezone] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [redirecting, setRedirecting] = useState(false)
+  const actionHandled = useRef(false)
 
   const browserTimezone = (() => {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
@@ -63,11 +46,39 @@ function Settings({ embedded = false }: { embedded?: boolean } = {}) {
     setError(null)
     profileBackendApi.get()
       .then((p) => { setProfile(p); setTimezone(p.timezone ?? browserTimezone) })
-      .catch((err) => setError(describeApiError(err, 'Impossible de charger votre profil.')))
+      .catch((err) => setError(describeSettingsError(err, 'Impossible de charger votre profil.')))
       .finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [])
+
+  // Retour de la page « changer mon mot de passe » : message et inscription au journal d'audit.
+  useEffect(() => {
+    if (actionHandled.current) return
+    actionHandled.current = true
+    const result = consumeAccountActionResult()
+    if (!result || result.action !== 'UPDATE_PASSWORD') return
+    if (result.status === 'success') {
+      profileBackendApi.passwordChanged()
+        .then((r) => showToast(r.recorded ? 'Votre mot de passe a été modifié. Le changement est inscrit au journal d’audit.'
+          : 'Votre mot de passe a été modifié.', 'success'))
+        .catch(() => showToast('Votre mot de passe a été modifié.', 'success'))
+    } else if (result.status === 'cancelled') {
+      showToast('Changement de mot de passe annulé : votre mot de passe n’a pas changé.', 'info')
+    } else {
+      showToast('Le changement de mot de passe n’a pas abouti. Réessayez.', 'danger')
+    }
+  }, [showToast])
+
+  const changePassword = async () => {
+    setRedirecting(true)
+    try {
+      await redirectToAccountAction('UPDATE_PASSWORD', '/parametres?tab=profil')
+    } catch {
+      setRedirecting(false)
+      showToast('Impossible d’ouvrir la page de changement de mot de passe.', 'danger')
+    }
+  }
 
   const handleSaveTimezone = async () => {
     setSavingTimezone(true)
@@ -79,7 +90,7 @@ function Settings({ embedded = false }: { embedded?: boolean } = {}) {
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err) {
-      setSaveError(describeApiError(err, 'Impossible d\'enregistrer le fuseau horaire.'))
+      setSaveError(describeSettingsError(err, 'Impossible d’enregistrer le fuseau horaire.'))
     } finally {
       setSavingTimezone(false)
     }
@@ -91,15 +102,15 @@ function Settings({ embedded = false }: { embedded?: boolean } = {}) {
         <div className="pt-page-header">
           <div className="page-title">
             <h1>Mon profil</h1>
-            <p>Votre profil et vos préférences réelles</p>
+            <p>Votre profil et vos préférences</p>
           </div>
           <TopBar searchPlaceholder="" />
         </div>
       )}
 
       {error && (
-        <div className="pt-alert-banner danger mb-3">
-          <i className="bi bi-exclamation-triangle-fill"></i>
+        <div className="pt-alert-banner danger mb-3" role="alert">
+          <i className="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
           {error}
           <button className="pt-btn-outline ms-auto" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={load}>Réessayer</button>
         </div>
@@ -107,84 +118,53 @@ function Settings({ embedded = false }: { embedded?: boolean } = {}) {
 
       {loading ? (
         <div className="pt-empty-state">
-          <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }}></i>
-          <p>Chargement de votre profil...</p>
+          <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }} aria-hidden="true"></i>
+          <p>Chargement de votre profil…</p>
         </div>
       ) : profile && (
         <div className="row g-4">
           <div className="col-12 col-xl-6">
-            <div className="pt-card h-100">
-              <div className="pt-card-title mb-3"><i className="bi bi-person-badge me-2 text-primary"></i>Profil</div>
-              <p className="text-muted mb-3" style={{ fontSize: '12px' }}>
-                Identité gérée de façon centralisée — en lecture seule ici. Pour la modifier, contactez un administrateur.
-              </p>
-              <div className="d-flex flex-column gap-2" style={{ fontSize: '13.5px' }}>
-                <div className="d-flex justify-content-between border-bottom pb-2"><span className="text-muted">Nom</span><strong>{profile.name ?? '—'}</strong></div>
-                <div className="d-flex justify-content-between border-bottom pb-2"><span className="text-muted">Nom d'utilisateur</span><strong>{profile.username ?? '—'}</strong></div>
-                <div className="d-flex justify-content-between border-bottom pb-2"><span className="text-muted">Email</span><strong>{profile.email ?? '—'}</strong></div>
-                <div className="d-flex justify-content-between align-items-center">
-                  <span className="text-muted">Rôle(s)</span>
-                  <div className="d-flex gap-1 flex-wrap justify-content-end">
-                    {profile.roles.map((r) => (
-                      <span key={r} className="pt-pill info" style={{ fontSize: '11px' }}>{roleLabel[r] ?? r}</span>
-                    ))}
-                  </div>
-                </div>
+            <section className="pt-card h-100 st-card" aria-labelledby="st-profile-title">
+              <h2 className="st-card-title" id="st-profile-title"><i className="bi bi-person-badge" aria-hidden="true"></i>Profil</h2>
+              <dl className="st-facts">
+                <dt>Nom</dt><dd>{profile.name ?? '—'}</dd>
+                <dt>Nom d’utilisateur</dt><dd>{profile.username ?? '—'}</dd>
+                <dt>E-mail</dt><dd>{profile.email ?? '—'}</dd>
+                <dt>Rôle</dt>
+                <dd><span className="pt-pill info st-role">{profile.appRoleLabel ?? 'Aucun rôle'}</span></dd>
+              </dl>
+              <p className="st-note">Identité gérée par le service de connexion : pour la modifier, contactez un administrateur.</p>
+              <div className="st-actions">
+                <button type="button" className="pt-btn-outline" onClick={changePassword} disabled={redirecting}>
+                  <i className="bi bi-key" aria-hidden="true"></i> {redirecting ? 'Ouverture…' : 'Changer mon mot de passe'}
+                </button>
               </div>
-            </div>
+            </section>
           </div>
 
           <div className="col-12 col-xl-6">
-            <div className="pt-card h-100">
-              <div className="pt-card-title mb-3"><i className="bi bi-globe me-2 text-primary"></i>Fuseau horaire</div>
-              <p className="text-muted mb-3" style={{ fontSize: '12px' }}>
-                Utilisé pour vos planifications (voir Planification) et l'affichage des dates. Enregistré réellement sur votre profil.
-              </p>
-              {saveError && <div className="pt-alert-banner danger mb-2" style={{ fontSize: '12px' }}>{saveError}</div>}
+            <section className="pt-card h-100 st-card" aria-labelledby="st-tz-title">
+              <h2 className="st-card-title" id="st-tz-title"><i className="bi bi-globe" aria-hidden="true"></i>Fuseau horaire</h2>
+              <p className="st-note mt-0">Utilisé pour vos planifications et l’affichage des dates.</p>
+              {saveError && <div className="pt-alert-banner danger mb-2" role="alert" style={{ fontSize: '12px' }}>{saveError}</div>}
               <div className="d-flex gap-2 flex-wrap align-items-center">
-                <select className="pt-form-control" style={{ maxWidth: '280px' }} value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                <select className="pt-form-control" style={{ maxWidth: '280px' }} value={timezone} aria-label="Fuseau horaire"
+                  onChange={(e) => setTimezone(e.target.value)}>
                   {!COMMON_TIMEZONES.includes(timezone) && <option value={timezone}>{timezone}</option>}
                   {COMMON_TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
                 <button className="pt-btn-primary" onClick={handleSaveTimezone} disabled={savingTimezone}>
-                  {savingTimezone ? 'Enregistrement...' : 'Enregistrer'}
+                  {savingTimezone ? 'Enregistrement…' : 'Enregistrer'}
                 </button>
-                {saved && <span className="pt-pill success" style={{ fontSize: '11px' }}><i className="bi bi-check2 me-1"></i>Enregistré</span>}
+                {saved && <span className="pt-pill success" style={{ fontSize: '11px' }}><i className="bi bi-check2 me-1" aria-hidden="true"></i>Enregistré</span>}
               </div>
-              <div style={{ fontSize: '11.5px', color: 'var(--pt-text-muted)', marginTop: '8px' }}>
-                Fuseau de votre navigateur : <strong>{browserTimezone}</strong>
-              </div>
-            </div>
+              <p className="st-note">Fuseau de votre navigateur : <strong>{browserTimezone}</strong></p>
+            </section>
           </div>
 
-          <div className="col-12 col-xl-6">
-            <div className="pt-card h-100">
-              <div className="pt-card-title mb-3"><i className="bi bi-moon-stars me-2 text-primary"></i>Apparence</div>
-              <div className="d-flex align-items-center justify-content-between">
-                <span style={{ fontSize: '13.5px' }}>Mode sombre</span>
-                <label className="pt-toggle">
-                  <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} />
-                  <span className="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div className="col-12 col-xl-6">
-            <div className="pt-card h-100">
-              <div className="pt-card-title mb-3"><i className="bi bi-link-45deg me-2 text-primary"></i>Liens rapides</div>
-              <div className="d-flex flex-column gap-2" style={{ fontSize: '13.5px' }}>
-                <Link to="/notifications/preferences" className="d-flex justify-content-between align-items-center text-decoration-none">
-                  <span><i className="bi bi-bell me-2"></i>Préférences de notifications</span>
-                  <i className="bi bi-chevron-right text-muted"></i>
-                </Link>
-                <Link to="/notifications" className="d-flex justify-content-between align-items-center text-decoration-none border-top pt-2">
-                  <span><i className="bi bi-inbox me-2"></i>Toutes mes notifications</span>
-                  <i className="bi bi-chevron-right text-muted"></i>
-                </Link>
-              </div>
-            </div>
-          </div>
+          <div className="col-12 col-xl-6"><AppearanceCard /></div>
+          <div className="col-12 col-xl-6"><SecurityCard /></div>
+          <div className="col-12"><NotificationsCard /></div>
         </div>
       )}
     </div>

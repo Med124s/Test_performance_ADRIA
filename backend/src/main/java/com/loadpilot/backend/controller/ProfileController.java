@@ -34,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProfileController {
 
     private final ProfileService profileService;
+    private final com.loadpilot.backend.service.ProfileSecurityService profileSecurityService;
 
     @GetMapping
     @Operation(summary = "Profil de l'utilisateur courant", description = "Identite/roles derives du JWT Keycloak, plus la preference de fuseau horaire reellement persistee ; 401 si non authentifie.")
@@ -56,5 +57,25 @@ public class ProfileController {
                                           Authentication authentication) {
         CurrentUser currentUser = CurrentUser.from(jwt, authentication);
         return profileService.updateProfile(currentUser, request);
+    }
+
+    @GetMapping("/security")
+    @Operation(summary = "Securite de mon compte", description = "Derniere connexion et sessions ouvertes (appareil / navigateur, dates) du compte connecte.")
+    public com.loadpilot.backend.dto.response.ProfileSecurityResponse security(@AuthenticationPrincipal Jwt jwt) {
+        return profileSecurityService.security(jwt);
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/logout-everywhere")
+    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    @Operation(summary = "Se deconnecter de tous les appareils", description = "Ferme toutes les sessions du compte connecte, y compris celle-ci. Journalise.")
+    public void logoutEverywhere(@AuthenticationPrincipal Jwt jwt) {
+        profileSecurityService.logoutEverywhere(jwt);
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/password-changed")
+    @Operation(summary = "Retour du changement de mot de passe",
+            description = "Importe aussitot l'evenement du systeme d'authentification dans le journal d'audit (jamais le mot de passe). recorded = entree presente.")
+    public java.util.Map<String, Boolean> passwordChanged(@AuthenticationPrincipal Jwt jwt) {
+        return java.util.Map.of("recorded", profileSecurityService.recordPasswordChange(jwt));
     }
 }
