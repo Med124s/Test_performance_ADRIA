@@ -193,7 +193,7 @@ export default function ScheduleHistory() {
                 <th className="num">Débit</th>
                 <th className="num">Requêtes</th>
                 <th className="num">Durée</th>
-                <th>Détail</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>

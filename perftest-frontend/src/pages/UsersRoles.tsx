@@ -255,7 +255,7 @@ function UsersRoles({ embedded = false, createOpen, onCreateClose }: UsersRolesP
                 <th scope="col">Rôle</th>
                 <th scope="col">Statut</th>
                 <th scope="col">Dernière connexion</th>
-                <th scope="col"><span className="visually-hidden">Actions</span></th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>

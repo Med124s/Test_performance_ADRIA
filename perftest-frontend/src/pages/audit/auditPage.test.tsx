@@ -75,6 +75,7 @@ describe('Journal d’audit — page', () => {
   it('tableau : date relative (complète au survol), avatar ou « Système » + source, phrase + avant → après, ✓ / ✕', async () => {
     renderPage()
     await screen.findByText('Modification de l’application « Banking »')
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Date', 'Utilisateur', 'Action', 'Résultat', 'Actions'])
     const [first, system, failed] = screen.getAllByRole('row').slice(1)
     const time = first.querySelector('time')!
     expect(time.textContent).toMatch(/il y a 3 min/)

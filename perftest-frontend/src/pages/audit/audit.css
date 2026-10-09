@@ -20,6 +20,7 @@
 .au-table thead th { text-align: left; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--pt-text-muted); padding: 0.7rem 1rem; border-bottom: 1px solid var(--pt-border); background: var(--pt-card-bg); }
 .au-table .au-th-center { text-align: center; }
+.au-table .au-th-actions { text-align: right; }
 .au-row td { padding: 0.7rem 1rem; border-bottom: 1px solid var(--pt-border); vertical-align: middle; }
 .au-row:last-child td { border-bottom: none; }
 .au-row:hover td { background: var(--pt-bg); }

@@ -55,6 +55,7 @@ describe('Onglet Utilisateurs', () => {
   it('tableau : nom affiché + e-mail, rôle en français avec icône, statut, dernière connexion relative (date complète au survol)', async () => {
     const { container } = renderUsers()
     await screen.findByText('Admin Test')
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Utilisateur', 'Rôle', 'Statut', 'Dernière connexion', 'Actions'])
     const admin = row('Admin Test')
     expect(within(admin).getByText('admin-test@loadpilot.local')).toBeTruthy()
     expect(within(admin).getByText('Administrateur').closest('.ur-role')?.className).toContain('ur-role--admin')

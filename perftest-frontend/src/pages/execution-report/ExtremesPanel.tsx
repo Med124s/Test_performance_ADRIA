@@ -103,7 +103,7 @@ export default function ExtremesPanel({ executionId, kind, onClose }: { executio
                       <thead>
                         <tr>
                           <th>#</th><th>Étape</th><th>VU</th><th>Itér.</th><th>Heure</th><th>Dans le test</th><th>Code</th>
-                          <th className="text-end">Temps</th><th>Au même moment</th><th></th>
+                          <th className="text-end">Temps</th><th>Au même moment</th><th className="text-end">Actions</th>
                         </tr>
                       </thead>
                       <tbody>

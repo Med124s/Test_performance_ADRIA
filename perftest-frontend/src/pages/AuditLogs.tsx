@@ -282,7 +282,7 @@ export default function AuditLogs() {
                 <th scope="col">Utilisateur</th>
                 <th scope="col">Action</th>
                 <th scope="col" className="au-th-center">Résultat</th>
-                <th scope="col"><span className="visually-hidden">Détail</span></th>
+                <th scope="col" className="au-th-actions">Actions</th>
               </tr>
             </thead>
             <tbody>

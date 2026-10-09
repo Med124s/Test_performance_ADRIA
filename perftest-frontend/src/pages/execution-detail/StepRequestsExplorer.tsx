@@ -100,7 +100,7 @@ function StepRequests({ executionId, step, virtualUsers }: { executionId: string
       <div className="pt-table-wrapper">
         <table className="pt-table" style={{ fontSize: '12.5px' }} aria-busy={loading}>
           <thead>
-            <tr><th>Heure</th><th>VU</th><th>Itération</th><th>Code</th><th className="text-end">Temps</th><th>Résultat</th><th></th></tr>
+            <tr><th>Heure</th><th>VU</th><th>Itération</th><th>Code</th><th className="text-end">Temps</th><th>Résultat</th><th className="text-end">Actions</th></tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
