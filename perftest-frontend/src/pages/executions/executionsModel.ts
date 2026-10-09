@@ -104,19 +104,20 @@ export function formatRequests(total: number, errorRate: number | null): { total
 /** Libellé et badge d'un statut : voir utils/executionStatus (table unique, statut inconnu en gris). */
 export { statusLabel, statusPill } from '../../utils/executionStatus'
 
-/** Seuil d'écart de P95 (en %) au-delà duquel la flèche passe en rouge (hausse) ou en vert (baisse). */
-export const P95_CHANGE_THRESHOLD = 10
+/** Seuil d'écart de P95 (en %) par défaut au-delà duquel la flèche passe en rouge (régression) ou en
+ * vert (amélioration) : le seuil de régression réglable (Paramètres > Système), 20 % par défaut. */
+export const P95_CHANGE_THRESHOLD = 20
 
 /**
  * Écart de P95 avec l'exécution précédente du même scénario : « ↑ +12 % » rouge si > +10 %, « ↓ −15 % » vert
  * si < −10 %, gris sinon ; sans exécution précédente (ou sans P95), « — » gris.
  */
-export function p95Delta(current: number | null | undefined, previous: number | null | undefined): { text: string; tone: 'worse' | 'better' | 'same' | 'none'; percent: number | null } {
+export function p95Delta(current: number | null | undefined, previous: number | null | undefined, threshold: number = P95_CHANGE_THRESHOLD): { text: string; tone: 'worse' | 'better' | 'same' | 'none'; percent: number | null } {
   if (current == null || previous == null || previous <= 0) return { text: '—', tone: 'none', percent: null }
   const percent = Math.round(((current - previous) * 1000) / previous) / 10
   const abs = formatNumber(Math.abs(percent), 1)
-  if (percent > P95_CHANGE_THRESHOLD) return { text: `↑ +${abs} %`, tone: 'worse', percent }
-  if (percent < -P95_CHANGE_THRESHOLD) return { text: `↓ −${abs} %`, tone: 'better', percent }
+  if (percent > threshold) return { text: `↑ +${abs} %`, tone: 'worse', percent }
+  if (percent < -threshold) return { text: `↓ −${abs} %`, tone: 'better', percent }
   const arrow = percent > 0 ? '↑' : percent < 0 ? '↓' : '='
   return { text: `${arrow} ${percent > 0 ? '+' : percent < 0 ? '−' : ''}${abs} %`, tone: 'same', percent }
 }

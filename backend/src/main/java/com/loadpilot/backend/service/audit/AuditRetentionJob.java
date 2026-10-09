@@ -47,6 +47,9 @@ public class AuditRetentionJob {
                     .system("Purge automatique quotidienne")
                     .description(deleted + (deleted > 1 ? " entrées de plus de " : " entrée de plus de ") + days + " jours supprimée" + (deleted > 1 ? "s" : "")));
         }
+        // Bilan de ce passage (Parametres > Systeme : derniere purge), meme si rien n'a ete supprime.
+        settings.set(com.loadpilot.backend.service.AppSettingsService.AUDIT_LAST_PURGE,
+                "{\"at\":\"" + now + "\",\"deleted\":" + deleted + "}", "system");
         return deleted;
     }
 }

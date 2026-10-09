@@ -69,6 +69,10 @@ app:
     # Limite GLOBALE (somme des utilisateurs virtuels de TOUTES les
     # executions actives simultanement sur ce processus backend).
     max-global-virtual-users: ${LOADPILOT_MAX_GLOBAL_VUS:200}
+    # Plafonds des nouvelles limites de charge (limites applicatives reglables en dessous, dans Parametres).
+    max-duration-seconds: ${LOADPILOT_MAX_DURATION_SECONDS:3600}
+    max-iterations: ${LOADPILOT_MAX_ITERATIONS:10000}
+    max-target-rps: ${LOADPILOT_MAX_TARGET_RPS:500}
     # Limite du nombre d'executions QUEUED/RUNNING simultanees.
     max-concurrent-executions: ${LOADPILOT_MAX_CONCURRENT_EXECUTIONS:10}
     # Une execution restee en pause plus longtemps est annulee automatiquement.
@@ -107,6 +111,28 @@ app:
       # (connexion, echec, blocage, deconnexion, mot de passe) vers le journal.
       enabled: ${LOADPILOT_AUDIT_SECURITY_EVENTS_ENABLED:true}
       poll-ms: ${LOADPILOT_AUDIT_SECURITY_EVENTS_POLL_MS:60000}
+  mail:
+    # Serveur e-mail de LoadPilot (notifications par e-mail, e-mail de test de Parametres > Integrations).
+    # Developpement : Mailpit (http://localhost:8025, rien n'est reellement delivre). Production :
+    # renseigner le vrai serveur SMTP. Le mot de passe n'est jamais affiche ni journalise.
+    enabled: ${LOADPILOT_MAIL_ENABLED:true}
+    host: ${LOADPILOT_MAIL_HOST:localhost}
+    port: ${LOADPILOT_MAIL_PORT:1025}
+    from: ${LOADPILOT_MAIL_FROM:no-reply@loadpilot.local}
+    from-name: ${LOADPILOT_MAIL_FROM_NAME:LoadPilot}
+    username: ${LOADPILOT_MAIL_USERNAME:}
+    password: ${LOADPILOT_MAIL_PASSWORD:}
+    starttls: ${LOADPILOT_MAIL_STARTTLS:false}
+    ssl: ${LOADPILOT_MAIL_SSL:false}
+    # Adresse de l'interface, pour les liens des e-mails.
+    app-url: ${LOADPILOT_APP_URL:http://localhost:3000}
+  results:
+    # Purge quotidienne du detail des executions (durees reglables dans Parametres > Systeme :
+    # 90 jours pour les resultats, 30 jours pour les en-tetes / corps). "-" = desactivee.
+    purge-cron: ${LOADPILOT_RESULTS_PURGE_CRON:0 45 3 * * *}
+    snapshot-backfill:
+      # Au demarrage : rapport fige des executions terminees qui n'en ont pas encore.
+      enabled: ${LOADPILOT_RESULTS_SNAPSHOT_BACKFILL:true}
   scheduler:
     # P1-B - intervalle (ms) du poller reel de ScheduledExecution (voir
     # service.impl.ScheduledExecutionPoller pour la comparaison argumentee

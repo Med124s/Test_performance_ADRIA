@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import { auditBackendApi } from '../../services/api/auditBackend'
 import { ApiError } from '../../services/api/httpClient'
-import type { BackendAuditSettings } from '../../types/backendContracts'
+import type { BackendAuditSettings, BackendStorageInfo } from '../../types/backendContracts'
+import StorageStatus from '../settings/StorageStatus'
 
 // Réglages du journal d'audit (Paramètres > Système, Super administrateur) :
 //  - journaliser aussi les consultations (désactivé par défaut) ;
@@ -22,7 +23,7 @@ function describeError(err: unknown): string {
   return 'Impossible d’enregistrer les réglages.'
 }
 
-export default function AuditSettingsCard() {
+export default function AuditSettingsCard({ storage }: { storage?: BackendStorageInfo | null } = {}) {
   const { showToast } = useToast()
   const switchId = useId()
   const retentionId = useId()
@@ -68,6 +69,8 @@ export default function AuditSettingsCard() {
           <p>Ce qui est enregistré et combien de temps c’est conservé. <Link to="/audit-logs">Ouvrir le journal</Link></p>
         </div>
       </div>
+
+      {storage !== undefined && <StorageStatus purge={storage?.audit} />}
 
       {error && <div className="pt-alert-banner danger mb-3" role="alert"><i className="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>{error}</div>}
 

@@ -35,20 +35,20 @@ public record ScenarioRequest(
         // environnement et appliquee dans ScenarioServiceImpl) - seulement
         // un garde-fou absolu de bon sens (valeur totalement deraisonnable,
         // quel que soit le deploiement), jamais retire.
-        @Min(value = 1, message = "Le nombre d'utilisateurs virtuels doit etre au moins 1.")
-        @Max(value = 10000, message = "Le nombre d'utilisateurs virtuels ne doit pas depasser 10000.")
+        @Min(value = 1, message = "Le nombre d’utilisateurs doit être au moins 1.")
+        @Max(value = 10000, message = "Le nombre d’utilisateurs ne doit pas dépasser 10000.")
         Integer virtualUsers,
 
-        @Min(value = 0, message = "Le ramp-up ne peut pas etre negatif.")
+        @Min(value = 0, message = "Le ramp-up doit être au moins 0.")
         Integer rampUpSeconds,
 
-        @Min(value = 1, message = "La duree doit etre d'au moins 1 seconde si fournie.")
+        @Min(value = 1, message = "La durée doit être au moins 1.")
         Integer durationSeconds,
 
-        @Min(value = 1, message = "Le nombre d'iterations doit etre d'au moins 1 si fourni.")
+        @Min(value = 1, message = "Le nombre d’itérations doit être au moins 1.")
         Integer iterations,
 
-        @Min(value = 0, message = "Le think time ne peut pas etre negatif.")
+        @Min(value = 0, message = "Le think time doit être au moins 0.")
         Integer thinkTimeMs,
 
         // P1-Q Etape B - donnees CSV optionnelles (premiere ligne = noms de
@@ -65,7 +65,7 @@ public record ScenarioRequest(
         // null = aucun pacing (comportement historique inchange, voir
         // Scenario.targetRps). Rejette explicitement 0 et les valeurs
         // negatives (sens invalide pour un debit cible).
-        @Min(value = 1, message = "Le debit cible (RPS) doit etre d'au moins 1 si fourni.")
+        @Min(value = 1, message = "Le débit cible doit être au moins 1.")
         Integer targetRps,
 
         // Creation uniquement : true cree un brouillon (DRAFT) au lieu d'un scenario ACTIVE.

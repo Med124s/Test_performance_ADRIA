@@ -62,6 +62,8 @@ public class ScenarioServiceImpl implements ScenarioService {
     private final DeletionServiceImpl deletionService;
     private final ScenarioStatusService scenarioStatusService;
     private final com.loadpilot.backend.mapper.StepMapper stepMapper;
+    private final com.loadpilot.backend.service.AppSettingsService settings;
+    private final com.loadpilot.backend.service.ExecutionLimitsService executionLimits;
 
     /** P0-B — limite PAR EXECUTION configurable par environnement (voir
      * application.yml, LOADPILOT_MAX_VUS_PER_EXECUTION) - distincte du
@@ -70,8 +72,6 @@ public class ScenarioServiceImpl implements ScenarioService {
      * configuration du Scenario) plutot qu'au lancement de l'Execution :
      * retour immediat et explicite a l'utilisateur, avant meme de tenter un
      * test de charge. */
-    @Value("${app.execution.max-virtual-users-per-execution}")
-    private int maxVirtualUsersPerExecution;
 
     @Override
     @Transactional
@@ -93,6 +93,14 @@ public class ScenarioServiceImpl implements ScenarioService {
                 scenario.setDraftState(request.draftState());
             }
             applyLoadTestDefaults(scenario, request);
+            // Seuils non fournis : ceux proposes dans Parametres > Systeme > Seuils par defaut.
+            if (request.maxErrorRatePercent() == null) {
+                scenario.setMaxErrorRatePercent(settings.defaultMaxErrorRate());
+            }
+            if (request.maxP95Ms() == null) {
+                long p95 = settings.defaultMaxP95Ms();
+                scenario.setMaxP95Ms(p95 > 0 ? p95 : null);
+            }
             applyVariables(scenario, request);
 
             Scenario saved = scenarioRepository.saveAndFlush(scenario);
@@ -254,6 +262,11 @@ public class ScenarioServiceImpl implements ScenarioService {
         // Duree et iterations optionnelles (memes regles que le moteur) : aucune des deux = une
         // seule iteration par utilisateur, les deux = arret a la premiere limite atteinte.
         checkCsv(scenario.getCsvData());
+        // Memes regles de charge qu'a l'enregistrement d'un scenario actif.
+        List<String> loadProblems = loadProblems(scenario);
+        if (!loadProblems.isEmpty()) {
+            throw new BadRequestException(String.join(" ", loadProblems));
+        }
         scenario.setStatus(ScenarioStatus.ACTIVE);
         scenario.setWizardStep(null);
         scenario.setDraftState(null);
@@ -383,16 +396,22 @@ public class ScenarioServiceImpl implements ScenarioService {
      * iterations restent nullables tels quels (absence de limite = valide).
      */
     private void applyLoadTestDefaults(Scenario scenario, ScenarioRequest request) {
-        if (request.virtualUsers() != null && request.virtualUsers() > maxVirtualUsersPerExecution) {
-            throw new LoadConfigurationException(
-                    "Le nombre d'utilisateurs virtuels (" + request.virtualUsers()
-                            + ") depasse la limite configuree pour ce deploiement (" + maxVirtualUsersPerExecution + ").");
-        }
         scenario.setVirtualUsers(request.virtualUsers() != null ? request.virtualUsers() : 1);
         scenario.setRampUpSeconds(request.rampUpSeconds() != null ? request.rampUpSeconds() : 0);
         scenario.setDurationSeconds(request.durationSeconds());
         scenario.setIterations(request.iterations());
         scenario.setThinkTimeMs(request.thinkTimeMs() != null ? request.thinkTimeMs() : 0);
+        // Regles de charge avec les limites en vigueur (Parametres > Systeme). Un brouillon peut
+        // garder un ramp-up provisoire plus long que la duree : verifie a sa publication.
+        List<String> problems = new java.util.ArrayList<>(loadProblems(scenario));
+        if (scenario.getStatus() == ScenarioStatus.DRAFT) problems.remove(com.loadpilot.backend.service.validation.LoadRules.RAMP_UP_TOO_LONG);
+        if (!problems.isEmpty()) throw new LoadConfigurationException(String.join(" ", problems));
+    }
+
+    /** Regles de charge non respectees par ce scenario, avec les limites en vigueur. */
+    private List<String> loadProblems(Scenario s) {
+        return com.loadpilot.backend.service.validation.LoadRules.validate(s.getVirtualUsers(), s.getThinkTimeMs(), s.getRampUpSeconds(),
+                s.getDurationSeconds(), s.getIterations(), s.getTargetRps(), executionLimits.loadLimits());
     }
 
     private Scenario findOrThrow(UUID id) {

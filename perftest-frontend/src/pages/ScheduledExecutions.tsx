@@ -1,3 +1,4 @@
+import { useRegressionThreshold } from '../utils/thresholds'
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { scheduledExecutionsBackendApi } from '../services/api/scheduledExecutionsBackend'
@@ -254,7 +255,7 @@ export default function ScheduledExecutions() {
                     <th>Prochaine exécution</th>
                     <th>Dernière exécution</th>
                     <th>État</th>
-                    <th className="ex-col-actions"><span className="visually-hidden">Actions</span></th>
+                    <th className="ex-col-actions">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -344,7 +345,8 @@ function ScheduleRow({ s, canWrite, busy, onClick, onRunNow, onTogglePause, onEd
   const suspended = s.state === 'SUSPENDED'
   const finished = s.state === 'COMPLETED' || s.state === 'EXPIRED'
   const paused = s.state === 'PAUSED'
-  const change = p95Change(s.lastRun?.p95ChangePercent)
+  const regressionThreshold = useRegressionThreshold()
+  const change = p95Change(s.lastRun?.p95ChangePercent, regressionThreshold)
 
   const actions: RowAction[] = canWrite ? [
     { label: 'Modifier', icon: 'bi-pencil', onSelect: onEdit },

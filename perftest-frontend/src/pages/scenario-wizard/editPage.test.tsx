@@ -20,6 +20,11 @@ vi.mock('../../services/api/applicationsBackend', () => ({ applicationsBackendAp
 vi.mock('../../services/api/scenariosBackend', () => ({ scenariosBackendApi: scenarios }))
 vi.mock('../../services/api/stepsBackend', () => ({ stepsBackendApi: steps }))
 vi.mock('../../services/api/executionsBackend', () => ({ executionsBackendApi: { execute: vi.fn() } }))
+// Charge par défaut différente du scénario : un scénario existant ne doit jamais en hériter.
+vi.mock('../../services/api/settingsBackend', () => ({ settingsBackendApi: {
+  loadDefaults: () => Promise.resolve({ virtualUsers: 99, thinkTimeMs: 999, rampUpSeconds: 9, durationSeconds: 900, iterations: 9, targetRps: 9, maxVirtualUsers: 200 }),
+  thresholds: () => Promise.resolve({ maxErrorRatePercent: 1, maxP95Ms: 0, regressionPercent: 20 }),
+} }))
 
 import ScenarioWizard from './ScenarioWizard'
 import StepDrawer from './StepDrawer'

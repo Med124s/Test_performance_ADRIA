@@ -10,6 +10,10 @@ package com.loadpilot.backend.service.impl;
  *   - SAME   (gris)  : ecart faible (|ecart| <= SMALL_CHANGE_PERCENT) ;
  *   - NONE   (gris)  : pas d'execution precedente comparable (ou P95 inconnu).
  * Regression signalee dans « À surveiller » : ecart > REGRESSION_PERCENT.
+ *
+ * Le seuil de regression est reglable (Parametres > Systeme > Seuils par defaut, voir
+ * AppSettingsService.regressionPercent) : les services passent la valeur en cours a
+ * trend(change, seuil) / isRegression(change, seuil) ; les constantes restent les valeurs par defaut.
  */
 public final class DashboardRules {
 
@@ -36,7 +40,20 @@ public final class DashboardRules {
     }
 
     public static boolean isRegression(Double changePercent) {
-        return changePercent != null && changePercent > REGRESSION_PERCENT;
+        return isRegression(changePercent, REGRESSION_PERCENT);
+    }
+
+    /** Hausse strictement superieure au seuil de regression reglable. */
+    public static boolean isRegression(Double changePercent, double regressionPercent) {
+        return changePercent != null && changePercent > regressionPercent;
+    }
+
+    /** Tendance selon le seuil de regression : au-dela = WORSE (rouge) / BETTER (vert), sinon SAME (gris). */
+    public static String trend(Double changePercent, double regressionPercent) {
+        if (changePercent == null) return "NONE";
+        if (changePercent > regressionPercent) return "WORSE";
+        if (changePercent < -regressionPercent) return "BETTER";
+        return "SAME";
     }
 
     /** Nombres des textes du Dashboard au format francais : virgule, espace des milliers, au plus une decimale (2,4 ; 1 234). */

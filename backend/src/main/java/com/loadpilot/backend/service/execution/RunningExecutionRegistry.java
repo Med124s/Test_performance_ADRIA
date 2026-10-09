@@ -4,7 +4,6 @@ import com.loadpilot.backend.exception.ExecutionLimitExceededException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -47,14 +46,22 @@ public class RunningExecutionRegistry {
     private int reservedVirtualUsers = 0;
     private int reservedExecutionSlots = 0;
 
-    private final int maxGlobalVirtualUsers;
-    private final int maxConcurrentExecutions;
+    /** Limites en vigueur, relues a chaque reservation : une limite modifiee dans Parametres
+     * s'applique aux prochains lancements, jamais aux executions deja en cours. */
+    private final java.util.function.IntSupplier maxGlobalVirtualUsersSupplier;
+    private final java.util.function.IntSupplier maxConcurrentExecutionsSupplier;
 
-    public RunningExecutionRegistry(
-            @Value("${app.execution.max-global-virtual-users}") int maxGlobalVirtualUsers,
-            @Value("${app.execution.max-concurrent-executions}") int maxConcurrentExecutions) {
-        this.maxGlobalVirtualUsers = maxGlobalVirtualUsers;
-        this.maxConcurrentExecutions = maxConcurrentExecutions;
+    /** Limites fixes (tests unitaires). */
+    public RunningExecutionRegistry(int maxGlobalVirtualUsers, int maxConcurrentExecutions) {
+        this.maxGlobalVirtualUsersSupplier = () -> maxGlobalVirtualUsers;
+        this.maxConcurrentExecutionsSupplier = () -> maxConcurrentExecutions;
+    }
+
+    /** Limites applicatives de Parametres > Systeme (jamais au-dessus des plafonds du serveur). */
+    @org.springframework.beans.factory.annotation.Autowired
+    public RunningExecutionRegistry(com.loadpilot.backend.service.ExecutionLimitsService limits) {
+        this.maxGlobalVirtualUsersSupplier = () -> limits.value(com.loadpilot.backend.service.ExecutionLimitsService.Limit.VIRTUAL_USERS_TOTAL);
+        this.maxConcurrentExecutionsSupplier = () -> limits.value(com.loadpilot.backend.service.ExecutionLimitsService.Limit.CONCURRENT_TESTS);
     }
 
     /**
@@ -68,17 +75,26 @@ public class RunningExecutionRegistry {
      *         globales serait depassee ; message explicite (jamais generique).
      */
     public void reserveCapacity(int virtualUsers) {
+        int maxGlobalVirtualUsers = maxGlobalVirtualUsersSupplier.getAsInt();
+        int maxConcurrentExecutions = maxConcurrentExecutionsSupplier.getAsInt();
         synchronized (capacityLock) {
+            if (virtualUsers > maxGlobalVirtualUsers) {
+                // Jamais lancable, meme serveur au repos : ce n'est pas une limite « atteinte ».
+                throw new ExecutionLimitExceededException(
+                        "Ce test demande " + virtualUsers + " utilisateurs virtuels, plus que la limite d'un test sur ce serveur ("
+                                + maxGlobalVirtualUsers + ", limité par la limite globale) : il ne pourra pas être lancé. "
+                                + "Réduisez le nombre d'utilisateurs virtuels du scénario.");
+            }
             if (reservedExecutionSlots >= maxConcurrentExecutions) {
                 throw new ExecutionLimitExceededException(
-                        "Nombre maximum d'executions simultanees atteint (" + maxConcurrentExecutions
-                                + "). Reessayez une fois qu'une execution en cours sera terminee.");
+                        "Nombre maximal de tests en même temps atteint (" + maxConcurrentExecutions
+                                + "). Réessayez quand un test en cours sera terminé.");
             }
             if (reservedVirtualUsers + virtualUsers > maxGlobalVirtualUsers) {
                 throw new ExecutionLimitExceededException(
-                        "Limite globale d'utilisateurs virtuels atteinte (" + maxGlobalVirtualUsers
-                                + " au total, " + reservedVirtualUsers + " deja reserves, " + virtualUsers
-                                + " demandes). Reessayez une fois que de la charge en cours sera terminee.");
+                        "Limite globale d'utilisateurs virtuels atteinte : " + reservedVirtualUsers + " sur " + maxGlobalVirtualUsers
+                                + " déjà utilisés par les tests en cours, ce test en demande " + virtualUsers
+                                + ". Réessayez quand un test en cours sera terminé.");
             }
             reservedExecutionSlots++;
             reservedVirtualUsers += virtualUsers;

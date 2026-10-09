@@ -1,3 +1,5 @@
+import { loadThresholds } from '../../utils/thresholds'
+import { loadLoadDefaults } from '../../utils/loadDefaults'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BlockerFunction, Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
@@ -25,8 +27,11 @@ import { analyzeCsv } from './csvModel'
 import { EMPTY_INFO, defaultDraftName, fullRequest, isBlankStep, parseDraft, serializeDraft, stateFromBackend, workSnapshot } from './draftModel'
 import {
   DEFAULT_LOAD,
+  loadFromDefaults,
+  limitsOf,
   DraftStep,
   LoadConfig,
+  LoadLimits,
   ScenarioInfo,
   TEST_RUN_LOAD,
   describeApiError,
@@ -114,6 +119,8 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
   const [dragUid, setDragUid] = useState<string | null>(null)
 
   const [load, setLoad] = useState<LoadConfig>(DEFAULT_LOAD)
+  /** Limites de charge en vigueur (Paramètres > Système), lues depuis le serveur ; null tant qu'inconnues. */
+  const [loadLimits, setLoadLimits] = useState<LoadLimits | null>(null)
   const [scenarioId, setScenarioId] = useState<string | null>(null)
   /** Scénario créé automatiquement par « Tester » et jamais enregistré volontairement comme brouillon. */
   const [autoCreated, setAutoCreated] = useState(false)
@@ -149,8 +156,8 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
   const scenarioVariableErrors = useMemo(() => validateScenarioVariables(info.variables, csvColumns).errors, [info.variables, csvColumns])
   const scenarioVariableNames = info.variables.map((v) => v.key.trim()).filter(Boolean)
   const stepErrors = useMemo(() => Object.fromEntries(steps.map((s) => [s.uid, validateStep(s)])), [steps])
-  const loadErrors = useMemo(() => ({ ...validateLoad(load), ...validateThresholds(info) }),
-    [load, info.maxErrorRatePercent, info.maxP95Ms]) // eslint-disable-line react-hooks/exhaustive-deps
+  const loadErrors = useMemo(() => ({ ...validateLoad(load, loadLimits), ...validateThresholds(info) }),
+    [load, loadLimits, info.maxErrorRatePercent, info.maxP95Ms]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const signature = draftSignature(info, steps)
   const testStale = testedSignature !== null && testedSignature !== signature
@@ -182,6 +189,49 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     return [infoMissing, stepsMissing, testMissing, loadMissing]
   }, [infoErrors, steps, stepErrors, csvError, scenarioVariableErrors, testRun, testPassed, testStale, loadErrors])
   const stepValid = missing.map((m) => m.length === 0)
+
+  // ------------------------------------------------------------ seuils proposés (nouveau scénario)
+
+  // Nouveau scénario : seuils de réussite pré-remplis avec les « Seuils par défaut » (Paramètres >
+  // Système), tant que l'utilisateur ne les a pas modifiés. Jamais pour un brouillon ni une modification.
+  useEffect(() => {
+    if (isEdit || draftId) return
+    let cancelled = false
+    loadThresholds().then((t) => {
+      if (cancelled) return
+      const suggested = { maxErrorRatePercent: String(t.maxErrorRatePercent).replace('.', ','), maxP95Ms: t.maxP95Ms > 0 ? String(t.maxP95Ms) : '' }
+      const untouched = (p: ScenarioInfo) => p.maxErrorRatePercent === EMPTY_INFO.maxErrorRatePercent && p.maxP95Ms === EMPTY_INFO.maxP95Ms
+      setInfo((p) => (untouched(p) ? { ...p, ...suggested } : p))
+      // Référence « rien à enregistrer » : workSnapshot = [info, étapes, charge].
+      setBaseline((b) => {
+        const [baseInfo, ...rest] = JSON.parse(b) as [ScenarioInfo, ...unknown[]]
+        return baseInfo && untouched(baseInfo) ? JSON.stringify([{ ...baseInfo, ...suggested }, ...rest]) : b
+      })
+    })
+    return () => { cancelled = true }
+  }, [isEdit, draftId])
+
+  // ------------------------------------------------------------ charge par défaut
+
+  // Limite d'utilisateurs du serveur (validation, tous modes) ; nouveau scénario : charge
+  // pré-remplie avec la « Charge par défaut » (Paramètres > Système), preset « Personnalisé »,
+  // tant que l'utilisateur n'y a pas touché. Jamais pour un brouillon ni une modification.
+  useEffect(() => {
+    let cancelled = false
+    loadLoadDefaults().then((d) => {
+      if (cancelled || !d) return
+      setLoadLimits(limitsOf(d))
+      if (isEdit || draftId) return
+      const suggested = loadFromDefaults(d)
+      const untouched = (l: LoadConfig) => JSON.stringify(l) === JSON.stringify(DEFAULT_LOAD)
+      setLoad((l) => (untouched(l) ? suggested : l))
+      setBaseline((b) => {
+        const parsed = JSON.parse(b) as unknown[]
+        return untouched(parsed[2] as LoadConfig) ? JSON.stringify([parsed[0], parsed[1], suggested]) : b
+      })
+    })
+    return () => { cancelled = true }
+  }, [isEdit, draftId])
 
   // ------------------------------------------------------------ reprise d'un brouillon
 
@@ -1001,6 +1051,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
         {current === 3 && (
           <>
             <LoadSummaryPanel
+          limits={loadLimits}
               info={info}
               application={application}
               steps={steps}

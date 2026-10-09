@@ -58,12 +58,83 @@ export interface BackendProfileResponse {
   /** P1-D — préférence RÉELLE persistée (voir AppUser.timezone côté backend),
    * jamais issue du Jwt. `null` si l'utilisateur n'a jamais choisi de fuseau. */
   timezone: string | null
+  /** Rôle applicatif (jamais offline_access, uma_authorization, default-roles-…) et son libellé français. */
+  appRole?: 'SUPER_ADMIN' | 'PERFORMANCE_ENGINEER' | 'VIEWER' | null
+  appRoleLabel?: string | null
+  /** Apparence mémorisée sur le profil ; null = jamais choisie. */
+  theme?: 'LIGHT' | 'DARK' | 'SYSTEM' | null
 }
 
-/** P1-D — PATCH /api/profile : seul champ modifiable (username/name/email
- * restent la propriété de Keycloak, jamais éditables ici). */
+/** PATCH /api/profile : préférences facultatives (null = inchangée). username/name/email restent
+ * la propriété du système d'authentification, jamais éditables ici. */
 export interface BackendProfileUpdateRequest {
-  timezone: string
+  timezone?: string
+  theme?: 'LIGHT' | 'DARK' | 'SYSTEM'
+}
+
+/** GET /api/profile/security : dernière connexion et sessions ouvertes du compte connecté. */
+export interface BackendProfileSecurity {
+  lastLoginAt: string | null
+  lastLoginIp: string | null
+  sessions: { id: string; device: string | null; mobile: boolean; ip: string | null; started: string | null; lastAccess: string | null; current: boolean }[]
+  /** false : navigateur / système inconnus (sessions lues sans ces informations). */
+  devicesKnown: boolean
+  message: string | null
+}
+
+/** GET/PUT /api/settings/load-defaults : charge proposée aux nouveaux scénarios (null = champ vide). */
+export interface BackendLoadDefaults {
+  virtualUsers: number
+  thinkTimeMs: number
+  rampUpSeconds: number
+  durationSeconds: number | null
+  iterations: number | null
+  targetRps: number | null
+  /** Lecture seule : limites en vigueur (Paramètres > Système > Limites). */
+  maxVirtualUsers: number
+  maxDurationSeconds: number
+  maxIterations: number
+  maxTargetRps: number
+  /** Règles que la charge par défaut enregistrée ne respecte plus (une limite a baissé). */
+  problems: string[]
+}
+
+/** GET/PUT /api/settings/limits : limites applicatives (≤ plafond du serveur) et délais en lecture seule. */
+export type BackendLimitKey = 'virtualUsersPerTest' | 'virtualUsersTotal' | 'concurrentTests' | 'maxDurationSeconds' | 'maxIterations' | 'maxTargetRps'
+export interface BackendExecutionLimits {
+  limits: { key: BackendLimitKey; label: string; unit: string; value: number; ceiling: number }[]
+  executionTimeoutSeconds: number
+  availabilityTimeoutSeconds: number
+  effectiveVirtualUsersPerTest: number
+}
+
+/** GET/PUT /api/settings/thresholds : seuils proposés aux nouveaux scénarios et seuil de régression. */
+export interface BackendThresholdSettings {
+  maxErrorRatePercent: number
+  /** 0 = aucun seuil de P95 proposé. */
+  maxP95Ms: number
+  regressionPercent: number
+}
+
+/** GET /api/settings/storage : taille de la base et purges automatiques. */
+export interface BackendStoragePurge {
+  lastRunAt: string | null
+  lastDeleted: number | null
+  lastSummary: string | null
+  /** null = purge automatique désactivée. */
+  nextRunAt: string | null
+}
+export interface BackendStorageInfo {
+  databaseSizeBytes: number | null
+  results: BackendStoragePurge
+  audit: BackendStoragePurge
+}
+
+/** GET /api/settings/integrations (Super administrateur) — aucun secret. */
+export interface BackendIntegrations {
+  mail: { enabled: boolean; kind: 'MAILPIT' | 'SMTP'; host: string; port: number; from: string; fromName: string | null; authenticated: boolean; reachable: boolean; message: string | null }
+  authenticationMail: { host: string; port: string | null; from: string | null; fromName: string | null; authenticated: boolean } | null
+  monitoring: { applicationId: string; applicationName: string; archived: boolean; type: 'PROMETHEUS' | 'ACTUATOR'; endpoint: string | null; reachable: boolean; message: string | null }[]
 }
 
 // ---- Applications ----
@@ -564,6 +635,26 @@ export interface BackendExecutionHistoryResponse {
   /** P95 et date de l'exécution terminée précédente du même scénario. */
   previousP95Ms?: number | null
   previousStartedAt?: string | null
+  /** Option « Conserver » : résultats jamais purgés. */
+  keepResults?: boolean
+  /** Date de suppression du détail des requêtes (le rapport figé reste) ; null = détail présent. */
+  resultsPurgedAt?: string | null
+}
+
+/** Conservation du détail d'une exécution (rapport, détail). `notice` : phrase à afficher, null si rien n'a été supprimé. */
+export interface BackendResultsRetention {
+  keep: boolean
+  resultsPurgedAt: string | null
+  requestDetailsPurgedAt: string | null
+  /** Rapport issu du rapport figé (détail des requêtes supprimé). */
+  fromSnapshot: boolean
+  notice: string | null
+}
+
+/** GET/PUT /api/settings/results-retention (Super administrateur). */
+export interface BackendResultsRetentionSettings {
+  resultsDays: number
+  requestDetailsDays: number
 }
 
 /** P1-A — filtres reels de GET /api/executions/history, tous optionnels. */
@@ -671,6 +762,7 @@ export interface BackendExecutionReportResponse {
   errors: BackendReportErrorEntry[]
   /** Seuils de réussite et leur résultat ; null = exécution antérieure aux seuils. */
   thresholds?: BackendReportThresholds | null
+  retention?: BackendResultsRetention | null
 }
 
 export interface BackendExecutionStepResultResponse {
@@ -701,6 +793,7 @@ export interface BackendExecutionDetailResponse extends BackendExecutionResponse
   detailSampleCapReached?: boolean
   detailedFailures?: number
   detailedSamples?: number
+  retention?: BackendResultsRetention | null
 }
 
 
@@ -1275,7 +1368,18 @@ export interface BackendScheduleHistoryResponse {
 
 export interface BackendNotificationPreferenceResponse {
   type: BackendNotificationType
+  /** Dans l'application (actif par défaut). */
   enabled: boolean
+  /** Par e-mail (désactivé par défaut). */
+  emailEnabled?: boolean
+}
+
+/** GET /api/notification-preferences/channels : e-mail possible (serveur configuré et adresse connue). */
+export interface BackendNotificationChannels {
+  inApp: boolean
+  email: boolean
+  emailServer: boolean
+  emailAddress: string
 }
 
 export interface BackendNotificationPreferenceUpdateRequest {

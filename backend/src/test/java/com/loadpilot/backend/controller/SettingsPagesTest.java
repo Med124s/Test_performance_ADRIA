@@ -1,0 +1,539 @@
+package com.loadpilot.backend.controller;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.loadpilot.backend.entity.AuditLog;
+import com.loadpilot.backend.enums.AuditAction;
+import com.loadpilot.backend.enums.AuditModule;
+import com.loadpilot.backend.exception.KeycloakAdminException;
+import com.loadpilot.backend.repository.AuditLogRepository;
+import com.loadpilot.backend.service.AppSettingsService;
+import com.loadpilot.backend.service.impl.ResultsRetentionJob;
+import com.loadpilot.backend.service.keycloak.KeycloakAdminClient;
+import com.loadpilot.backend.service.keycloak.KeycloakLogin;
+import com.loadpilot.backend.service.keycloak.KeycloakSession;
+import com.loadpilot.backend.service.keycloak.KeycloakSmtpInfo;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
+
+/**
+ * Page Parametres : profil (role applicatif, apparence), securite (sessions, deconnexion de tous
+ * les appareils, changement de mot de passe journalise), seuils par defaut (lecture pour tous,
+ * modification Super administrateur, journal avant -> apres, utilises a la creation des
+ * scenarios), stockage et purges, integrations (aucun secret), notifications par e-mail.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class SettingsPagesTest {
+
+    private static HttpServer server;
+    private static String baseUrl;
+
+    @Autowired private MockMvc mockMvc;
+    @Autowired private ObjectMapper objectMapper;
+    @Autowired private AuditLogRepository auditLogRepository;
+    @Autowired private AppSettingsService settings;
+    @Autowired private com.loadpilot.backend.service.execution.RunningExecutionRegistry registry;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired private com.loadpilot.backend.repository.AppSettingRepository settingsRepository;
+    @Autowired private ResultsRetentionJob resultsRetentionJob;
+    @Autowired private com.loadpilot.backend.service.audit.AuditRetentionJob auditRetentionJob;
+    @MockBean private JwtDecoder jwtDecoder;
+    @MockBean private KeycloakAdminClient keycloak;
+
+    private static final String SECRET = "Bearer-S3cr3t-Value-42";
+
+    @BeforeAll
+    static void start() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/metrics", ex -> {
+            byte[] body = """
+                    # TYPE process_cpu_seconds_total counter
+                    process_cpu_seconds_total 12.5
+                    # TYPE process_resident_memory_bytes gauge
+                    process_resident_memory_bytes 104857600
+                    """.getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        server.createContext("/", ex -> {
+            byte[] body = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        server.start();
+        baseUrl = "http://localhost:" + server.getAddress().getPort();
+    }
+
+    @AfterAll
+    static void stop() {
+        server.stop(0);
+    }
+
+    @AfterEach
+    void resetThresholds() {
+        settings.set(AppSettingsService.DEFAULT_MAX_ERROR_RATE, "1.0", "test");
+        settings.set(AppSettingsService.DEFAULT_MAX_P95_MS, "0", "test");
+        settings.set(AppSettingsService.REGRESSION_PERCENT, "20.0", "test");
+        for (String key : List.of(AppSettingsService.LOAD_VIRTUAL_USERS, AppSettingsService.LOAD_THINK_TIME_MS, AppSettingsService.LOAD_RAMP_UP_SECONDS,
+                AppSettingsService.LOAD_DURATION_SECONDS, AppSettingsService.LOAD_ITERATIONS, AppSettingsService.LOAD_TARGET_RPS,
+                "limits.virtual-users-per-test", "limits.virtual-users-total", "limits.concurrent-tests", "limits.max-duration-seconds",
+                "limits.max-iterations", "limits.max-target-rps")) {
+            settingsRepository.deleteById(key);
+        }
+        settings.clearCache();
+    }
+
+    private static RequestPostProcessor user(String subject, String role) {
+        return jwt().jwt(j -> j.subject(subject).claim("preferred_username", subject).claim("email", subject + "@loadpilot.local")
+                .claim("sid", "session-courante")).authorities(new SimpleGrantedAuthority(role));
+    }
+
+    private static final RequestPostProcessor ADMIN = user("admin-parametres", "ROLE_SUPER_ADMIN");
+    private static final RequestPostProcessor ENGINEER = user("engineer-parametres", "ROLE_PERFORMANCE_ENGINEER");
+    private static final RequestPostProcessor VIEWER = user("viewer-parametres", "ROLE_VIEWER");
+
+    private MvcResult perform(MockHttpServletRequestBuilder builder, Object body, RequestPostProcessor as) throws Exception {
+        if (body != null) builder.contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(body));
+        return mockMvc.perform(builder.with(as)).andReturn();
+    }
+
+    private JsonNode json(MvcResult result) throws Exception {
+        String s = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        return s.isBlank() ? null : objectMapper.readTree(s);
+    }
+
+    private List<AuditLog> audits(AuditAction action, String targetId) {
+        return auditLogRepository.findAll().stream().filter(a -> a.getAction() == action && targetId.equals(a.getTargetId())).toList();
+    }
+
+    // ---------------------------------------------------------------- profil
+
+    @Test
+    void profile_onlyApplicationRoleInFrench_andThemeRemembered() throws Exception {
+        RequestPostProcessor withTechnicalRoles = jwt().jwt(j -> j.subject("profil-roles").claim("preferred_username", "profil-roles"))
+                .authorities(new SimpleGrantedAuthority("ROLE_PERFORMANCE_ENGINEER"), new SimpleGrantedAuthority("ROLE_offline_access"),
+                        new SimpleGrantedAuthority("ROLE_uma_authorization"), new SimpleGrantedAuthority("ROLE_default-roles-loadpilot"));
+        JsonNode profile = json(perform(get("/api/profile"), null, withTechnicalRoles));
+        assertThat(profile.get("appRole").asText()).isEqualTo("PERFORMANCE_ENGINEER");
+        assertThat(profile.get("appRoleLabel").asText()).isEqualTo("Ingénieur performance");
+        assertThat(profile.get("theme").isNull()).isTrue();
+        assertThat(json(perform(get("/api/profile"), null, ADMIN)).get("appRoleLabel").asText()).isEqualTo("Super administrateur");
+        assertThat(json(perform(get("/api/profile"), null, VIEWER)).get("appRoleLabel").asText()).isEqualTo("Observateur");
+
+        assertThat(json(perform(patch("/api/profile"), Map.of("theme", "SYSTEM"), withTechnicalRoles)).get("theme").asText()).isEqualTo("SYSTEM");
+        assertThat(json(perform(get("/api/profile"), null, withTechnicalRoles)).get("theme").asText()).isEqualTo("SYSTEM");
+        assertThat(perform(patch("/api/profile"), Map.of("theme", "BLUE"), withTechnicalRoles).getResponse().getStatus()).isEqualTo(400);
+        // Le fuseau horaire seul reste modifiable, et l'apparence est conservee.
+        JsonNode tz = json(perform(patch("/api/profile"), Map.of("timezone", "UTC"), withTechnicalRoles));
+        assertThat(tz.get("timezone").asText()).isEqualTo("UTC");
+        assertThat(tz.get("theme").asText()).isEqualTo("SYSTEM");
+        assertThat(perform(patch("/api/profile"), Map.of(), withTechnicalRoles).getResponse().getStatus()).isEqualTo(400);
+    }
+
+    @Test
+    void security_sessionsFromAccountApi_orAdminFallback_logoutEverywhere_andPasswordChange() throws Exception {
+        when(keycloak.recentLogins(eq("admin-parametres"), anyInt()))
+                .thenReturn(List.of(new KeycloakLogin(Instant.parse("2026-10-08T07:00:00Z"), "127.0.0.1")));
+        when(keycloak.accountSessions(any())).thenReturn(List.of(
+                new KeycloakSession("autre", "10.0.0.5", Instant.parse("2026-10-07T08:00:00Z"), Instant.parse("2026-10-07T09:00:00Z"),
+                        List.of("LoadPilot"), "Firefox/131.0", "Linux", null, false, false),
+                new KeycloakSession("session-courante", "127.0.0.1", Instant.parse("2026-10-08T07:00:00Z"),
+                        Instant.parse("2026-10-08T07:30:00Z"), List.of("LoadPilot"), "Chrome/129.0.0", "Windows 10", null, false, true)));
+        JsonNode security = json(perform(get("/api/profile/security"), null, ADMIN));
+        assertThat(security.get("lastLoginIp").asText()).isEqualTo("localhost");
+        assertThat(security.get("devicesKnown").asBoolean()).isTrue();
+        assertThat(security.get("sessions").get(0).get("current").asBoolean()).isTrue();
+        assertThat(security.get("sessions").get(0).get("device").asText()).isEqualTo("Chrome sur Windows 10");
+        assertThat(security.get("sessions").get(1).get("device").asText()).isEqualTo("Firefox sur Linux");
+
+        // API « compte » indisponible : sessions de l'API d'administration, session courante reconnue par "sid".
+        when(keycloak.accountSessions(any())).thenThrow(new KeycloakAdminException("indisponible"));
+        when(keycloak.userSessions("admin-parametres")).thenReturn(List.of(
+                new KeycloakSession("session-courante", "127.0.0.1", Instant.now(), Instant.now(), List.of(), null, null, null, false, false)));
+        JsonNode fallback = json(perform(get("/api/profile/security"), null, ADMIN));
+        assertThat(fallback.get("devicesKnown").asBoolean()).isFalse();
+        assertThat(fallback.get("sessions").get(0).get("current").asBoolean()).isTrue();
+        assertThat(fallback.toString()).doesNotContain("Bearer");
+
+        assertThat(mockMvc.perform(post("/api/profile/logout-everywhere")).andReturn().getResponse().getStatus()).isEqualTo(401);
+        assertThat(perform(post("/api/profile/logout-everywhere"), null, ADMIN).getResponse().getStatus()).isEqualTo(204);
+        verify(keycloak).logoutUser("admin-parametres");
+        assertThat(audits(AuditAction.LOGOUT, "admin-parametres")).anyMatch(a -> a.getModule() == AuditModule.SECURITY
+                && a.getDescription().equals("Déconnexion de tous les appareils, demandée depuis Paramètres"));
+
+        // Retour de la page « changer mon mot de passe » : evenement importe, jamais fabrique.
+        assertThat(json(perform(post("/api/profile/password-changed"), null, ADMIN)).get("recorded").asBoolean()).isFalse();
+        when(keycloak.securityEvents(anyInt(), anyInt())).thenReturn(List.of(new com.loadpilot.backend.service.keycloak.KeycloakSecurityEvent(
+                "evt-" + UUID.randomUUID(), "UPDATE_PASSWORD", System.currentTimeMillis(), "admin-parametres", null, "127.0.0.1", null)));
+        when(keycloak.listUsers()).thenReturn(List.of());
+        assertThat(json(perform(post("/api/profile/password-changed"), null, ADMIN)).get("recorded").asBoolean()).isTrue();
+        assertThat(auditLogRepository.findAll().stream().filter(a -> a.getAction() == AuditAction.PASSWORD_CHANGED
+                && "admin-parametres".equals(a.getUserId())).toList()).hasSize(1)
+                .allMatch(a -> !a.getDescription().toLowerCase().contains("password=") && a.getDescription().startsWith("Mot de passe"));
+    }
+
+    // ---------------------------------------------------------------- seuils par defaut
+
+    @Test
+    void thresholds_readByAll_updateByAdminOnly_audited_andAppliedToNewScenarios() throws Exception {
+        JsonNode defaults = json(perform(get("/api/settings/thresholds"), null, VIEWER));
+        assertThat(defaults.get("maxErrorRatePercent").asDouble()).isEqualTo(1.0);
+        assertThat(defaults.get("maxP95Ms").asLong()).isZero();
+        assertThat(defaults.get("regressionPercent").asDouble()).isEqualTo(20.0);
+
+        Map<String, Object> body = Map.of("maxErrorRatePercent", 2.5, "maxP95Ms", 800, "regressionPercent", 15);
+        assertThat(perform(put("/api/settings/thresholds"), body, ENGINEER).getResponse().getStatus()).isEqualTo(403);
+        assertThat(perform(put("/api/settings/thresholds"), Map.of("maxErrorRatePercent", 150, "maxP95Ms", 0, "regressionPercent", 20), ADMIN)
+                .getResponse().getStatus()).isEqualTo(400);
+        JsonNode updated = json(perform(put("/api/settings/thresholds"), body, ADMIN));
+        assertThat(updated.get("regressionPercent").asDouble()).isEqualTo(15.0);
+        assertThat(settings.regressionPercent()).isEqualTo(15.0);
+        AuditLog entry = audits(AuditAction.UPDATE, "thresholds").get(0);
+        assertThat(entry.getChanges()).contains("Seuil de régression").contains("20 %").contains("15 %")
+                .contains("P95 maximal proposé").contains("Aucun").contains("800 ms").contains("2,5 %");
+
+        // Nouveau scenario sans seuils : ceux proposes ; seuils explicites : respectes.
+        String appId = json(perform(post("/api/applications"), Map.of("name", "seuils-" + UUID.randomUUID(), "url", baseUrl), ENGINEER))
+                .get("id").asText();
+        JsonNode created = json(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Par défaut"), ENGINEER));
+        assertThat(created.get("maxErrorRatePercent").asDouble()).isEqualTo(2.5);
+        assertThat(created.get("maxP95Ms").asLong()).isEqualTo(800);
+        JsonNode explicit = json(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Explicite",
+                "maxErrorRatePercent", 5, "maxP95Ms", 0), ENGINEER));
+        assertThat(explicit.get("maxErrorRatePercent").asDouble()).isEqualTo(5.0);
+        assertThat(explicit.get("maxP95Ms").isNull()).isTrue();
+
+        // Meme seuil pour les notifications de planification.
+        assertThat(com.loadpilot.backend.service.impl.ScheduleNotifier.decide("N", com.loadpilot.backend.enums.ExecutionStatus.SUCCESS,
+                115L, 0.0, 16.0, com.loadpilot.backend.enums.ScheduleNotifyMode.PROBLEMS, settings.regressionPercent()).type())
+                .isEqualTo(com.loadpilot.backend.enums.NotificationType.SCHEDULE_REGRESSION);
+    }
+
+    // ---------------------------------------------------------------- stockage
+
+    @Test
+    void storage_lastPurgeResult_andAdminOnly() throws Exception {
+        assertThat(perform(get("/api/settings/storage"), null, ENGINEER).getResponse().getStatus()).isEqualTo(403);
+        resultsRetentionJob.purge(Instant.parse("2000-01-01T00:00:00Z"));
+        JsonNode storage = json(perform(get("/api/settings/storage"), null, ADMIN));
+        assertThat(storage.get("databaseSizeBytes").isNull()).as("H2 : taille inconnue, jamais inventee").isTrue();
+        assertThat(storage.get("results").get("lastRunAt").asText()).isEqualTo("2000-01-01T00:00:00Z");
+        assertThat(storage.get("results").get("lastDeleted").asLong()).isZero();
+        assertThat(storage.get("results").get("lastSummary").asText()).isEqualTo("0 requête supprimée");
+        assertThat(storage.get("results").get("nextRunAt").isNull()).as("purge desactivee en test (cron \"-\")").isTrue();
+
+        // Journal d'audit : chaque passage est enregistre, meme sans rien supprimer.
+        auditRetentionJob.purge(Instant.parse("2000-01-02T03:30:00Z"));
+        JsonNode audit = json(perform(get("/api/settings/storage"), null, ADMIN)).get("audit");
+        assertThat(audit.get("lastRunAt").asText()).isEqualTo("2000-01-02T03:30:00Z");
+        assertThat(audit.get("lastDeleted").asLong()).isZero();
+        assertThat(audit.get("lastSummary").asText()).isEqualTo("0 entrée supprimée");
+    }
+
+    @Test
+    void virtualUsers_limitedByGlobalLimit_clearMessages() throws Exception {
+        String appId = json(perform(post("/api/applications"), Map.of("name", "limites-" + UUID.randomUUID(), "url", baseUrl), ENGINEER))
+                .get("id").asText();
+        // Configuration de test : 500 par test, 200 au total -> 200 au plus pour un test.
+        MvcResult tooMany = perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Trop", "virtualUsers", 300), ENGINEER);
+        assertThat(tooMany.getResponse().getStatus()).isEqualTo(400);
+        assertThat(tooMany.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .contains("Le nombre d’utilisateurs ne doit pas dépasser 200 (limite d’un test sur ce serveur).");
+        assertThat(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Juste", "virtualUsers", 200), ENGINEER)
+                .getResponse().getStatus()).isEqualTo(201);
+    }
+
+    // ---------------------------------------------------------------- integrations
+
+    @Test
+    void integrations_monitoringStatus_noSecret_adminOnly() throws Exception {
+        when(keycloak.smtpInfo()).thenReturn(new KeycloakSmtpInfo("mailpit", "1025", "no-reply@loadpilot.local", "LoadPilot", false));
+        Map<String, Object> monitoring = new HashMap<>(Map.of("type", "PROMETHEUS", "url", baseUrl + "/metrics?token=query-secret",
+                "authType", "BEARER", "secret", SECRET));
+        String okName = "monitoree-" + UUID.randomUUID();
+        perform(post("/api/applications"), Map.of("name", okName, "url", baseUrl, "monitoring", monitoring), ADMIN);
+        String downName = "eteinte-" + UUID.randomUUID();
+        perform(post("/api/applications"), Map.of("name", downName, "url", baseUrl,
+                "monitoring", Map.of("type", "PROMETHEUS", "url", "http://localhost:1/metrics", "authType", "NONE")), ADMIN);
+
+        assertThat(perform(get("/api/settings/integrations"), null, ENGINEER).getResponse().getStatus()).isEqualTo(403);
+        MvcResult result = perform(get("/api/settings/integrations"), null, ADMIN);
+        String raw = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(raw).doesNotContain(SECRET).doesNotContain("query-secret").doesNotContain("password");
+        JsonNode body = objectMapper.readTree(raw);
+        assertThat(body.get("mail").get("enabled").asBoolean()).isFalse();
+        assertThat(body.get("authenticationMail").get("host").asText()).isEqualTo("mailpit");
+        JsonNode ok = null;
+        JsonNode down = null;
+        for (JsonNode m : body.get("monitoring")) {
+            if (m.get("applicationName").asText().equals(okName)) ok = m;
+            if (m.get("applicationName").asText().equals(downName)) down = m;
+        }
+        assertThat(ok.get("reachable").asBoolean()).isTrue();
+        assertThat(ok.get("endpoint").asText()).isEqualTo(baseUrl + "/metrics");
+        assertThat(down.get("reachable").asBoolean()).isFalse();
+        assertThat(down.get("message").asText()).isNotBlank();
+
+        MvcResult test = perform(post("/api/settings/integrations/mail-test"), null, ADMIN);
+        assertThat(test.getResponse().getStatus()).isEqualTo(400);
+        assertThat(test.getResponse().getContentAsString(StandardCharsets.UTF_8)).contains("désactivé");
+    }
+
+    // ---------------------------------------------------------------- notifications
+
+    @Test
+    void notificationPreferences_emailChannel() throws Exception {
+        RequestPostProcessor me = user("notif-email-" + UUID.randomUUID(), "ROLE_PERFORMANCE_ENGINEER");
+        JsonNode list = json(perform(get("/api/notification-preferences"), null, me));
+        for (JsonNode p : list) assertThat(p.get("emailEnabled").asBoolean()).isFalse();
+        JsonNode updated = json(perform(patch("/api/notification-preferences/EXECUTION_FAILED"), Map.of("emailEnabled", true), me));
+        assertThat(updated.get("emailEnabled").asBoolean()).isTrue();
+        assertThat(updated.get("enabled").asBoolean()).as("in-app inchange").isTrue();
+        assertThat(perform(patch("/api/notification-preferences/EXECUTION_FAILED"), Map.of(), me).getResponse().getStatus()).isEqualTo(400);
+        JsonNode channels = json(perform(get("/api/notification-preferences/channels"), null, me));
+        assertThat(channels.get("email").asBoolean()).as("aucun serveur e-mail en test").isFalse();
+    }
+
+    // ---------------------------------------------------------------- charge par defaut
+
+    private static Map<String, Object> load(Integer vu, Integer think, Integer ramp, Integer duration, Integer iterations, Integer rps) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("virtualUsers", vu);
+        m.put("thinkTimeMs", think);
+        m.put("rampUpSeconds", ramp);
+        m.put("durationSeconds", duration);
+        m.put("iterations", iterations);
+        m.put("targetRps", rps);
+        return m;
+    }
+
+    private String errorOf(Map<String, Object> body) throws Exception {
+        MvcResult r = perform(put("/api/settings/load-defaults"), body, ADMIN);
+        assertThat(r.getResponse().getStatus()).isEqualTo(400);
+        return json(r).get("message").asText();
+    }
+
+    @Test
+    void loadDefaults_initialValues_readByAll_adminOnly() throws Exception {
+        JsonNode initial = json(perform(get("/api/settings/load-defaults"), null, VIEWER));
+        // Valeurs de l'assistant : 1 utilisateur, 1 passage, sans pause ni montee.
+        assertThat(initial.get("virtualUsers").asInt()).isEqualTo(1);
+        assertThat(initial.get("thinkTimeMs").asInt()).isZero();
+        assertThat(initial.get("rampUpSeconds").asInt()).isZero();
+        assertThat(initial.get("durationSeconds").isNull()).isTrue();
+        assertThat(initial.get("iterations").asInt()).isEqualTo(1);
+        assertThat(initial.get("targetRps").isNull()).isTrue();
+        assertThat(initial.get("maxVirtualUsers").asInt()).as("min(500 par test, 200 au total)").isEqualTo(200);
+        assertThat(perform(put("/api/settings/load-defaults"), load(10, 500, 10, 60, null, null), ENGINEER).getResponse().getStatus()).isEqualTo(403);
+        assertThat(mockMvc.perform(get("/api/settings/load-defaults")).andReturn().getResponse().getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void loadDefaults_validation_sameRulesAndMessagesAsWizard() throws Exception {
+        assertThat(errorOf(load(null, 0, 0, null, null, null))).isEqualTo("Le nombre d’utilisateurs est obligatoire.");
+        assertThat(errorOf(load(0, 0, 0, null, null, null))).isEqualTo("Le nombre d’utilisateurs doit être au moins 1.");
+        assertThat(errorOf(load(201, 0, 0, null, null, null))).isEqualTo("Le nombre d’utilisateurs ne doit pas dépasser 200 (limite d’un test sur ce serveur).");
+        assertThat(errorOf(load(1, null, 0, null, null, null))).isEqualTo("Le think time est obligatoire.");
+        assertThat(errorOf(load(1, -1, 0, null, null, null))).isEqualTo("Le think time doit être au moins 0.");
+        assertThat(errorOf(load(1, 0, null, null, null, null))).isEqualTo("Le ramp-up est obligatoire.");
+        assertThat(errorOf(load(1, 0, 0, 0, null, null))).isEqualTo("La durée doit être au moins 1.");
+        assertThat(errorOf(load(1, 0, 0, null, 0, null))).isEqualTo("Le nombre d’itérations doit être au moins 1.");
+        assertThat(errorOf(load(1, 0, 0, null, null, 0))).isEqualTo("Le débit cible doit être au moins 1.");
+        assertThat(errorOf(load(10, 0, 60, 60, null, null))).isEqualTo("Le ramp-up doit être plus court que la durée.");
+        // Facultatifs vides acceptes ; limite exacte acceptee ; ramp-up sans duree accepte.
+        assertThat(perform(put("/api/settings/load-defaults"), load(200, 0, 120, null, null, null), ADMIN).getResponse().getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void loadDefaults_audited_andExistingScenariosNeverChanged() throws Exception {
+        String appId = json(perform(post("/api/applications"), Map.of("name", "charge-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
+        JsonNode existing = json(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Existant", "virtualUsers", 3,
+                "rampUpSeconds", 2, "durationSeconds", 30, "thinkTimeMs", 100), ENGINEER));
+
+        JsonNode updated = json(perform(put("/api/settings/load-defaults"), load(25, 300, 15, 120, null, 50), ADMIN));
+        assertThat(updated.get("virtualUsers").asInt()).isEqualTo(25);
+        assertThat(updated.get("iterations").isNull()).isTrue();
+        assertThat(json(perform(get("/api/settings/load-defaults"), null, ENGINEER)).get("durationSeconds").asInt()).isEqualTo(120);
+
+        AuditLog entry = audits(AuditAction.UPDATE, "load-defaults").get(0);
+        assertThat(entry.getModule()).isEqualTo(AuditModule.SETTINGS);
+        assertThat(entry.getChanges()).contains("Utilisateurs virtuels").contains("\"1\"").contains("\"25\"")
+                .contains("Sans limite de temps").contains("120 s").contains("Itérations").contains("Aucune").contains("Illimité").contains("50 req/s");
+
+        JsonNode after = json(perform(get("/api/scenarios/" + existing.get("id").asText()), null, ENGINEER));
+        assertThat(after.get("virtualUsers").asInt()).isEqualTo(3);
+        assertThat(after.get("rampUpSeconds").asInt()).isEqualTo(2);
+        assertThat(after.get("durationSeconds").asInt()).isEqualTo(30);
+        assertThat(after.get("thinkTimeMs").asInt()).isEqualTo(100);
+    }
+
+    // ---------------------------------------------------------------- regles de charge d'un scenario
+
+    private MvcResult saveScenario(String appId, Map<String, Object> extra) throws Exception {
+        Map<String, Object> body = new HashMap<>(Map.of("applicationId", appId, "name", "Charge " + UUID.randomUUID()));
+        body.putAll(extra);
+        return perform(post("/api/scenarios"), body, ENGINEER);
+    }
+
+    private static String message(MvcResult r) throws Exception {
+        return new ObjectMapper().readTree(r.getResponse().getContentAsString(StandardCharsets.UTF_8)).get("message").asText();
+    }
+
+    @Test
+    void scenarioLoad_sameRulesAsWizard_onSavePublishAndLaunch() throws Exception {
+        String appId = json(perform(post("/api/applications"), Map.of("name", "regles-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
+
+        // Enregistrement d'un scenario : ramp-up >= duree refuse, message clair.
+        MvcResult ramp = saveScenario(appId, Map.of("virtualUsers", 10, "rampUpSeconds", 60, "durationSeconds", 60));
+        assertThat(ramp.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(ramp)).isEqualTo("Le ramp-up doit être plus court que la durée.");
+        assertThat(saveScenario(appId, Map.of("virtualUsers", 10, "rampUpSeconds", 59, "durationSeconds", 60)).getResponse().getStatus()).isEqualTo(201);
+        assertThat(saveScenario(appId, Map.of("virtualUsers", 10, "rampUpSeconds", 600)).getResponse().getStatus())
+                .as("sans duree : avertissement seulement, jamais bloquant").isEqualTo(201);
+        MvcResult tooMany = saveScenario(appId, Map.of("virtualUsers", 201));
+        assertThat(message(tooMany)).isEqualTo("Le nombre d’utilisateurs ne doit pas dépasser 200 (limite d’un test sur ce serveur).");
+        assertThat(message(saveScenario(appId, Map.of("virtualUsers", 0)))).contains("Le nombre d’utilisateurs doit être au moins 1.");
+        assertThat(message(saveScenario(appId, Map.of("thinkTimeMs", -1)))).contains("Le think time doit être au moins 0.");
+
+        // Modification d'un scenario enregistre : meme regle.
+        String id = json(saveScenario(appId, Map.of("virtualUsers", 5, "rampUpSeconds", 5, "durationSeconds", 30))).get("id").asText();
+        MvcResult update = perform(put("/api/scenarios/" + id), Map.of("applicationId", appId, "name", "Modifie", "rampUpSeconds", 30, "durationSeconds", 30), ENGINEER);
+        assertThat(update.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(update)).isEqualTo("Le ramp-up doit être plus court que la durée.");
+
+        // Brouillon : enregistrable tel quel, refuse a la publication.
+        String draft = json(saveScenario(appId, Map.of("draft", true, "virtualUsers", 5, "rampUpSeconds", 90, "durationSeconds", 60))).get("id").asText();
+        perform(post("/api/steps"), Map.of("scenarioId", draft, "name", "Accueil", "method", "GET", "url", "/ok", "order", 1), ENGINEER);
+        MvcResult publish = perform(post("/api/scenarios/" + draft + "/publish"), null, ENGINEER);
+        assertThat(publish.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(publish)).isEqualTo("Le ramp-up doit être plus court que la durée.");
+
+        // Ancien scenario enregistre avant la regle : lancement refuse, avec la raison.
+        perform(post("/api/steps"), Map.of("scenarioId", id, "name", "Accueil", "method", "GET", "url", "/ok", "order", 1), ENGINEER);
+        jdbc.update("UPDATE scenario SET ramp_up_seconds = 40 WHERE id = ?", UUID.fromString(id));
+        MvcResult launch = perform(post("/api/executions"), Map.of("scenarioId", id), ENGINEER);
+        assertThat(launch.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(launch)).isEqualTo("Le ramp-up doit être plus court que la durée. Modifiez la charge du scénario avant de le lancer.");
+    }
+
+    // ---------------------------------------------------------------- limites a deux niveaux
+
+    private static Map<String, Object> limits(int perTest, int total, int concurrent, int duration, int iterations, int rps) {
+        return Map.of("virtualUsersPerTest", perTest, "virtualUsersTotal", total, "concurrentTests", concurrent,
+                "maxDurationSeconds", duration, "maxIterations", iterations, "maxTargetRps", rps);
+    }
+
+    @Test
+    void limits_defaultToCeilings_adminOnly_neverAboveCeiling_audited_immediate() throws Exception {
+        JsonNode initial = json(perform(get("/api/settings/limits"), null, ADMIN));
+        Map<String, int[]> byKey = new HashMap<>();
+        for (JsonNode l : initial.get("limits")) byKey.put(l.get("key").asText(), new int[] {l.get("value").asInt(), l.get("ceiling").asInt()});
+        assertThat(byKey.get("virtualUsersPerTest")).containsExactly(500, 500);
+        assertThat(byKey.get("virtualUsersTotal")).containsExactly(200, 200);
+        assertThat(byKey.get("maxDurationSeconds")).containsExactly(3600, 3600);
+        assertThat(byKey.get("maxIterations")).containsExactly(10000, 10000);
+        assertThat(byKey.get("maxTargetRps")).containsExactly(500, 500);
+        assertThat(initial.get("effectiveVirtualUsersPerTest").asInt()).isEqualTo(200);
+        assertThat(initial.get("executionTimeoutSeconds").isNumber()).isTrue();
+        assertThat(perform(get("/api/settings/limits"), null, ENGINEER).getResponse().getStatus()).isEqualTo(403);
+        assertThat(perform(put("/api/settings/limits"), limits(100, 100, 5, 600, 100, 50), ENGINEER).getResponse().getStatus()).isEqualTo(403);
+
+        MvcResult above = perform(put("/api/settings/limits"), limits(500, 200, 10, 7200, 10000, 500), ADMIN);
+        assertThat(above.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(above)).isEqualTo("Durée maximale d’un test : maximum 3 600 (plafond du serveur).");
+        assertThat(message(perform(put("/api/settings/limits"), limits(0, 200, 10, 3600, 10000, 500), ADMIN)))
+                .isEqualTo("Utilisateurs virtuels par test : au moins 1.");
+
+        JsonNode lowered = json(perform(put("/api/settings/limits"), limits(50, 40, 3, 1800, 500, 100), ADMIN));
+        assertThat(lowered.get("effectiveVirtualUsersPerTest").asInt()).isEqualTo(40);
+        AuditLog entry = audits(AuditAction.UPDATE, "limits").get(0);
+        assertThat(entry.getChanges()).contains("Durée maximale d’un test").contains("3 600 s").contains("1 800 s")
+                .contains("Tests en même temps").contains("10 tests").contains("3 tests");
+
+        // Effet immediat : assistant (limites lues avec la charge par defaut), enregistrement, capacite.
+        JsonNode defaults = json(perform(get("/api/settings/load-defaults"), null, ENGINEER));
+        assertThat(defaults.get("maxVirtualUsers").asInt()).isEqualTo(40);
+        assertThat(defaults.get("maxDurationSeconds").asInt()).isEqualTo(1800);
+        assertThat(defaults.get("maxIterations").asInt()).isEqualTo(500);
+        assertThat(defaults.get("maxTargetRps").asInt()).isEqualTo(100);
+        String appId = json(perform(post("/api/applications"), Map.of("name", "limites-app-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
+        assertThat(message(saveScenario(appId, Map.of("durationSeconds", 1801))))
+                .isEqualTo("La durée ne doit pas dépasser 1 800 s (limite d’un test sur ce serveur).");
+        assertThatThrownBy(() -> registry.reserveCapacity(41)).hasMessageContaining("limite d'un test sur ce serveur (40");
+    }
+
+    @Test
+    void newLoadRules_duration_iterations_rps_thinkTime_rampUp() throws Exception {
+        String appId = json(perform(post("/api/applications"), Map.of("name", "nouvelles-regles-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
+        assertThat(message(saveScenario(appId, Map.of("durationSeconds", 3601)))).isEqualTo("La durée ne doit pas dépasser 3 600 s (limite d’un test sur ce serveur).");
+        assertThat(message(saveScenario(appId, Map.of("iterations", 10001)))).isEqualTo("Le nombre d’itérations ne doit pas dépasser 10 000 (limite d’un test sur ce serveur).");
+        assertThat(message(saveScenario(appId, Map.of("targetRps", 501)))).isEqualTo("Le débit cible ne doit pas dépasser 500 req/s (limite d’un test sur ce serveur).");
+        assertThat(message(saveScenario(appId, Map.of("thinkTimeMs", 60001)))).isEqualTo("Le think time ne doit pas dépasser 60 000 ms.");
+        assertThat(message(saveScenario(appId, Map.of("rampUpSeconds", 3601)))).isEqualTo("Le ramp-up ne doit pas dépasser 3 600 s (durée maximale d’un test).");
+        assertThat(saveScenario(appId, Map.of("durationSeconds", 3600, "iterations", 10000, "targetRps", 500, "thinkTimeMs", 60000, "rampUpSeconds", 3599))
+                .getResponse().getStatus()).isEqualTo(201);
+        // Charge par defaut : memes limites.
+        assertThat(errorOf(load(1, 0, 0, 3601, null, null))).isEqualTo("La durée ne doit pas dépasser 3 600 s (limite d’un test sur ce serveur).");
+    }
+
+    @Test
+    void loweredLimit_existingScenarioKept_launchAndScheduleRefused_defaultsWarned() throws Exception {
+        String appId = json(perform(post("/api/applications"), Map.of("name", "baisse-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
+        String id = json(saveScenario(appId, Map.of("virtualUsers", 2, "rampUpSeconds", 1, "durationSeconds", 600))).get("id").asText();
+        perform(post("/api/steps"), Map.of("scenarioId", id, "name", "Accueil", "method", "GET", "url", "/ok", "order", 1), ENGINEER);
+        perform(put("/api/settings/load-defaults"), load(5, 0, 0, 600, null, null), ADMIN);
+
+        perform(put("/api/settings/limits"), limits(500, 200, 10, 300, 10000, 500), ADMIN);
+
+        assertThat(json(perform(get("/api/scenarios/" + id), null, ENGINEER)).get("durationSeconds").asInt()).as("jamais modifie").isEqualTo(600);
+        MvcResult launch = perform(post("/api/executions"), Map.of("scenarioId", id), ENGINEER);
+        assertThat(launch.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(launch)).isEqualTo("La durée ne doit pas dépasser 300 s (limite d’un test sur ce serveur). Modifiez la charge du scénario avant de le lancer.");
+        MvcResult schedule = perform(post("/api/scheduled-executions"), Map.of("scenarioId", id, "name", "Nocturne", "scheduleType", "ONE_TIME",
+                "runAt", Instant.now().plusSeconds(86400).toString(), "timezone", "UTC"), ENGINEER);
+        assertThat(schedule.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(schedule)).isEqualTo("La durée ne doit pas dépasser 300 s (limite d’un test sur ce serveur). Modifiez la charge du scénario avant de le planifier.");
+        JsonNode defaults = json(perform(get("/api/settings/load-defaults"), null, ADMIN));
+        assertThat(defaults.get("problems").get(0).asText()).isEqualTo("La durée ne doit pas dépasser 300 s (limite d’un test sur ce serveur).");
+    }
+}

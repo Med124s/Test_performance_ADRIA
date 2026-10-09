@@ -57,6 +57,7 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
 
     private final ScheduledExecutionRepository scheduledExecutionRepository;
     private final ScenarioRepository scenarioRepository;
+    private final com.loadpilot.backend.service.ExecutionLimitsService executionLimits;
     private final AppUserRepository appUserRepository;
     private final ExecutionRepository executionRepository;
     private final AuditLogService auditLogService;
@@ -73,7 +74,8 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
                                          ScheduledExecutionTransactionHelper transactionHelper,
                                          ScheduledExecutionTrigger trigger,
                                          ScheduleViewService viewService,
-                                         PlatformTransactionManager transactionManager) {
+                                         PlatformTransactionManager transactionManager,
+                                         com.loadpilot.backend.service.ExecutionLimitsService executionLimits) {
         this.scheduledExecutionRepository = scheduledExecutionRepository;
         this.scenarioRepository = scenarioRepository;
         this.appUserRepository = appUserRepository;
@@ -83,6 +85,7 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
         this.trigger = trigger;
         this.viewService = viewService;
         this.readOnlyTx = new TransactionTemplate(transactionManager);
+        this.executionLimits = executionLimits;
     }
 
     @Override
@@ -268,6 +271,12 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
         }
         if (scenario.isArchived() || scenario.getApplication().isArchived()) {
             throw new BadRequestException("Ce scénario (ou son application) est archivé : restaurez-le avant de le planifier.");
+        }
+        java.util.List<String> loadProblems = com.loadpilot.backend.service.validation.LoadRules.validate(scenario.getVirtualUsers(),
+                scenario.getThinkTimeMs(), scenario.getRampUpSeconds(), scenario.getDurationSeconds(), scenario.getIterations(),
+                scenario.getTargetRps(), executionLimits.loadLimits());
+        if (!loadProblems.isEmpty()) {
+            throw new BadRequestException(String.join(" ", loadProblems) + " Modifiez la charge du scénario avant de le planifier.");
         }
         return scenario;
     }

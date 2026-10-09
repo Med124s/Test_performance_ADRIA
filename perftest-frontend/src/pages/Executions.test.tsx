@@ -294,10 +294,14 @@ describe('Page Exécutions', () => {
 })
 
 describe('Exécutions : indicateurs d’un coup d’œil', () => {
-  it('écart de P95 : seuil de 10 %, flèche et couleur', () => {
-    expect(p95Delta(330, 300)).toEqual({ text: '↑ +10 %', tone: 'same', percent: 10 })
-    expect(p95Delta(331, 300)).toEqual({ text: '↑ +10,3 %', tone: 'worse', percent: 10.3 })
-    expect(p95Delta(260, 300)).toEqual({ text: '↓ −13,3 %', tone: 'better', percent: -13.3 })
+  it('écart de P95 : seuil de régression (20 % par défaut, réglable), flèche et couleur', () => {
+    expect(p95Delta(360, 300)).toEqual({ text: '↑ +20 %', tone: 'same', percent: 20 })
+    expect(p95Delta(361, 300)).toEqual({ text: '↑ +20,3 %', tone: 'worse', percent: 20.3 })
+    expect(p95Delta(230, 300)).toEqual({ text: '↓ −23,3 %', tone: 'better', percent: -23.3 })
+    expect(p95Delta(331, 300).tone).toBe('same')
+    // Seuil réglé dans Paramètres > Système : 10 %.
+    expect(p95Delta(331, 300, 10)).toEqual({ text: '↑ +10,3 %', tone: 'worse', percent: 10.3 })
+    expect(p95Delta(260, 300, 10).tone).toBe('better')
     expect(p95Delta(300, 300).tone).toBe('same')
     expect(p95Delta(300, null)).toEqual({ text: '—', tone: 'none', percent: null })
     expect(p95Delta(null, 300).tone).toBe('none')

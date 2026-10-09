@@ -4,10 +4,13 @@ import LoadSummaryPanel from './LoadSummaryPanel'
 import { EMPTY_INFO } from './draftModel'
 import { INITIAL_TEST_RUN } from './TestRunPanel'
 import {
-  DEFAULT_LOAD, LoadConfig, loadToRequest, loadWarnings, newStep, thresholdsFromScenario, thresholdsToRequest, validateLoad, validateThresholds,
+  DEFAULT_LOAD, LOAD_PRESETS, LoadConfig, estimateLoad, loadToRequest, loadWarnings, measuredRequestMs, newStep, presetBlockedReason,
+  thresholdsFromScenario, thresholdsToRequest, validateLoad, validateThresholds,
 } from './wizardModel'
 
 const load = (patch: Partial<LoadConfig> = {}): LoadConfig => ({ ...DEFAULT_LOAD, presetId: 'custom', ...patch })
+/** Limites lues depuis le serveur (valeurs par défaut des plafonds, total à 200). */
+const LIMITS = { maxVirtualUsers: 200, maxDurationSeconds: 3600, maxIterations: 10000, maxTargetRps: 500 }
 
 describe('Charge — mêmes règles que le moteur', () => {
   it('durée et itérations optionnelles et indépendantes, envoyées telles quelles', () => {
@@ -19,10 +22,27 @@ describe('Charge — mêmes règles que le moteur', () => {
     expect(validateLoad(load({ durationSeconds: '0' })).durationSeconds).toMatch(/au moins 1/)
   })
 
-  it('avertissements : ramp-up > durée, au-delà de 200 utilisateurs, ni durée ni itérations', () => {
-    expect(loadWarnings(load({ rampUpSeconds: '60', durationSeconds: '30' }))[0]).toMatch(/ne joueront aucune itération/)
-    expect(loadWarnings(load({ virtualUsers: '250' })).join(' ')).toMatch(/200 utilisateurs/)
-    expect(loadWarnings(load({ durationSeconds: '', iterations: '' })).join(' ')).toMatch(/une seule fois/)
+  it('règles bloquantes identiques au serveur : limite applicable, ramp-up inférieur à la durée', () => {
+    // Limite d'un test sur ce serveur (Paramètres > Système) : message identique au serveur.
+    expect(validateLoad(load({ virtualUsers: '201' }), LIMITS).virtualUsers)
+      .toBe('Le nombre d’utilisateurs ne doit pas dépasser 200 (limite d’un test sur ce serveur).')
+    expect(validateLoad(load({ virtualUsers: '200' }), LIMITS).virtualUsers).toBeUndefined()
+    expect(validateLoad(load({ virtualUsers: '0' }), LIMITS).virtualUsers).toBe('Le nombre d’utilisateurs doit être au moins 1.')
+    // Ramp-up : strictement inférieur à la durée quand une durée est fixée ; libre sans durée.
+    expect(validateLoad(load({ rampUpSeconds: '60', durationSeconds: '60' })).rampUpSeconds).toBe('Le ramp-up doit être plus court que la durée.')
+    expect(validateLoad(load({ rampUpSeconds: '59', durationSeconds: '60' })).rampUpSeconds).toBeUndefined()
+    expect(validateLoad(load({ rampUpSeconds: '120', durationSeconds: '' })).rampUpSeconds).toBeUndefined()
+    expect(validateLoad(load({ targetRps: '0' })).targetRps).toBe('Le débit cible doit être au moins 1.')
+    // Nouvelles limites (mêmes messages que le serveur).
+    expect(validateLoad(load({ durationSeconds: '3601' }), LIMITS).durationSeconds).toBe('La durée ne doit pas dépasser 3 600 s (limite d’un test sur ce serveur).')
+    expect(validateLoad(load({ iterations: '10001' }), LIMITS).iterations).toBe('Le nombre d’itérations ne doit pas dépasser 10 000 (limite d’un test sur ce serveur).')
+    expect(validateLoad(load({ targetRps: '501' }), LIMITS).targetRps).toBe('Le débit cible ne doit pas dépasser 500 req/s (limite d’un test sur ce serveur).')
+    expect(validateLoad(load({ thinkTimeMs: '60001' })).thinkTimeMs).toBe('Le think time ne doit pas dépasser 60 000 ms.')
+    expect(validateLoad(load({ rampUpSeconds: '3601', durationSeconds: '' }), LIMITS).rampUpSeconds).toBe('Le ramp-up ne doit pas dépasser 3 600 s (durée maximale d’un test).')
+    expect(validateLoad(load({ durationSeconds: '3600', iterations: '10000', targetRps: '500', thinkTimeMs: '60000', rampUpSeconds: '3599' }), LIMITS)).toEqual({})
+    // Seul avertissement restant (non bloquant) : un seul passage.
+    expect(loadWarnings(load({ durationSeconds: '', iterations: '' }))).toEqual(['Ni durée ni itérations : chaque utilisateur jouera le scénario une seule fois.'])
+    expect(loadWarnings(load({ virtualUsers: '250', rampUpSeconds: '60', durationSeconds: '30' }))).toEqual([])
   })
 
   it('libellés exacts avec aide courte, champs obligatoires marqués', () => {
@@ -33,9 +53,21 @@ describe('Charge — mêmes règles que le moteur', () => {
       expect(screen.getByText(label, { exact: false, selector: 'label' })).toBeTruthy()
     }
     expect(screen.getAllByText('*')).toHaveLength(3)
-    expect(screen.getByText(/Pause d’un utilisateur entre deux itérations/)).toBeTruthy()
-    expect(screen.getByText(/un nouvel utilisateur toutes les 2 s/)).toBeTruthy()
-    expect(screen.getByText(/partagée par tous les utilisateurs/)).toBeTruthy()
+    expect(screen.getByText('Pause d’un utilisateur entre deux itérations : 0 à 60 000 ms.')).toBeTruthy()
+    expect(screen.getByText(/Un nouvel utilisateur toutes les 2 s/)).toBeTruthy()
+    expect(screen.getByText(/tous utilisateurs confondus/)).toBeTruthy()
+  })
+
+  it('aide « Utilisateurs virtuels » : limite réelle du serveur', () => {
+    render(<LoadSummaryPanel info={EMPTY_INFO} application={undefined} steps={[newStep()]} errors={{}} showErrors limits={LIMITS}
+      load={load({ virtualUsers: '5' })} testRun={INITIAL_TEST_RUN} testStale={false} testPassed={false} csvRows={null} onChange={() => {}} onGoTo={() => {}} />)
+    // Plage autorisée sous chaque champ, lue depuis le serveur.
+    expect(screen.getByText('Nombre d’utilisateurs simulés en parallèle (1 à 200).')).toBeTruthy()
+    expect(screen.getByText('Pause d’un utilisateur entre deux itérations : 0 à 60 000 ms.')).toBeTruthy()
+    expect(screen.getByText('Démarrage progressif des utilisateurs : 0 à 3 600 s, plus court que la durée.')).toBeTruthy()
+    expect(screen.getByText('1 à 3 600 s ; vide = jusqu’à la fin des itérations.')).toBeTruthy()
+    expect(screen.getByText('Passages complets du scénario par utilisateur : 1 à 10 000.')).toBeTruthy()
+    expect(screen.getByText('Requêtes par seconde, tous utilisateurs confondus : jusqu’à 500 req/s.')).toBeTruthy()
   })
 
   it('réglage « Détail des requêtes » : défaut « Échecs + échantillon », 3 choix', () => {
@@ -48,7 +80,69 @@ describe('Charge — mêmes règles que le moteur', () => {
     expect(Array.from(select.options).map((o) => o.value)).toEqual(['FAILURES_AND_SAMPLE', 'FAILURES', 'NONE'])
     fireEvent.change(select, { target: { value: 'NONE' } })
     expect(onMode).toHaveBeenCalledWith('NONE')
-    expect(screen.getByText(/20 par type d’erreur et 100 par étape/)).toBeTruthy()
+    // Long texte remplacé par une infobulle d'une phrase.
+    expect(screen.queryByText(/20 par type d’erreur et 100 par étape/)).toBeNull()
+    expect(screen.getByRole('img', { name: 'Requêtes conservées pour le détail de l’exécution, secrets masqués.' })).toBeTruthy()
+  })
+})
+
+describe('Charge — estimation, avertissements, profils et limite du serveur', () => {
+  it('estimation avec durée : la durée compte depuis le début (ramp-up compris), comme le moteur', () => {
+    // 10 utilisateurs, un toutes les 1 s, 2 étapes à 500 ms : 1 s par itération, test de 60 s.
+    const e = estimateLoad(load({ virtualUsers: '10', rampUpSeconds: '10', durationSeconds: '60', iterations: '', thinkTimeMs: '0' }), 2, 500)!
+    expect(e.measured).toBe(true)
+    expect(e.requests).toBe(1110)
+    expect(e.totalSeconds).toBe(60)
+    // Débit cible : jamais plus de 5 req/s sur 60 s.
+    expect(estimateLoad(load({ virtualUsers: '10', rampUpSeconds: '10', durationSeconds: '60', iterations: '', targetRps: '5' }), 2, 500)!.requests).toBe(300)
+  })
+
+  it('estimation sans durée : itérations, think time, débit cible ; temps supposé sans test de validation', () => {
+    const e = estimateLoad(load({ virtualUsers: '4', rampUpSeconds: '0', durationSeconds: '', iterations: '3', thinkTimeMs: '1000' }), 2, null)!
+    expect(e.measured).toBe(false)
+    expect(e.requestMs).toBe(300)
+    expect(e.requests).toBe(24)
+    expect(e.totalSeconds).toBeCloseTo(3 * 0.6 + 2 * 1)
+    expect(estimateLoad(load({ virtualUsers: '10', durationSeconds: '', iterations: '100', targetRps: '5' }), 1, 100)!.totalSeconds).toBe(200)
+    expect(estimateLoad(load({ virtualUsers: '' }), 2, null)).toBeNull()
+    expect(measuredRequestMs([{ response: { durationMs: 100 } }, { response: null }, { response: { durationMs: 300 } }])).toBe(200)
+  })
+
+  it('avertissements : ramp-up long sans durée, plus d’une heure', () => {
+    const longRamp = load({ virtualUsers: '100', rampUpSeconds: '1000', durationSeconds: '', iterations: '1' })
+    expect(loadWarnings(longRamp, estimateLoad(longRamp, 2, null))).toEqual([
+      'Le dernier utilisateur démarrera après 16 min 30 s, alors qu’un utilisateur termine en ≈ 1 s : peu d’utilisateurs seront actifs en même temps. Réduisez le ramp-up ou fixez une durée.'])
+    const long = load({ virtualUsers: '5', rampUpSeconds: '10', durationSeconds: '4000', iterations: '' })
+    expect(loadWarnings(long, estimateLoad(long, 1, 200))).toEqual(['Durée estimée supérieure à 1 heure (≈ 1 h 7 min).'])
+    const fine = load({ virtualUsers: '10', rampUpSeconds: '10', durationSeconds: '60', iterations: '' })
+    expect(loadWarnings(fine, estimateLoad(fine, 2, 500))).toEqual([])
+  })
+
+  it('profils au-delà de la limite du serveur : désactivés avec la raison', () => {
+    const stress = LOAD_PRESETS.find((p) => p.id === 'stress')!
+    expect(presetBlockedReason(stress, LIMITS)).toBeNull()
+    expect(presetBlockedReason(stress, { ...LIMITS, maxVirtualUsers: 30 })).toBe('Dépasse la limite du serveur : 30 utilisateurs')
+    expect(presetBlockedReason(stress, { ...LIMITS, maxDurationSeconds: 90 })).toBe('Dépasse la limite du serveur : 90 s de durée')
+    expect(presetBlockedReason(LOAD_PRESETS.find((p) => p.id === 'custom')!, { ...LIMITS, maxVirtualUsers: 30 })).toBeNull()
+    const onChange = vi.fn()
+    render(<LoadSummaryPanel info={EMPTY_INFO} application={undefined} steps={[newStep()]} errors={{}} showErrors limits={{ ...LIMITS, maxVirtualUsers: 30 }}
+      load={load({ virtualUsers: '5' })} testRun={INITIAL_TEST_RUN} testStale={false} testPassed={false} csvRows={null} onChange={onChange} onGoTo={() => {}} />)
+    const button = screen.getByRole('button', { name: /Stress — Dépasse la limite du serveur : 30 utilisateurs/ }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(button.title).toBe('Dépasse la limite du serveur : 30 utilisateurs')
+    fireEvent.click(button)
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByText(/« Stress » dépasse les limites du serveur/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: /Charge/ }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('estimation affichée sous les champs, en précisant que c’est une estimation', () => {
+    render(<LoadSummaryPanel info={EMPTY_INFO} application={undefined} steps={[newStep(), newStep()]} errors={{}} showErrors limits={LIMITS}
+      load={load({ virtualUsers: '10', rampUpSeconds: '10', durationSeconds: '60', iterations: '', thinkTimeMs: '0' })}
+      testRun={INITIAL_TEST_RUN} testStale={false} testPassed={false} csvRows={null} onChange={() => {}} onGoTo={() => {}} />)
+    const estimate = screen.getByTestId('load-estimate')
+    expect(estimate.textContent).toMatch(/Estimation \(approximative\) : durée totale ≈ 1 min · ≈ [\d\s\u202f]+ requêtes\./)
+    expect(estimate.textContent).toMatch(/en supposant 300 ms par requête : lancez le test de validation pour l’affiner/)
   })
 })
 
@@ -86,6 +180,7 @@ describe('Seuils de réussite du scénario', () => {
     fireEvent.change(p95, { target: { value: '500' } })
     expect(onThresholds).toHaveBeenLastCalledWith({ maxP95Ms: '500' })
     expect(screen.getByText('Le P95 maximal doit être au moins 1.')).toBeTruthy()
-    expect(screen.getByText(/« Échouée » \(rouge\) est réservé/)).toBeTruthy()
+    expect(screen.queryByText(/« Échouée » \(rouge\) est réservé/)).toBeNull()
+    expect(screen.getByRole('img', { name: '« Échouée » est réservé à un test qui n’a pas pu se dérouler.' })).toBeTruthy()
   })
 })

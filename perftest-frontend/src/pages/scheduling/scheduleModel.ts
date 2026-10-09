@@ -323,11 +323,12 @@ export const OUTCOME_LABEL: Record<BackendScheduledRunOutcome, string> = {
   FAILED: 'Non lancée',
 }
 
-/** Écart de P95 : « ↑ +35 % » (plus lent), « ↓ −12 % » (plus rapide), ton selon le seuil du Dashboard. */
-export function p95Change(changePercent: number | null | undefined): { text: string; tone: 'worse' | 'better' | 'same' } | null {
+/** Écart de P95 : « ↑ +35 % » (plus lent), « ↓ −12 % » (plus rapide), ton selon le seuil de régression
+ * réglable (Paramètres > Système, 20 % par défaut) — le même que le Dashboard et les notifications. */
+export function p95Change(changePercent: number | null | undefined, threshold = 20): { text: string; tone: 'worse' | 'better' | 'same' } | null {
   if (changePercent == null || !Number.isFinite(changePercent)) return null
   const abs = Math.abs(changePercent).toLocaleString('fr-FR', { maximumFractionDigits: 1 })
-  if (changePercent > 5) return { text: `↑ +${abs} %`, tone: 'worse' }
-  if (changePercent < -5) return { text: `↓ −${abs} %`, tone: 'better' }
+  if (changePercent > threshold) return { text: `↑ +${abs} %`, tone: 'worse' }
+  if (changePercent < -threshold) return { text: `↓ −${abs} %`, tone: 'better' }
   return { text: `${changePercent >= 0 ? '+' : '−'}${abs} %`, tone: 'same' }
 }

@@ -298,34 +298,208 @@ export function validateStep(step: DraftStep): FieldErrors {
   return errors
 }
 
-export function validateLoad(load: LoadConfig): FieldErrors {
+/** Limites de charge d'un test en vigueur (Paramètres > Système), lues depuis le serveur. */
+export interface LoadLimits {
+  maxVirtualUsers: number
+  maxDurationSeconds: number
+  maxIterations: number
+  maxTargetRps: number
+}
+
+/** Plage fixe du think time (ms), identique au serveur (LoadRules.MAX_THINK_TIME_MS). */
+export const MAX_THINK_TIME_MS = 60000
+/** Plafond technique des utilisateurs virtuels (ScenarioRequest côté serveur) quand les limites ne sont pas encore connues. */
+export const MAX_VIRTUAL_USERS_FALLBACK = 10000
+
+/** Nombre avec espace des milliers, identique au serveur (LoadRules.number) : 3 600, 10 000. */
+export function formatInt(n: number): string {
+  return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+}
+
+const LIMIT_SUFFIX = ' (limite d’un test sur ce serveur).'
+/** Messages identiques au serveur (LoadRules). */
+export const vuTooHighMessage = (max: number) => `Le nombre d’utilisateurs ne doit pas dépasser ${formatInt(max)}${LIMIT_SUFFIX}`
+export const RAMP_UP_TOO_LONG = 'Le ramp-up doit être plus court que la durée.'
+
+/**
+ * Règles de « Charge & résumé », identiques à Paramètres > Système > Charge par défaut et au serveur
+ * (LoadRules.validate), avec les limites en vigueur : entiers, minimums, maximums (limites du serveur,
+ * think time 0 à 60 000 ms), ramp-up jamais au-delà de la durée maximale et plus court que la durée
+ * quand elle est fixée, facultatifs vides acceptés.
+ */
+export function validateLoad(load: Omit<LoadConfig, 'presetId'>, limits?: Partial<LoadLimits> | null): FieldErrors {
   const errors: FieldErrors = {}
-  const vu = intField(load.virtualUsers, { min: 1, max: 500, required: true, label: 'Le nombre d’utilisateurs' })
+  const maxVu = limits?.maxVirtualUsers ?? MAX_VIRTUAL_USERS_FALLBACK
+  const vu = intField(load.virtualUsers, { min: 1, required: true, label: 'Le nombre d’utilisateurs' })
   if (vu) errors.virtualUsers = vu
-  const ramp = intField(load.rampUpSeconds, { min: 0, required: true, label: 'Le ramp-up' })
-  if (ramp) errors.rampUpSeconds = ramp
-  const d = intField(load.durationSeconds, { min: 1, label: 'La durée' })
-  if (d) errors.durationSeconds = d
-  const it = intField(load.iterations, { min: 1, label: 'Le nombre d’itérations' })
-  if (it) errors.iterations = it
+  else if (Number(load.virtualUsers) > maxVu) errors.virtualUsers = vuTooHighMessage(maxVu)
   const think = intField(load.thinkTimeMs, { min: 0, required: true, label: 'Le think time' })
   if (think) errors.thinkTimeMs = think
+  else if (Number(load.thinkTimeMs) > MAX_THINK_TIME_MS) errors.thinkTimeMs = `Le think time ne doit pas dépasser ${formatInt(MAX_THINK_TIME_MS)} ms.`
+  const ramp = intField(load.rampUpSeconds, { min: 0, required: true, label: 'Le ramp-up' })
+  if (ramp) errors.rampUpSeconds = ramp
+  else if (limits?.maxDurationSeconds != null && Number(load.rampUpSeconds) > limits.maxDurationSeconds) {
+    errors.rampUpSeconds = `Le ramp-up ne doit pas dépasser ${formatInt(limits.maxDurationSeconds)} s (durée maximale d’un test).`
+  }
+  const d = intField(load.durationSeconds, { min: 1, label: 'La durée' })
+  if (d) errors.durationSeconds = d
+  else if (limits?.maxDurationSeconds != null && load.durationSeconds.trim() && Number(load.durationSeconds) > limits.maxDurationSeconds) {
+    errors.durationSeconds = `La durée ne doit pas dépasser ${formatInt(limits.maxDurationSeconds)} s${LIMIT_SUFFIX}`
+  }
+  const it = intField(load.iterations, { min: 1, label: 'Le nombre d’itérations' })
+  if (it) errors.iterations = it
+  else if (limits?.maxIterations != null && load.iterations.trim() && Number(load.iterations) > limits.maxIterations) {
+    errors.iterations = `Le nombre d’itérations ne doit pas dépasser ${formatInt(limits.maxIterations)}${LIMIT_SUFFIX}`
+  }
   const rps = intField(load.targetRps, { min: 1, label: 'Le débit cible' })
   if (rps) errors.targetRps = rps
+  else if (limits?.maxTargetRps != null && load.targetRps.trim() && Number(load.targetRps) > limits.maxTargetRps) {
+    errors.targetRps = `Le débit cible ne doit pas dépasser ${formatInt(limits.maxTargetRps)} req/s${LIMIT_SUFFIX}`
+  }
+  if (!ramp && !d && !errors.rampUpSeconds && load.durationSeconds.trim() && Number(load.rampUpSeconds) >= Number(load.durationSeconds)) errors.rampUpSeconds = RAMP_UP_TOO_LONG
   return errors
 }
 
+/** Libellés et aides courtes des champs de charge, avec la plage autorisée par le serveur ; les mêmes dans « Charge & résumé » et dans Paramètres. */
+export const LOAD_FIELDS: { key: Exclude<keyof LoadConfig, 'presetId'>; label: string; required: boolean; placeholder?: string; hint: (limits?: Partial<LoadLimits> | null) => string }[] = [
+  { key: 'virtualUsers', label: 'Utilisateurs virtuels', required: true,
+    hint: (l) => `Nombre d’utilisateurs simulés en parallèle (1 à ${formatInt(l?.maxVirtualUsers ?? MAX_VIRTUAL_USERS_FALLBACK)}).` },
+  { key: 'thinkTimeMs', label: 'Think time (ms)', required: true, hint: () => `Pause d’un utilisateur entre deux itérations : 0 à ${formatInt(MAX_THINK_TIME_MS)} ms.` },
+  { key: 'rampUpSeconds', label: 'Ramp-up (s)', required: true,
+    hint: (l) => `Démarrage progressif des utilisateurs${l?.maxDurationSeconds != null ? ` : 0 à ${formatInt(l.maxDurationSeconds)} s` : ''}, plus court que la durée.` },
+  { key: 'durationSeconds', label: 'Durée (s)', required: false, placeholder: 'Sans limite de temps',
+    hint: (l) => l?.maxDurationSeconds != null ? `1 à ${formatInt(l.maxDurationSeconds)} s ; vide = jusqu’à la fin des itérations.` : 'Vide = jusqu’à la fin des itérations.' },
+  { key: 'iterations', label: 'Itérations', required: false,
+    hint: (l) => `Passages complets du scénario par utilisateur${l?.maxIterations != null ? ` : 1 à ${formatInt(l.maxIterations)}` : ''}.` },
+  { key: 'targetRps', label: 'Débit cible (req/s)', required: false, placeholder: 'Illimité',
+    hint: (l) => `Requêtes par seconde, tous utilisateurs confondus${l?.maxTargetRps != null ? ` : jusqu’à ${formatInt(l.maxTargetRps)} req/s` : ''}.` },
+]
+
+/** Charge par défaut (Paramètres > Système) -> étape « Charge & résumé », preset « Personnalisé ». */
+export function loadFromDefaults(d: { virtualUsers: number; thinkTimeMs: number; rampUpSeconds: number; durationSeconds: number | null;
+  iterations: number | null; targetRps: number | null }): LoadConfig {
+  const s = (v: number | null) => (v == null ? '' : String(v))
+  return { presetId: 'custom', virtualUsers: s(d.virtualUsers), rampUpSeconds: s(d.rampUpSeconds), durationSeconds: s(d.durationSeconds),
+    iterations: s(d.iterations), thinkTimeMs: s(d.thinkTimeMs), targetRps: s(d.targetRps) }
+}
+
+/** Limites contenues dans la réponse « charge par défaut » du serveur. */
+export function limitsOf(d: LoadLimits): LoadLimits {
+  return { maxVirtualUsers: d.maxVirtualUsers, maxDurationSeconds: d.maxDurationSeconds, maxIterations: d.maxIterations, maxTargetRps: d.maxTargetRps }
+}
+
+/** Temps de réponse supposé par requête quand le test de validation n'a rien mesuré (estimation). */
+export const ASSUMED_REQUEST_MS = 300
+
+export interface LoadEstimate {
+  /** Durée totale approximative du test (s). */
+  totalSeconds: number
+  /** Nombre approximatif de requêtes envoyées. */
+  requests: number
+  /** Démarrage du dernier utilisateur (s) : (n − 1) × ramp-up / n, comme le moteur. */
+  lastStartSeconds: number
+  /** Temps d'un utilisateur du début à la fin de ses itérations (sans durée fixée). */
+  perUserSeconds: number
+  /** Temps de réponse moyen utilisé (ms) et sa source. */
+  requestMs: number
+  measured: boolean
+}
+
+/**
+ * Estimation APPROXIMATIVE d'un test (mêmes règles que le moteur) :
+ * - chaque utilisateur démarre (ramp-up / nombre d'utilisateurs) après le précédent ;
+ * - durée fixée : le test s'arrête après cette durée, comptée depuis le début (ramp-up compris) ;
+ * - sans durée : chaque utilisateur joue ses itérations (1 si rien n'est indiqué), avec le think time
+ *   entre deux itérations ;
+ * - débit cible : jamais plus de requêtes par seconde que ce débit.
+ * Temps de réponse : moyenne mesurée par le test de validation, sinon ASSUMED_REQUEST_MS.
+ */
+export function estimateLoad(load: Omit<LoadConfig, 'presetId'>, stepCount: number, measuredRequestMs?: number | null): LoadEstimate | null {
+  if (Object.keys(validateLoad(load)).length > 0 || stepCount <= 0) return null
+  const vu = Number(load.virtualUsers)
+  const ramp = Number(load.rampUpSeconds)
+  const think = Number(load.thinkTimeMs) / 1000
+  const duration = load.durationSeconds.trim() ? Number(load.durationSeconds) : null
+  const iterations = load.iterations.trim() ? Number(load.iterations) : null
+  const rps = load.targetRps.trim() ? Number(load.targetRps) : null
+  const measured = measuredRequestMs != null && measuredRequestMs > 0
+  const requestMs = measured ? Math.round(measuredRequestMs!) : ASSUMED_REQUEST_MS
+  const iterationSeconds = (stepCount * requestMs) / 1000
+  const stagger = vu > 1 && ramp > 0 ? ramp / vu : 0
+  const lastStartSeconds = (vu - 1) * stagger
+  const cycle = iterationSeconds + think
+
+  let requests: number
+  let totalSeconds: number
+  let perUserSeconds: number
+  if (duration != null) {
+    let iterationsPlayed = 0
+    let lastEnd = 0
+    for (let i = 0; i < vu; i++) {
+      const start = i * stagger
+      const active = duration - start
+      if (active <= 0) continue
+      // Une itération commencée avant la fin de la durée va jusqu'au bout.
+      let n = Math.ceil(active / cycle)
+      if (iterations != null) n = Math.min(n, iterations)
+      iterationsPlayed += n
+      lastEnd = Math.max(lastEnd, start + n * iterationSeconds + Math.max(0, n - 1) * think)
+    }
+    requests = iterationsPlayed * stepCount
+    totalSeconds = Math.min(lastEnd, duration + iterationSeconds)
+    perUserSeconds = iterations != null ? iterations * iterationSeconds + (iterations - 1) * think : duration
+    if (rps != null) requests = Math.min(requests, Math.floor(rps * duration))
+  } else {
+    const n = iterations ?? 1
+    perUserSeconds = n * iterationSeconds + (n - 1) * think
+    requests = vu * n * stepCount
+    totalSeconds = lastStartSeconds + perUserSeconds
+    if (rps != null) totalSeconds = Math.max(totalSeconds, requests / rps)
+  }
+  return { totalSeconds: Math.max(0, totalSeconds), requests: Math.max(0, Math.round(requests)), lastStartSeconds, perUserSeconds, requestMs, measured }
+}
+
+/** Durée lisible arrondie : « 45 s », « 16 min 5 s », « 1 h 12 min ». */
+export function formatApproxSeconds(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds))
+  if (s >= 3600) {
+    const h = Math.floor(s / 3600)
+    const m = Math.round((s % 3600) / 60)
+    return m ? `${h} h ${m} min` : `${h} h`
+  }
+  return formatSeconds(s)
+}
+
 /** Avertissements non bloquants sur une configuration de charge valide. */
-export function loadWarnings(load: LoadConfig): string[] {
+export function loadWarnings(load: LoadConfig, estimate?: LoadEstimate | null): string[] {
   const warnings: string[] = []
-  const vu = Number(load.virtualUsers) || 0
-  const ramp = Number(load.rampUpSeconds) || 0
-  const duration = Number(load.durationSeconds) || 0
-  if (duration && ramp > duration) warnings.push(`Le ramp-up (${ramp} s) dépasse la durée (${duration} s) : les utilisateurs démarrés après la fin de la durée ne joueront aucune itération.`)
-  if (vu > 200) warnings.push('Au-delà de 200 utilisateurs simultanés (toutes exécutions confondues), le serveur refusera le lancement.')
   if (!load.durationSeconds.trim() && !load.iterations.trim()) warnings.push('Ni durée ni itérations : chaque utilisateur jouera le scénario une seule fois.')
+  if (estimate && !load.durationSeconds.trim() && estimate.lastStartSeconds >= 1 && estimate.lastStartSeconds > estimate.perUserSeconds) {
+    warnings.push(`Le dernier utilisateur démarrera après ${formatApproxSeconds(estimate.lastStartSeconds)}, alors qu’un utilisateur termine en ≈ ${formatApproxSeconds(estimate.perUserSeconds)} : `
+      + 'peu d’utilisateurs seront actifs en même temps. Réduisez le ramp-up ou fixez une durée.')
+  }
+  if (estimate && estimate.totalSeconds > 3600) warnings.push(`Durée estimée supérieure à 1 heure (≈ ${formatApproxSeconds(estimate.totalSeconds)}).`)
   return warnings
 }
+
+/** Profil hors des limites du serveur : raison affichée en infobulle (null si utilisable). */
+export function presetBlockedReason(preset: LoadPreset, limits: Partial<LoadLimits> | null | undefined): string | null {
+  if (!preset.values || !limits) return null
+  const v = preset.values
+  if (limits.maxVirtualUsers != null && Number(v.virtualUsers) > limits.maxVirtualUsers) return `Dépasse la limite du serveur : ${formatInt(limits.maxVirtualUsers)} utilisateurs`
+  if (limits.maxDurationSeconds != null && v.durationSeconds && Number(v.durationSeconds) > limits.maxDurationSeconds) {
+    return `Dépasse la limite du serveur : ${formatInt(limits.maxDurationSeconds)} s de durée`
+  }
+  if (limits.maxIterations != null && v.iterations && Number(v.iterations) > limits.maxIterations) return `Dépasse la limite du serveur : ${formatInt(limits.maxIterations)} itérations`
+  return null
+}
+
+/** Temps de réponse moyen mesuré par le test de validation (ms), ou null. */
+export function measuredRequestMs(results: { response?: { durationMs: number } | null }[]): number | null {
+  const times = results.map((r) => r.response?.durationMs).filter((v): v is number => typeof v === 'number' && v >= 0)
+  return times.length ? times.reduce((a, b) => a + b, 0) / times.length : null
+}
+
 
 /** Seuils de réussite : taux d'erreurs maximal obligatoire (0 à 100, virgule acceptée), P95 maximal optionnel (ms). */
 export function validateThresholds(info: Pick<ScenarioInfo, 'maxErrorRatePercent' | 'maxP95Ms'>): FieldErrors {

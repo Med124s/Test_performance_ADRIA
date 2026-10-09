@@ -20,8 +20,14 @@ vi.mock('../../services/api/applicationsBackend', () => ({ applicationsBackendAp
 vi.mock('../../services/api/scenariosBackend', () => ({ scenariosBackendApi: scenarios }))
 vi.mock('../../services/api/stepsBackend', () => ({ stepsBackendApi: steps }))
 vi.mock('../../services/api/executionsBackend', () => ({ executionsBackendApi: { execute: vi.fn() } }))
+const settingsApi = vi.hoisted(() => ({
+  loadDefaults: vi.fn(() => Promise.resolve({ virtualUsers: 20, thinkTimeMs: 300, rampUpSeconds: 10, durationSeconds: 120, iterations: null, targetRps: 50, maxVirtualUsers: 200 })),
+  thresholds: vi.fn(() => Promise.resolve({ maxErrorRatePercent: 2.5, maxP95Ms: 800, regressionPercent: 20 })),
+}))
+vi.mock('../../services/api/settingsBackend', () => ({ settingsBackendApi: settingsApi }))
 
 import ScenarioWizard from './ScenarioWizard'
+import { resetLoadDefaultsCache } from '../../utils/loadDefaults'
 
 function renderWizard(entry = '/scenarios/new') {
   const router = createMemoryRouter([
@@ -49,6 +55,7 @@ const draftScenario = (patch: Partial<BackendScenarioResponse> = {}): BackendSce
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetLoadDefaultsCache()
   scenarios.create.mockImplementation((body) => Promise.resolve(draftScenario({ id: 'sc-9', name: body.name })))
   scenarios.update.mockImplementation((id, body) => Promise.resolve(draftScenario({ id, name: body.name })))
   scenarios.removeDraft.mockResolvedValue(undefined)
@@ -140,6 +147,31 @@ describe('Assistant « Nouveau scénario »', () => {
     expect(scenarios.removeDraft).toHaveBeenCalledWith('sc-9')
   })
 
+  it('nouveau scénario : charge pré-remplie avec la « Charge par défaut » (preset Personnalisé), sans compter comme une saisie', async () => {
+    const router = renderWizard()
+    await screen.findByRole('option', { name: /Banking/ })
+    await waitFor(() => expect(settingsApi.loadDefaults).toHaveBeenCalled())
+    // Rien de saisi : quitter ne demande rien (le pré-remplissage n'est pas une modification).
+    fireEvent.click(screen.getByRole('button', { name: /Scénarios/ }))
+    expect(await screen.findByText('Liste des scénarios')).toBeTruthy()
+    expect(router.state.location.pathname).toBe('/scenarios')
+  })
+
+  it('nouveau scénario : le brouillon enregistré porte la charge par défaut', async () => {
+    renderWizard()
+    await fillInfo()
+    await waitFor(() => expect(settingsApi.loadDefaults).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: /Scénarios/ }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(dialog.querySelector('.pt-btn-primary') as HTMLElement)
+    expect(await screen.findByText('Liste des scénarios')).toBeTruthy()
+    const draft = JSON.parse(scenarios.create.mock.calls[0][0].draftState)
+    expect(draft.load).toEqual({
+      presetId: 'custom', virtualUsers: '20', thinkTimeMs: '300', rampUpSeconds: '10', durationSeconds: '120', iterations: '', targetRps: '50' })
+    // Seuils de réussite pré-remplis avec « Seuils par défaut ».
+    expect(draft.info).toMatchObject({ maxErrorRatePercent: '2,5', maxP95Ms: '800' })
+  })
+
   it('« Reprendre » rouvre le brouillon à la bonne étape avec ses données', async () => {
     const state = {
       version: 1,
@@ -159,5 +191,10 @@ describe('Assistant « Nouveau scénario »', () => {
     // Le CSV valide vient de scenario.csv_data ; ${amount} y est défini.
     expect(screen.queryByText(/absente du CSV/)).toBeNull()
     expect(nextButton().disabled).toBe(false)
+    // Brouillon existant : sa charge (Smoke) n'est jamais remplacée par la charge par défaut.
+    await waitFor(() => expect(settingsApi.loadDefaults).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: /Enregistrer comme brouillon/ }))
+    await waitFor(() => expect(scenarios.update).toHaveBeenCalled())
+    expect(JSON.parse(scenarios.update.mock.calls[scenarios.update.mock.calls.length - 1][1].draftState).load).toMatchObject({ presetId: 'smoke', virtualUsers: '1' })
   })
 })

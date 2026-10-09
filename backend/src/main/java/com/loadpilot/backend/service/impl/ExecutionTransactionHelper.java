@@ -64,6 +64,7 @@ public class ExecutionTransactionHelper {
             "Ce scénario est un brouillon : terminez-le dans l'assistant (« Reprendre ») avant de l'exécuter.";
 
     private final ScenarioRepository scenarioRepository;
+    private final com.loadpilot.backend.service.ExecutionLimitsService executionLimits;
     private final StepRepository stepRepository;
     private final ExecutionRepository executionRepository;
     private final ExecutionStepResultRepository executionStepResultRepository;
@@ -107,6 +108,13 @@ public class ExecutionTransactionHelper {
         List<Step> steps = stepRepository.findByScenarioId(scenarioId, STEP_ORDER);
         if (steps.isEmpty()) {
             throw new ConflictException("Le scenario ne possede aucune etape a executer.");
+        }
+        // Scenario enregistre avant une regle ou une baisse de limite : jamais modifie, mais pas lance.
+        java.util.List<String> loadProblems = com.loadpilot.backend.service.validation.LoadRules.validate(scenario.getVirtualUsers(),
+                scenario.getThinkTimeMs(), scenario.getRampUpSeconds(), scenario.getDurationSeconds(), scenario.getIterations(),
+                scenario.getTargetRps(), executionLimits.loadLimits());
+        if (!loadProblems.isEmpty()) {
+            throw new BadRequestException(String.join(" ", loadProblems) + " Modifiez la charge du scénario avant de le lancer.");
         }
 
         // Acces a l'Application au sein de cette meme transaction courte -

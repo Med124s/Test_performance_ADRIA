@@ -60,6 +60,7 @@ public class DashboardOverviewService {
 
     private final EntityManager entityManager;
     private final ExecutionStatsService statsService;
+    private final com.loadpilot.backend.service.AppSettingsService settings;
 
     /** P95 de periode deja calcules (cle : filtre + nombre d'executions + derniere fin) - petite LRU. */
     private final Map<String, Long> periodP95Cache = Collections.synchronizedMap(new LinkedHashMap<>(64, 0.75f, true) {
@@ -123,7 +124,7 @@ public class DashboardOverviewService {
             rows.add(new ScenarioRow(e.getId().toString(), e.getScenario().getId().toString(), e.getScenario().getName(),
                     e.getScenario().getApplication().getId().toString(), e.getScenario().getApplication().getName(), e.getStartedAt(),
                     e.getStatus(), e.getVirtualUsers(), e.getP95Ms(), errorRate(e), e.getThroughputRps(), e.getCpuMaxPercent(),
-                    previous == null ? null : previous.getId().toString(), prevP95, change, DashboardRules.trend(change)));
+                    previous == null ? null : previous.getId().toString(), prevP95, change, DashboardRules.trend(change, settings.regressionPercent())));
             latestById.put(e.getId().toString(), e);
         }
 
@@ -193,7 +194,7 @@ public class DashboardOverviewService {
                         r.errorRate() == null ? null : "Taux d'erreurs " + oneDecimal(r.errorRate().doubleValue()) + " %",
                         "/executions/report/" + r.executionId()));
             }
-            if (DashboardRules.isRegression(r.p95ChangePercent())) {
+            if (DashboardRules.isRegression(r.p95ChangePercent(), settings.regressionPercent())) {
                 items.add(new WatchItem("REGRESSION", "warning", "Scénario « " + r.scenarioName() + " » : P95 en hausse de "
                         + oneDecimal(r.p95ChangePercent()) + " %", "P95 " + oneDecimal(r.previousP95Ms()) + " ms → "
                         + oneDecimal(r.p95Ms()) + " ms par rapport à l'exécution précédente", "/executions/report/" + r.executionId()));

@@ -3,11 +3,18 @@ import { TestRunState } from './TestRunPanel'
 import {
   DraftStep,
   FieldErrors,
+  LOAD_FIELDS,
   LOAD_PRESETS,
   LoadConfig,
+  LoadLimits,
+  formatInt,
   ScenarioInfo,
+  estimateLoad,
+  formatApproxSeconds,
   formatSeconds,
   loadWarnings,
+  measuredRequestMs,
+  presetBlockedReason,
 } from './wizardModel'
 
 interface LoadSummaryPanelProps {
@@ -29,9 +36,20 @@ interface LoadSummaryPanelProps {
   onRequestDetailModeChange?: (mode: BackendRequestDetailMode) => void
   /** Seuils de réussite (enregistrés avec les informations du scénario). */
   onThresholdsChange?: (patch: { maxErrorRatePercent?: string; maxP95Ms?: string }) => void
+  /** Limites de charge en vigueur, lues depuis le serveur (null : inconnues). */
+  limits?: LoadLimits | null
 }
 
-function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange, onThresholdsChange }: LoadSummaryPanelProps) {
+/** Icône ⓘ avec une explication courte, au survol et au clavier. */
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="sw-infotip" tabIndex={0} role="img" aria-label={text} title={text}>
+      <i className="bi bi-info-circle" aria-hidden="true"></i>
+    </span>
+  )
+}
+
+function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange, onThresholdsChange, limits }: LoadSummaryPanelProps) {
   const err = (field: string) => (showErrors ? errors[field] : undefined)
   const setField = (patch: Partial<LoadConfig>) => onChange({ ...patch, presetId: 'custom' })
 
@@ -41,16 +59,18 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
   const duration = Number(load.durationSeconds) || 0
   // Sans durée, chaque utilisateur joue `iterations` passages (1 si rien n'est renseigné).
   const effectiveIterations = duration ? null : iterations || 1
-  const totalRequests = effectiveIterations !== null && vu ? vu * effectiveIterations * steps.length : null
-  const estimatedSeconds = duration ? ramp + duration : null
   const staggerSeconds = vu > 1 && ramp > 0 ? ramp / vu : 0
-  const warnings = loadWarnings(load)
+  // Estimation (durée totale, requêtes) : temps de réponse du test de validation s'il a été fait.
+  const measured = measuredRequestMs(steps.map((s) => testRun.resultsByUid[s.uid]).filter(Boolean))
+  const estimate = estimateLoad(load, steps.length, measured)
+  const warnings = loadWarnings(load, estimate)
+  const blockedPresets = LOAD_PRESETS.filter((p) => presetBlockedReason(p, limits))
   const stopLabel = duration && iterations
-    ? `${formatSeconds(duration)} ou ${iterations} itération(s)`
-    : duration ? formatSeconds(duration) : `${effectiveIterations} itération(s)`
+    ? `${formatApproxSeconds(duration)} ou ${iterations} itération(s)`
+    : duration ? formatApproxSeconds(duration) : `${effectiveIterations} itération(s)`
 
   const field = (key: keyof LoadConfig, label: string, hint: string, opts: { required?: boolean; placeholder?: string } = {}) => (
-    <div className="col-12 col-sm-6">
+    <div className="col-12 col-sm-6" key={key}>
       <label className="pt-form-label" htmlFor={`load-${key}`}>
         {label} {opts.required ? <span className="sw-required" aria-hidden="true">*</span> : <span className="sw-optional">optionnel</span>}
       </label>
@@ -69,45 +89,58 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
         <div>
           <div className="sw-section-label">Profil de charge</div>
           <div className="sw-preset-grid">
-            {LOAD_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`sw-preset ${load.presetId === p.id ? 'selected' : ''}`}
-                onClick={() => onChange(p.values ? { presetId: p.id, ...p.values } : { presetId: p.id })}
-              >
-                <i className={`bi ${p.icon}`}></i>
-                <span className="sw-preset-label">{p.label}</span>
-                <span className="sw-preset-desc">{p.description}</span>
-              </button>
-            ))}
+            {LOAD_PRESETS.map((p) => {
+              const blocked = presetBlockedReason(p, limits)
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`sw-preset ${load.presetId === p.id ? 'selected' : ''}`}
+                  disabled={!!blocked}
+                  title={blocked ?? undefined}
+                  aria-label={blocked ? `${p.label} — ${blocked}` : undefined}
+                  onClick={() => onChange(p.values ? { presetId: p.id, ...p.values } : { presetId: p.id })}
+                >
+                  <i className={`bi ${p.icon}`}></i>
+                  <span className="sw-preset-label">{p.label}</span>
+                  <span className="sw-preset-desc">{blocked ?? p.description}</span>
+                </button>
+              )
+            })}
           </div>
+          {blockedPresets.length > 0 && (
+            <div className="sw-field-hint mt-2">
+              <i className="bi bi-info-circle"></i> {blockedPresets.map((p) => `« ${p.label} »`).join(' et ')}{' '}
+              {blockedPresets.length > 1 ? 'dépassent' : 'dépasse'} les limites du serveur : choisissez « Personnalisé » pour régler la charge.
+            </div>
+          )}
         </div>
 
         <div className="pt-card">
           <div className="row g-3">
-            {field('virtualUsers', 'Utilisateurs virtuels',
-              'Nombre d’utilisateurs simulés en parallèle (1 à 500).', { required: true })}
-            {field('thinkTimeMs', 'Think time (ms)',
-              'Pause d’un utilisateur entre deux itérations (après sa dernière étape, avant de recommencer). Aucune pause entre les étapes d’une même itération.',
-              { required: true })}
-            {field('rampUpSeconds', 'Ramp-up (s)',
-              staggerSeconds
-                ? `Temps pour démarrer tous les utilisateurs progressivement : un nouvel utilisateur toutes les ${staggerSeconds.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} s.`
-                : 'Temps pour démarrer tous les utilisateurs progressivement (0 = tous en même temps).',
-              { required: true })}
-            {field('durationSeconds', 'Durée (s)',
-              'Chaque utilisateur répète le scénario jusqu’à la fin de cette durée (une itération commencée va jusqu’au bout).',
-              { placeholder: 'Sans limite de temps' })}
-            {field('iterations', 'Itérations',
-              'Nombre de passages complets du scénario par utilisateur.', { placeholder: duration ? 'Sans limite' : '1' })}
-            {field('targetRps', 'Débit cible (req/s)',
-              'Limite globale de requêtes par seconde, partagée par tous les utilisateurs.', { placeholder: 'Illimité' })}
+            {LOAD_FIELDS.map((f) => field(f.key, f.label,
+              f.key === 'rampUpSeconds' && staggerSeconds
+                ? `${f.hint(limits)} Un nouvel utilisateur toutes les ${staggerSeconds.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} s.`
+                : f.hint(limits),
+              { required: f.required, placeholder: f.key === 'iterations' ? (duration ? 'Sans limite' : '1') : f.placeholder }))}
             <div className="col-12">
               <div className="sw-field-hint">
                 <i className="bi bi-info-circle"></i> Durée et itérations renseignées : le test s’arrête à la première limite atteinte.
                 Aucune des deux : chaque utilisateur joue le scénario une seule fois.
               </div>
+              {estimate && (
+                <div className="sw-estimate" data-testid="load-estimate">
+                  <i className="bi bi-calculator"></i>
+                  <span>
+                    <strong>Estimation</strong> (approximative) : durée totale ≈ {formatApproxSeconds(estimate.totalSeconds)} · ≈ {estimate.requests.toLocaleString('fr-FR')} requêtes.
+                    <span className="d-block sw-estimate-basis">
+                      {estimate.measured
+                        ? `Calculée avec le temps de réponse moyen du test de validation (${estimate.requestMs.toLocaleString('fr-FR')} ms) ; les temps réels sous charge peuvent être plus longs.`
+                        : `Calculée en supposant ${estimate.requestMs.toLocaleString('fr-FR')} ms par requête : lancez le test de validation pour l’affiner.`}
+                    </span>
+                  </span>
+                </div>
+              )}
             </div>
             {onThresholdsChange && (
               <div className="col-12">
@@ -116,6 +149,7 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                   <div className="col-12 col-sm-6">
                     <label className="pt-form-label" htmlFor="load-max-error-rate">
                       Taux d’erreurs maximal (%) <span className="sw-required" aria-hidden="true">*</span>
+                      <InfoTip text="« Échouée » est réservé à un test qui n’a pas pu se dérouler." />
                     </label>
                     <input id="load-max-error-rate" className={`pt-form-control ${errors.maxErrorRatePercent ? 'is-invalid' : ''}`} inputMode="decimal"
                       value={info.maxErrorRatePercent ?? '1'} onChange={(e) => onThresholdsChange({ maxErrorRatePercent: e.target.value })} aria-required />
@@ -133,29 +167,20 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                       ? <div className="sw-field-error">{errors.maxP95Ms}</div>
                       : <div className="sw-field-hint">95 % des requêtes doivent répondre en moins de ce temps (toutes étapes confondues).</div>}
                   </div>
-                  <div className="col-12">
-                    <div className="sw-field-hint">
-                      <i className="bi bi-info-circle"></i> « Échouée » (rouge) est réservé à un test qui n’a pas pu se dérouler :
-                      authentification refusée, application injoignable, erreur interne.
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
             {onRequestDetailModeChange && (
               <div className="col-12">
-                <label className="pt-form-label" htmlFor="load-request-detail">Détail des requêtes</label>
+                <label className="pt-form-label" htmlFor="load-request-detail">
+                  Détail des requêtes <InfoTip text="Requêtes conservées pour le détail de l’exécution, secrets masqués." />
+                </label>
                 <select id="load-request-detail" className="pt-form-control" value={info.requestDetailMode ?? 'FAILURES_AND_SAMPLE'}
                   onChange={(e) => onRequestDetailModeChange(e.target.value as BackendRequestDetailMode)}>
                   <option value="FAILURES_AND_SAMPLE">Échecs + échantillon (recommandé)</option>
                   <option value="FAILURES">Échecs seulement</option>
                   <option value="NONE">Aucun</option>
                 </select>
-                <div className="sw-field-hint">
-                  Requête envoyée et réponse reçue de chaque requête conservée, consultables dans le détail de l’exécution
-                  (secrets masqués, corps limités à 10 Ko). Échecs : jusqu’à 20 par type d’erreur et 100 par étape ;
-                  échantillon : les 3 premières itérations de chaque étape pour chaque utilisateur virtuel.
-                </div>
               </div>
             )}
           </div>
@@ -210,8 +235,8 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
             <div><strong>{stopLabel}</strong><span>arrêt</span></div>
             <div><strong>{ramp ? formatSeconds(ramp) : '0 s'}</strong><span>ramp-up</span></div>
           </div>
-          {totalRequests !== null && <div className="sw-summary-sub mt-2"><i className="bi bi-arrow-left-right"></i> ≈ {totalRequests.toLocaleString('fr-FR')} requêtes au total</div>}
-          {estimatedSeconds !== null && estimatedSeconds > 0 && <div className="sw-summary-sub mt-2"><i className="bi bi-clock"></i> ≈ {formatSeconds(estimatedSeconds)} de test</div>}
+          {estimate && <div className="sw-summary-sub mt-2"><i className="bi bi-arrow-left-right"></i> ≈ {estimate.requests.toLocaleString('fr-FR')} requêtes au total (estimation)</div>}
+          {estimate && estimate.totalSeconds >= 1 && <div className="sw-summary-sub mt-2"><i className="bi bi-clock"></i> ≈ {formatApproxSeconds(estimate.totalSeconds)} de test (estimation)</div>}
           {csvRows !== null && vu > csvRows && (
             <div className="sw-summary-sub mt-2">
               <i className="bi bi-arrow-repeat"></i> CSV : {csvRows} ligne(s) pour {vu} utilisateurs — réutilisation cyclique (une ligne par utilisateur).

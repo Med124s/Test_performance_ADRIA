@@ -76,9 +76,11 @@ describe('dates et fuseau horaire', () => {
       .toBe('Tous les jours à 02:00 · jusqu’au 31/12/2026')
   })
 
-  it('écart de P95 avec flèche', () => {
+  it('écart de P95 avec flèche, selon le seuil de régression (20 % par défaut, réglable)', () => {
     expect(p95Change(35)).toEqual({ text: '↑ +35 %', tone: 'worse' })
-    expect(p95Change(-12.5)).toEqual({ text: '↓ −12,5 %', tone: 'better' })
+    expect(p95Change(-22.5)).toEqual({ text: '↓ −22,5 %', tone: 'better' })
+    expect(p95Change(-12.5)).toEqual({ text: '−12,5 %', tone: 'same' })
+    expect(p95Change(-12.5, 10)).toEqual({ text: '↓ −12,5 %', tone: 'better' })
     expect(p95Change(2)).toEqual({ text: '+2 %', tone: 'same' })
     expect(p95Change(null)).toBeNull()
   })

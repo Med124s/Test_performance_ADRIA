@@ -1,74 +1,45 @@
 import { useEffect, useState } from 'react'
 import TopBar from '../components/TopBar'
 import { useAuth } from '../context/AuthContext'
-import { systemConfigBackendApi } from '../services/api/systemConfigBackend'
-import { BackendSystemConfigResponse } from '../types/backendContracts'
-import { ApiError } from '../services/api/httpClient'
+import { settingsBackendApi } from '../services/api/settingsBackend'
+import { BackendStorageInfo } from '../types/backendContracts'
 import AuditSettingsCard from './audit/AuditSettingsCard'
+import ResultsRetentionCard from './audit/ResultsRetentionCard'
+import LimitsCard from './settings/LimitsCard'
+import ThresholdsCard from './settings/ThresholdsCard'
+import LoadDefaultsCard from './settings/LoadDefaultsCard'
 import './audit/audit.css'
+import './settings/settings.css'
+
+export { formatDuration } from './settings/formatDuration'
 
 // ============================================================
-// P1-D — page RÉELLE (remplace l'ancien ComingSoonPage), mais
-// DÉLIBÉRÉMENT LECTURE SEULE : voir le rapport P1-D, section
-// "Configurations" pour l'analyse complète. Aucune configuration
-// mutable/persistée n'a été créée : les limites ci-dessous restent
-// pilotées par variable d'environnement (voir application.yml côté
-// backend), un choix déjà établi et éprouvé depuis P0-B/P1-B. Cette page
-// se contente d'exposer honnêtement leur valeur RÉELLEMENT active
-// (GET /api/system/config, SUPER_ADMIN) — jamais un formulaire qui
-// prétendrait les modifier alors que le backend ne les persiste pas.
+// Paramètres > « Système » (Super administrateur) :
+//  - limites des tests (modifiables sous le plafond du serveur) et délais en lecture seule ;
+//  - charge et seuils par défaut des nouveaux scénarios ;
+//  - conservation des résultats et journal d'audit, avec la taille de la base et l'état des purges.
 // ============================================================
 
-function describeApiError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    switch (err.status) {
-      case 0: return err.message
-      case 401: return 'Vous devez être connecté pour consulter la configuration système.'
-      case 403: return "Réservé aux Super Administrateurs."
-      default: return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
-    }
-  }
-  return err instanceof Error ? err.message : fallback
-}
-
-/** embedded : affichée dans un onglet (Paramètres, Utilisateurs et rôles), sans son propre en-tête. */
+/** embedded : affichée dans un onglet (Paramètres), sans son propre en-tête. */
 function Configurations({ embedded = false }: { embedded?: boolean } = {}) {
   const { authProvider, rawRoles } = useAuth()
-  const isKeycloak = authProvider === 'keycloak'
-  const isSuperAdmin = isKeycloak && rawRoles.includes('ROLE_SUPER_ADMIN')
+  const isSuperAdmin = authProvider === 'keycloak' && rawRoles.includes('ROLE_SUPER_ADMIN')
+  const [storage, setStorage] = useState<BackendStorageInfo | null>(null)
+  /** Rechargée après un changement de limites (avertissement si la charge par défaut les dépasse). */
+  const [limitsVersion, setLimitsVersion] = useState(0)
 
-  const [config, setConfig] = useState<BackendSystemConfigResponse | null>(null)
-  const [loading, setLoading] = useState(isSuperAdmin)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = () => {
+  useEffect(() => {
     if (!isSuperAdmin) return
-    setLoading(true)
-    setError(null)
-    systemConfigBackendApi.get()
-      .then(setConfig)
-      .catch((err) => setError(describeApiError(err, 'Impossible de charger la configuration système.')))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { load() }, [isSuperAdmin])
-
-  const rows = config ? [
-    { label: 'Utilisateurs virtuels max. par exécution', value: config.maxVirtualUsersPerExecution, icon: 'bi-people' },
-    { label: 'Utilisateurs virtuels max. (global)', value: config.maxGlobalVirtualUsers, icon: 'bi-diagram-3' },
-    { label: 'Exécutions simultanées max.', value: config.maxConcurrentExecutions, icon: 'bi-play-circle' },
-    { label: "Timeout d'exécution (par requête)", value: `${config.executionTimeoutSeconds} s`, icon: 'bi-stopwatch' },
-    { label: 'Timeout du test de disponibilité', value: `${config.availabilityTimeoutSeconds} s`, icon: 'bi-wifi' },
-    { label: 'Intervalle du scheduler (planifications)', value: `${config.schedulerPollIntervalMs} ms`, icon: 'bi-calendar-week' },
-  ] : []
+    settingsBackendApi.storage().then(setStorage).catch(() => setStorage(null))
+  }, [isSuperAdmin])
 
   return (
     <div className={embedded ? undefined : 'pt-content'}>
       {!embedded && (
         <div className="pt-page-header">
           <div className="page-title">
-            <h1>Configuration système</h1>
-            <p>Limites opérationnelles réellement actives sur ce backend</p>
+            <h1>Système</h1>
+            <p>Limites, valeurs par défaut et conservation des données</p>
           </div>
           <TopBar searchPlaceholder="" />
         </div>
@@ -76,49 +47,16 @@ function Configurations({ embedded = false }: { embedded?: boolean } = {}) {
 
       {!isSuperAdmin ? (
         <div className="pt-empty-state">
-          <i className="bi bi-shield-lock" style={{ fontSize: '28px', color: 'var(--pt-text-light)' }}></i>
-          <p>Cette page est réservée aux Super Administrateurs.</p>
+          <i className="bi bi-shield-lock" style={{ fontSize: '28px', color: 'var(--pt-text-light)' }} aria-hidden="true"></i>
+          <p>Cette page est réservée au Super administrateur.</p>
         </div>
       ) : (
         <>
-          {error && (
-            <div className="pt-alert-banner danger mb-3">
-              <i className="bi bi-exclamation-triangle-fill"></i>
-              {error}
-              <button className="pt-btn-outline ms-auto" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={load}>Réessayer</button>
-            </div>
-          )}
-
-          <div className="pt-card mb-3" style={{ padding: '0.85rem 1.1rem', fontSize: '12.5px', color: 'var(--pt-text-muted)' }}>
-            <i className="bi bi-info-circle me-2 text-primary"></i>
-            Ces limites sont pilotées par variable d'environnement côté serveur — elles ne sont <strong>pas modifiables depuis cette page</strong>.
-            Pour les changer, ajustez la variable correspondante et redémarrez le backend.
-          </div>
-
-          <div className="pt-card" style={{ padding: 0 }}>
-            {loading ? (
-              <div className="pt-empty-state">
-                <i className="bi bi-arrow-repeat pt-spin" style={{ fontSize: '28px', color: 'var(--pt-primary)' }}></i>
-                <p>Chargement de la configuration...</p>
-              </div>
-            ) : !config ? null : (
-              <div className="pt-table-wrapper">
-                <table className="pt-table">
-                  <thead><tr><th>Paramètre</th><th style={{ textAlign: 'right' }}>Valeur active</th></tr></thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr key={row.label}>
-                        <td><i className={`bi ${row.icon} me-2 text-primary`}></i>{row.label}</td>
-                        <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>{row.value}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <AuditSettingsCard />
+          <LimitsCard onSaved={() => setLimitsVersion((v) => v + 1)} />
+          <LoadDefaultsCard key={limitsVersion} />
+          <ThresholdsCard />
+          <ResultsRetentionCard storage={storage} />
+          <AuditSettingsCard storage={storage} />
         </>
       )}
     </div>
