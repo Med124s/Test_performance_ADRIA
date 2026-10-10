@@ -33,11 +33,11 @@ Données de départ réelles (lues dans `banking-test-api/banking.db` après un 
 
 | Table | Contenu |
 |---|---|
-| users | `AG001` · `agent001` · rôle `agent` (seul utilisateur) |
-| accounts | `ACC001` (agent, 15 420,50 MAD) · `ACC002` (client CL001, 8 000 MAD) |
-| clients | `CL001` · Client Démo |
+| users | `agent001` … `agent020` (rôle `agent`), mots de passe de démo dans `banking-test-api/README.md` |
+| accounts | `ACC001` … `ACC020` : le client `CLNNN` possède `ACCNNN` (30 000 à 49 000 MAD) ; détail dans `banking-test-api/README.md` |
+| clients | `CL001` … `CL020` : l'agent `agentNNN` gère le client `CLNNN` |
 | transfers | `TRF001` (ACC001 → ACC002, 500) |
-| bills | aucune facture |
+| invoices | 6 000 factures impayées `FAC-2026-00001` … `FAC-2026-06000` (300 par client) ; une facture payée deux fois renvoie 409 |
 
 > **À savoir sur banking-test-api** (lu dans `src/index.js`) :
 > - 7 % des requêtes d'écriture valides reçoivent un **409 ou 500 aléatoire** (virement, facture, dépôt).

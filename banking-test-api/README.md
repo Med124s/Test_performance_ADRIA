@@ -17,7 +17,7 @@ Le port peut être changé avec la variable d'environnement `PORT`.
 LoadPilot y lit le CPU et la RAM **de ce serveur** (pas de la machine entière) toutes les 5 secondes.
 Après une mise à jour, relancez `npm install` puis `npm start`.
 
-La latence est simulée, et 7 % d'erreurs 409/500 aléatoires sont injectées sur les requêtes d'écriture valides (voir `src/config.js`) : quelques échecs pendant un test de charge sont donc normaux.
+La latence est simulée (100 à 300 ms), et 7 % d'erreurs 409/500 aléatoires sont injectées sur les requêtes d'écriture valides (voir `src/config.js`) : quelques échecs pendant un test de charge sont donc normaux.
 
 ### Régler les erreurs aléatoires
 
@@ -54,9 +54,40 @@ Les erreurs 400 (validation) et 401 (authentification) ne sont pas concernées :
 | POST | `/api/transfers/national`, `/api/transfers/international` | Oui |
 | PUT / PATCH / DELETE | `/api/transfers/:id` | Oui |
 | POST | `/api/bills/pay`, `/api/deposits` | Oui |
-| POST | `/api/reset` | Oui (restaure les données de démo) |
+| POST | `/api/reset` | Non (restaure les données de démo ; jamais dans un scénario de charge) |
 
-Compte de démonstration : **agent001 / test123**.
+## Données de démo
+
+Créées au premier démarrage et restaurées à l'identique par `POST /api/reset` (`src/db.js`). Toutes fictives.
+
+| Donnée | Contenu |
+|---|---|
+| Agents | `agent001` … `agent020` (utilisateurs `AG001` … `AG020`) |
+| Mots de passe de démo | `agent001` / `test123`, puis `agentNNN` / `testNNN` (ex. `agent007` / `test007`) |
+| Clients | `CL001` … `CL020` : l'agent `agentNNN` gère le client `CLNNN` |
+| Comptes | `ACC001` … `ACC020` : le client `CLNNN` possède le compte `ACCNNN` (30 000 à 49 000 MAD). C'est le compte de `GET /api/account/balance` pour `agentNNN` |
+| Factures impayées | 6 000 : `FAC-2026-00001` … `FAC-2026-06000`, 300 par client (facture *k* → client `CL((k−1) mod 20 + 1)`), de 20 à 800 MAD |
+| Transfert | `TRF001` (`ACC001` → `ACC002`, 500 MAD) |
+
+Les CSV de `docs/samples/` (`parcours-bancaire-5000.csv`, `users-login*.csv`) sont générés à partir de ces données par
+`docs/samples/generate-parcours-bancaire.mjs`.
+
+## Règles métier et codes de réponse
+
+| Opération | Règle | Code si non respectée |
+|---|---|---|
+| Toutes les écritures | Champs requis présents, montant > 0 | 400 |
+| Virement | Compte source existant ; destinataire existant pour un virement national | 404 |
+| Virement | Source et destinataire différents | 400 |
+| Virement, PATCH, PUT | Solde suffisant : le virement débite la source et crédite le destinataire | 422 |
+| DELETE d'un virement | Annule le virement : la source est remboursée, le destinataire débité | — |
+| Paiement de facture | La facture existe et appartient au `clientId` | 404 |
+| Paiement de facture | Montant égal à celui de la facture | 400 |
+| Paiement de facture | **Facture déjà payée** | **409** |
+| Dépôt | Compte existant ; crédite le compte | 404 |
+
+Déclencheurs volontaires : `destinationAccount` = `LOCKED` (409), `NOTFOUND` (404), `ERROR500` (500) ; `billNumber` = `NOTFOUND` (404).
+En plus, les erreurs aléatoires de `ERROR_RATE` (ci-dessus) s'appliquent aux virements, factures et dépôts.
 
 ## Authentification : 4 modes acceptés
 

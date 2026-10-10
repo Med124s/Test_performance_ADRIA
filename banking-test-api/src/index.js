@@ -96,6 +96,47 @@ function agentAccountFor(userId) {
   return agent ? agent.account_id : 'ACC001'
 }
 
+// ------------------------------------------------------------
+// Soldes — un virement débite le compte source et crédite le compte
+// destinataire (s'il est dans cette banque : un virement international vers
+// un IBAN externe ne crédite rien ici). PATCH/PUT ajustent la différence,
+// DELETE annule le virement (remboursement). Tout se fait sans `await`
+// entre la lecture et l'écriture : node:sqlite est synchrone, donc chaque
+// opération est atomique même avec beaucoup de requêtes simultanées.
+// ------------------------------------------------------------
+const findAccount = (id) => db.prepare('SELECT * FROM accounts WHERE id = ?').get(id)
+const addToBalance = (id, delta) => db.prepare('UPDATE accounts SET balance = balance + ? WHERE id = ?').run(delta, id)
+const INSUFFICIENT_FUNDS = (account, balance, amount) =>
+  `Solde insuffisant sur ${account} : ${balance.toFixed(2)} MAD disponibles, ${Number(amount).toFixed(2)} MAD demandés.`
+
+/** Exécute fn dans une transaction SQL ; annule tout si fn renvoie une erreur ({ status, error }) ou lève. */
+function inTransaction(fn) {
+  db.exec('BEGIN')
+  try {
+    const result = fn()
+    db.exec(result && result.error ? 'ROLLBACK' : 'COMMIT')
+    return result
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+}
+
+/** Retire l'effet d'un virement sur les soldes (source remboursée, destinataire débité). */
+function reverseTransfer(transfer) {
+  addToBalance(transfer.source_account, transfer.amount)
+  if (findAccount(transfer.destination_account)) addToBalance(transfer.destination_account, -transfer.amount)
+}
+
+/** Applique un virement aux soldes ; { status, error } si le solde de la source ne suffit pas. */
+function applyTransfer(source, destination, amount) {
+  const account = findAccount(source)
+  if (account.balance < amount) return { status: 422, error: INSUFFICIENT_FUNDS(source, account.balance, amount) }
+  addToBalance(source, -amount)
+  if (findAccount(destination)) addToBalance(destination, amount)
+  return null
+}
+
 // ============================================================
 // GET /health
 // ============================================================
@@ -239,17 +280,35 @@ function makeTransferHandler(kind) {
     // ce try/catch, une erreur synchrone de node:sqlite se transforme en
     // rejet de promesse non intercepté par Express, et Node tue le
     // processus entier (c'est exactement ce qui faisait tomber le port 8000).
+    // Règles métier : comptes existants (destinataire dans cette banque pour un virement
+    // national), solde suffisant — le virement débite la source et crédite le destinataire.
+    if (!findAccount(sourceAccount)) {
+      return res.status(404).json({ success: false, error: 'Compte source introuvable.' })
+    }
+    if (kind === 'national' && !findAccount(destinationAccount)) {
+      return res.status(404).json({ success: false, error: 'Compte destinataire introuvable.' })
+    }
+    if (sourceAccount === destinationAccount) {
+      return res.status(400).json({ success: false, error: 'Le compte destinataire doit être différent du compte source.' })
+    }
+
     let id
     try {
-      id = nextId('transfer')
-      const createdAt = new Date().toISOString()
-      db.prepare(
-        `INSERT INTO transfers (id, source_account, destination_account, destination_country, amount, currency, kind, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(id, sourceAccount, destinationAccount, body.destinationCountry ?? null, Number(amount), body.currency ?? null, kind, 'completed', createdAt)
-      db.prepare(
-        `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(nextId('transaction'), sourceAccount, 'transfer', Number(amount), body.currency ?? 'MAD', 'completed', createdAt.slice(0, 10))
+      const refused = inTransaction(() => {
+        const problem = applyTransfer(sourceAccount, destinationAccount, Number(amount))
+        if (problem) return problem
+        id = nextId('transfer')
+        const createdAt = new Date().toISOString()
+        db.prepare(
+          `INSERT INTO transfers (id, source_account, destination_account, destination_country, amount, currency, kind, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(id, sourceAccount, destinationAccount, body.destinationCountry ?? null, Number(amount), body.currency ?? null, kind, 'completed', createdAt)
+        db.prepare(
+          `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(nextId('transaction'), sourceAccount, 'transfer', Number(amount), body.currency ?? 'MAD', 'completed', createdAt.slice(0, 10))
+        return null
+      })
+      if (refused) return res.status(refused.status).json({ success: false, error: refused.error })
     } catch (err) {
       console.error(`[transfers/${kind}] Erreur SQL :`, err.message)
       return res.status(500).json({ success: false, error: "Erreur interne lors de l'enregistrement du transfert." })
@@ -284,6 +343,19 @@ function serializeTransfer(row) {
   }
 }
 
+/** Modifie un virement et ses effets sur les soldes ; { status, error } si le solde ne suffit plus (rien n'est modifié). */
+function updateTransfer(existing, destinationAccount, amount, currency, destinationCountry) {
+  return inTransaction(() => {
+    reverseTransfer(existing)
+    const problem = applyTransfer(existing.source_account, destinationAccount, amount)
+    if (problem) return problem
+    db.prepare(
+      `UPDATE transfers SET destination_account = ?, amount = ?, currency = ?, destination_country = ?, updated_at = ? WHERE id = ?`
+    ).run(destinationAccount, amount, currency, destinationCountry, new Date().toISOString(), existing.id)
+    return null
+  })
+}
+
 // ============================================================
 // PUT /api/transfers/:id — remplacement complet d'un transfert existant
 // ============================================================
@@ -300,10 +372,11 @@ app.put('/api/transfers/:id', async (req, res) => {
   if (!destinationAccount || !(Number(amount) > 0)) {
     return res.status(400).json({ success: false, error: 'destinationAccount et amount (positif) sont requis.' })
   }
-  const updatedAt = new Date().toISOString()
-  db.prepare(
-    `UPDATE transfers SET destination_account = ?, amount = ?, currency = ?, destination_country = ?, updated_at = ? WHERE id = ?`
-  ).run(destinationAccount, Number(amount), currency ?? null, destinationCountry ?? null, updatedAt, req.params.id)
+  if (existing.kind === 'national' && !findAccount(destinationAccount)) {
+    return res.status(404).json({ success: false, error: 'Compte destinataire introuvable.' })
+  }
+  const refused = updateTransfer(existing, destinationAccount, Number(amount), currency ?? null, destinationCountry ?? null)
+  if (refused) return res.status(refused.status).json({ success: false, error: refused.error })
 
   const updated = db.prepare('SELECT * FROM transfers WHERE id = ?').get(req.params.id)
   res.status(200).json({ success: true, ...serializeTransfer(updated) })
@@ -329,10 +402,11 @@ app.patch('/api/transfers/:id', async (req, res) => {
   const destinationAccount = body.destinationAccount ?? existing.destination_account
   const currency = body.currency ?? existing.currency
   const destinationCountry = body.destinationCountry ?? existing.destination_country
-  const updatedAt = new Date().toISOString()
-  db.prepare(
-    `UPDATE transfers SET destination_account = ?, amount = ?, currency = ?, destination_country = ?, updated_at = ? WHERE id = ?`
-  ).run(destinationAccount, amount, currency, destinationCountry, updatedAt, req.params.id)
+  if (existing.kind === 'national' && !findAccount(destinationAccount)) {
+    return res.status(404).json({ success: false, error: 'Compte destinataire introuvable.' })
+  }
+  const refused = updateTransfer(existing, destinationAccount, amount, currency, destinationCountry)
+  if (refused) return res.status(refused.status).json({ success: false, error: refused.error })
 
   const updated = db.prepare('SELECT * FROM transfers WHERE id = ?').get(req.params.id)
   res.status(200).json({ success: true, ...serializeTransfer(updated) })
@@ -350,7 +424,12 @@ app.delete('/api/transfers/:id', async (req, res) => {
   if (!existing) {
     return res.status(404).json({ success: false, error: 'Transfert introuvable.' })
   }
-  db.prepare('DELETE FROM transfers WHERE id = ?').run(req.params.id)
+  // Annulation : la source est remboursée et le destinataire débité du montant.
+  inTransaction(() => {
+    reverseTransfer(existing)
+    db.prepare('DELETE FROM transfers WHERE id = ?').run(req.params.id)
+    return null
+  })
   res.status(200).json({ success: true, transferId: req.params.id, status: 'deleted' })
 })
 
@@ -378,11 +457,28 @@ app.post('/api/bills/pay', async (req, res) => {
     return res.status(500).json({ success: false, error: 'Erreur interne simulée.' })
   }
 
+  // Règles métier : la facture existe, appartient à ce client, n'est pas déjà payée
+  // (sinon 409) et le montant payé est exactement celui de la facture.
+  const invoice = db.prepare('SELECT * FROM invoices WHERE bill_number = ?').get(billNumber)
+  if (!invoice || invoice.client_id !== clientId) {
+    return res.status(404).json({ success: false, error: `Facture ${billNumber} introuvable pour le client ${clientId}.` })
+  }
+  if (invoice.status === 'paid') {
+    return res.status(409).json({ success: false, error: `Facture ${billNumber} déjà payée le ${invoice.paid_at}.` })
+  }
+  if (Math.abs(invoice.amount - Number(amount)) > 0.001) {
+    return res.status(400).json({ success: false, error: `Montant différent de la facture : ${invoice.amount.toFixed(2)} MAD attendus.` })
+  }
+
   const id = nextId('bill')
   const paidAt = new Date().toISOString()
-  db.prepare(
-    `INSERT INTO bills (id, client_id, bill_number, amount, status, paid_at) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, clientId, billNumber, Number(amount), 'paid', paidAt)
+  inTransaction(() => {
+    db.prepare(`UPDATE invoices SET status = 'paid', paid_at = ? WHERE bill_number = ?`).run(paidAt, billNumber)
+    db.prepare(
+      `INSERT INTO bills (id, client_id, bill_number, amount, status, paid_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(id, clientId, billNumber, Number(amount), 'paid', paidAt)
+    return null
+  })
 
   res.status(201).json({ success: true, paymentId: id, clientId, billNumber, amount: Number(amount), status: 'paid' })
 })
@@ -408,12 +504,22 @@ app.post('/api/deposits', async (req, res) => {
     return res.status(500).json({ success: false, error: 'Erreur interne simulée.' })
   }
 
+  if (!findAccount(account)) {
+    return res.status(404).json({ success: false, error: 'Compte introuvable.' })
+  }
+
   const id = nextId('deposit')
   const createdAt = new Date().toISOString()
-  db.prepare(
-    `INSERT INTO deposits (id, account_id, amount, status, created_at) VALUES (?, ?, ?, ?, ?)`
-  ).run(id, account, Number(amount), 'completed', createdAt)
-  db.prepare(`UPDATE accounts SET balance = balance + ? WHERE id = ?`).run(Number(amount), account)
+  inTransaction(() => {
+    db.prepare(
+      `INSERT INTO deposits (id, account_id, amount, status, created_at) VALUES (?, ?, ?, ?, ?)`
+    ).run(id, account, Number(amount), 'completed', createdAt)
+    addToBalance(account, Number(amount))
+    db.prepare(
+      `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(nextId('transaction'), account, 'deposit', Number(amount), 'MAD', 'completed', createdAt.slice(0, 10))
+    return null
+  })
 
   res.status(201).json({ success: true, depositId: id, account, amount: Number(amount), status: 'completed' })
 })

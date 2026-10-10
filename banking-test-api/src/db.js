@@ -82,6 +82,16 @@ db.exec(`
     paid_at TEXT NOT NULL
   );
 
+  -- Factures émises (données de démo) : payées une seule fois via POST /api/bills/pay.
+  -- La table bills ci-dessus garde, elle, le journal des paiements.
+  CREATE TABLE IF NOT EXISTS invoices (
+    bill_number TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    amount REAL NOT NULL,
+    status TEXT NOT NULL,
+    paid_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS deposits (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL,
@@ -99,39 +109,90 @@ try {
 } catch {
   // Colonne déjà présente — rien à faire.
 }
+// Même principe pour le client géré par un agent (agentNNN -> CLNNN).
+try {
+  db.exec('ALTER TABLE agents ADD COLUMN client_id TEXT')
+} catch {
+  // Colonne déjà présente — rien à faire.
+}
 
-// Insertions de démo partagées par le tout premier démarrage (base vide) ET
-// par POST /api/reset (voir resetDatabase ci-dessous) — les deux doivent
-// reproduire exactement les mêmes données de départ.
+// ============================================================
+// Données de démo partagées par le tout premier démarrage (base vide) ET par
+// POST /api/reset (voir resetDatabase ci-dessous) — les deux reproduisent
+// exactement les mêmes données de départ (aucun hasard : générateur fixe).
+//
+//   20 agents   agent001 … agent020 (utilisateurs AG001 … AG020)
+//   20 clients  CL001 … CL020 — l'agent agentNNN gère le client CLNNN
+//   20 comptes  ACC001 … ACC020 — le client CLNNN possède le compte ACCNNN
+//               (c'est aussi le compte affiché par GET /api/account/balance de agentNNN)
+//   6 000 factures impayées FAC-2026-00001 … FAC-2026-06000, 300 par client
+//               (facture k -> client CL((k-1) % 20 + 1)), de 20 à 800 MAD
+//
+// Mots de passe de démo (fictifs, documentés dans README.md) : agent001 / test123
+// (inchangé), puis agentNNN / testNNN.
+// ============================================================
+export const DEMO_AGENT_COUNT = 20
+export const DEMO_BILLS_PER_CLIENT = 300
+
+const pad3 = (n) => String(n).padStart(3, '0')
+export const demoPassword = (n) => (n === 1 ? 'test123' : `test${pad3(n)}`)
+export const demoBillNumber = (k) => `FAC-2026-${String(k).padStart(5, '0')}`
+
+/** Générateur pseudo-aléatoire fixe (mulberry32) : mêmes montants à chaque reset. */
+function seededRandom(seed) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 function seedInitialData() {
-  db.prepare(`INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)`)
-    .run('AG001', 'agent001', 'test123', 'agent')
+  const insertUser = db.prepare(`INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)`)
+  const insertClient = db.prepare(`INSERT INTO clients (id, name) VALUES (?, ?)`)
+  const insertAccount = db.prepare(`INSERT INTO accounts (id, owner_id, balance, commission, currency) VALUES (?, ?, ?, ?, ?)`)
+  const insertAgent = db.prepare(`INSERT INTO agents (id, user_id, name, account_id, client_id) VALUES (?, ?, ?, ?, ?)`)
+  const insertInvoice = db.prepare(`INSERT INTO invoices (bill_number, client_id, amount, status, paid_at) VALUES (?, ?, ?, 'unpaid', NULL)`)
 
-  db.prepare(`INSERT INTO accounts (id, owner_id, balance, commission, currency) VALUES (?, ?, ?, ?, ?)`)
-    .run('ACC001', 'AG001', 15420.5, 2.5, 'MAD')
-  db.prepare(`INSERT INTO accounts (id, owner_id, balance, commission, currency) VALUES (?, ?, ?, ?, ?)`)
-    .run('ACC002', 'CL001', 8000, 1.2, 'MAD')
+  db.exec('BEGIN')
+  try {
+    for (let n = 1; n <= DEMO_AGENT_COUNT; n++) {
+      const id = pad3(n)
+      insertUser.run(`AG${id}`, `agent${id}`, demoPassword(n), 'agent')
+      insertClient.run(`CL${id}`, n === 1 ? 'Client Démo' : `Client Démo ${id}`)
+      // Soldes de 30 000 à 49 000 MAD (ACC001 garde ses 50 centimes historiques).
+      insertAccount.run(`ACC${id}`, `CL${id}`, 30000 + ((n * 7) % 20) * 1000 + (n === 1 ? 0.5 : 0), 2.5, 'MAD')
+      insertAgent.run(`AG${id}`, `AG${id}`, n === 1 ? 'Agent Démo' : `Agent Démo ${id}`, `ACC${id}`, `CL${id}`)
+    }
+    const random = seededRandom(2026)
+    for (let k = 1; k <= DEMO_AGENT_COUNT * DEMO_BILLS_PER_CLIENT; k++) {
+      const amount = Math.round((20 + random() * 780) * 100) / 100
+      insertInvoice.run(demoBillNumber(k), `CL${pad3(((k - 1) % DEMO_AGENT_COUNT) + 1)}`, amount)
+    }
 
-  db.prepare(`INSERT INTO agents (id, user_id, name, account_id) VALUES (?, ?, ?, ?)`)
-    .run('AG001', 'AG001', 'Agent Démo', 'ACC001')
+    db.prepare(
+      `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('TRX001', 'ACC001', 'transfer', 500, 'MAD', 'completed', '2026-08-10')
+    db.prepare(
+      `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('TRX002', 'ACC001', 'deposit', 1200, 'MAD', 'completed', '2026-08-12')
 
-  db.prepare(`INSERT INTO clients (id, name) VALUES (?, ?)`).run('CL001', 'Client Démo')
-
-  db.prepare(
-    `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run('TRX001', 'ACC001', 'transfer', 500, 'MAD', 'completed', '2026-08-10')
-  db.prepare(
-    `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run('TRX002', 'ACC001', 'deposit', 1200, 'MAD', 'completed', '2026-08-12')
-
-  // Transfert de démo avec un id fixe (TRF001) : sert de cible toute prête
-  // pour les scénarios recommandés PUT/PATCH/DELETE /api/transfers/:id
-  // (voir recommendedScenarios.ts côté PERFTEST) sans devoir d'abord chaîner
-  // un POST /api/transfers/national réel.
-  db.prepare(
-    `INSERT INTO transfers (id, source_account, destination_account, destination_country, amount, currency, kind, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run('TRF001', 'ACC001', 'ACC002', null, 500, 'MAD', 'national', 'completed', '2026-08-15T09:00:00.000Z')
+    // Transfert de démo avec un id fixe (TRF001) : sert de cible toute prête
+    // pour les scénarios recommandés PUT/PATCH/DELETE /api/transfers/:id
+    // (voir recommendedScenarios.ts côté PERFTEST) sans devoir d'abord chaîner
+    // un POST /api/transfers/national réel. Déjà compté dans les soldes ci-dessus.
+    db.prepare(
+      `INSERT INTO transfers (id, source_account, destination_account, destination_country, amount, currency, kind, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run('TRF001', 'ACC001', 'ACC002', null, 500, 'MAD', 'national', 'completed', '2026-08-15T09:00:00.000Z')
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
 }
 
 function seedIfEmpty() {
@@ -195,6 +256,7 @@ export function resetDatabase() {
   db.exec(`
     DELETE FROM transfers;
     DELETE FROM bills;
+    DELETE FROM invoices;
     DELETE FROM deposits;
     DELETE FROM transactions;
     DELETE FROM accounts;
