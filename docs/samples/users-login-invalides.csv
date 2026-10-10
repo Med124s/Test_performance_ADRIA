@@ -1,0 +1,11 @@
+username,password,cas
+agent001,mauvais,mauvais mot de passe
+agent007,test123,mot de passe d’un autre agent
+agent012,TEST012,mot de passe en majuscules
+agent020,test019,mot de passe de l’agent voisin
+agent021,test021,utilisateur inexistant
+agent000,test000,utilisateur inexistant
+AGENT001,test123,nom d’utilisateur en majuscules
+,test123,nom d’utilisateur vide
+agent003,,mot de passe vide
+,,les deux champs vides
