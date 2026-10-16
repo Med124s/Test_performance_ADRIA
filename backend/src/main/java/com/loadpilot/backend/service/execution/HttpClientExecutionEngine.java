@@ -192,6 +192,9 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         // comportement historique inchange.
         PacingGate pacingGate = loadSpec.targetRps() != null ? new PacingGate(loadSpec.targetRps()) : null;
         handle.startLiveStats(steps);
+        // Correction L5 : jeton partage par tous les VUs, renouvele sur un 401 en « Connexion automatique ».
+        RenewableApplicationAuth sharedAuth = new RenewableApplicationAuth(auth, resolvedAuth, applicationBaseUrl, timeoutSeconds,
+                authenticator, recorder);
 
         List<Future<List<StepOutcome>>> futures = new ArrayList<>();
         for (int vu = 0; vu < virtualUsers; vu++) {
@@ -203,7 +206,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             VariableContext variables = new VariableContext(sources.scenarioVariables(), resolvedAuth.token());
             int virtualUser = vu;
             Future<List<StepOutcome>> future = vuExecutor.submit(
-                    () -> runVirtualUser(steps, applicationBaseUrl, resolvedAuth, startDelayMs, deadline, loadSpec, handle,
+                    () -> runVirtualUser(steps, applicationBaseUrl, sharedAuth, startDelayMs, deadline, loadSpec, handle,
                             variables, sources, virtualUser, pacingGate));
             handle.registerFuture(future);
             futures.add(future);
@@ -244,7 +247,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
      * exactement le comportement historique a une seule passe.
      */
     private List<StepOutcome> runVirtualUser(List<StepExecutionSpec> steps, String applicationBaseUrl,
-            ResolvedAuth resolvedAuth, long startDelayMs, ActiveDeadline deadline, LoadTestSpec loadSpec, RunningExecutionHandle handle,
+            RenewableApplicationAuth sharedAuth, long startDelayMs, ActiveDeadline deadline, LoadTestSpec loadSpec, RunningExecutionHandle handle,
             VariableContext variables, VariableSources sources, int virtualUser, PacingGate pacingGate) {
         List<StepOutcome> results = new ArrayList<>();
         if (!handle.sleepActive(startDelayMs) || handle.isCancelled()) {
@@ -282,7 +285,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         if (live != null) live.virtualUserStarted();
         handle.virtualUserStarted(virtualUser);
         try {
-            runIterations(steps, applicationBaseUrl, resolvedAuth, deadline, loadSpec, handle, variables, sources,
+            runIterations(steps, applicationBaseUrl, sharedAuth, deadline, loadSpec, handle, variables, sources,
                     virtualUser, pacingGate, clientFollowing, clientNotFollowing, results, live);
         } finally {
             if (live != null) live.virtualUserFinished();
@@ -291,7 +294,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         return results;
     }
 
-    private void runIterations(List<StepExecutionSpec> steps, String applicationBaseUrl, ResolvedAuth resolvedAuth,
+    private void runIterations(List<StepExecutionSpec> steps, String applicationBaseUrl, RenewableApplicationAuth sharedAuth,
             ActiveDeadline deadline, LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableContext variables,
             VariableSources sources, int virtualUser, PacingGate pacingGate, HttpClient clientFollowing,
             HttpClient clientNotFollowing, List<StepOutcome> results, LiveStats live) {
@@ -326,7 +329,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 // deja en vol recoivent leur reponse normalement).
                 if (!handle.awaitIfPaused()) break;
                 HttpClient client = Boolean.FALSE.equals(step.followRedirects()) ? clientNotFollowing : clientFollowing;
-                StepOutcome outcome = executeStep(client, step, stepIndex + 1, applicationBaseUrl, resolvedAuth, variables,
+                StepOutcome outcome = executeStepWithRenewal(client, step, stepIndex + 1, applicationBaseUrl, sharedAuth, variables,
                         sources, virtualUser, iteration, handle.detailRecorder());
                 results.add(outcome);
                 if (live != null) live.record(stepIndex, outcome);
@@ -356,6 +359,50 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         boolean reached() {
             return System.nanoTime() - startNanos - handle.pausedNanos() >= durationNanos;
         }
+    }
+
+    /**
+     * Correction L5 - envoie l'etape avec le jeton en vigueur. En « Connexion automatique », une
+     * reponse 401 qui fait echouer l'etape, sur une requete qui portait le jeton de l'application,
+     * declenche UN renouvellement (partage entre VUs, voir RenewableApplicationAuth) puis UN seul
+     * rejeu avec le nouveau jeton ; son resultat remplace celui du 401. Reconnexion impossible :
+     * l'echec du 401 remonte tel quel, avec la raison. Autres modes : comportement inchange.
+     */
+    private StepOutcome executeStepWithRenewal(HttpClient client, StepExecutionSpec step, int stepNumber, String applicationBaseUrl,
+            RenewableApplicationAuth sharedAuth, VariableContext variables, VariableSources sources, int virtualUser, int iteration,
+            RequestDetailRecorder recorder) {
+        RenewableApplicationAuth.Current used = sharedAuth.current();
+        variables.updateAuthToken(used.resolved().token());
+        StepOutcome outcome = executeStep(client, step, stepNumber, applicationBaseUrl, used.resolved(), variables, sources,
+                virtualUser, iteration, recorder);
+        if (!sharedAuth.renewable() || outcome.success() || !Integer.valueOf(401).equals(outcome.httpStatus())
+                || !usesApplicationToken(step, used.resolved()) || Thread.currentThread().isInterrupted()) {
+            return outcome;
+        }
+        RenewableApplicationAuth.Current fresh = sharedAuth.renewAfter(used);
+        if (fresh == null) {
+            return new StepOutcome(outcome.stepId(), outcome.httpStatus(), outcome.responseTimeMs(), false,
+                    outcome.error() + " ; reconnexion a l'application impossible", outcome.timestamp(), outcome.virtualUser(),
+                    outcome.iteration(), outcome.requestUrl(), outcome.detail());
+        }
+        variables.updateAuthToken(fresh.resolved().token());
+        return executeStep(client, step, stepNumber, applicationBaseUrl, fresh.resolved(), variables, sources, virtualUser,
+                iteration, recorder);
+    }
+
+    /**
+     * La requete portait-elle le jeton de l'application ? Oui si l'etape utilise ${authToken}, ou si
+     * un en-tete d'authentification de l'application a ete ajoute (l'etape ne le definit pas elle-meme).
+     * Une etape qui envoie son propre jeton (ex. capture ${userToken}) n'est jamais concernee.
+     */
+    private boolean usesApplicationToken(StepExecutionSpec step, ResolvedAuth auth) {
+        String marker = "${" + ResolvedAuth.TOKEN_VARIABLE + "}";
+        for (String template : new String[] {step.url(), step.headers(), step.body(), step.pathParams()}) {
+            if (template != null && template.contains(marker)) return true;
+        }
+        java.util.Set<String> stepHeaders = new java.util.HashSet<>();
+        parseHeaders(step.headers()).keySet().forEach(n -> stepHeaders.add(n.toLowerCase(java.util.Locale.ROOT)));
+        return auth.headers().keySet().stream().anyMatch(n -> !stepHeaders.contains(n.toLowerCase(java.util.Locale.ROOT)));
     }
 
     private StepOutcome executeStep(HttpClient client, StepExecutionSpec step, int stepNumber, String applicationBaseUrl,

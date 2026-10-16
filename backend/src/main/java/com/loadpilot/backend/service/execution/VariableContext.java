@@ -21,12 +21,17 @@ public final class VariableContext {
 
     private final Map<String, String> captures = new HashMap<>();
     private final Map<String, String> scenarioVariables;
-    private final String authToken;
+    private String authToken;
     private Map<String, String> csvRow = Map.of();
 
     public VariableContext(Map<String, String> scenarioVariables, String authToken) {
         this.scenarioVariables = scenarioVariables == null ? Map.of() : Map.copyOf(scenarioVariables);
         this.authToken = authToken;
+    }
+
+    /** Jeton de la connexion automatique renouvele pendant l'Execution (voir RenewableApplicationAuth). */
+    public void updateAuthToken(String token) {
+        this.authToken = token;
     }
 
     /** Debut d'iteration : captures videes, ligne CSV de cette iteration. */
