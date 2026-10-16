@@ -167,4 +167,10 @@
     -->
     <include file="db/changelog/changes/032-profile-preferences.xml"/>
 
+    <!--
+        Secrets des applications testees chiffres en base (cle LOADPILOT_SECRETS_KEY) - voir
+        changes/033-encrypt-application-secrets.xml et docs/SECRETS.md.
+    -->
+    <include file="db/changelog/changes/033-encrypt-application-secrets.xml"/>
+
 </databaseChangeLog>

@@ -4,7 +4,9 @@ import com.loadpilot.backend.enums.ApplicationAuthType;
 import com.loadpilot.backend.enums.ApplicationStatus;
 import com.loadpilot.backend.enums.MonitoringAuthType;
 import com.loadpilot.backend.enums.MonitoringType;
+import com.loadpilot.backend.security.EncryptedStringConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -84,8 +86,10 @@ public class Application {
     private ApplicationAuthType authType = ApplicationAuthType.NONE;
 
     /** Parametres du type choisi, en JSON (voir service.auth.ApplicationAuthConfig).
-     * Peut contenir des secrets : jamais expose tel quel par l'API. */
+     * Peut contenir des secrets : jamais expose tel quel par l'API, chiffre en base (AES-GCM,
+     * voir security.SecretCipher). */
     @Column(name = "auth_config")
+    @Convert(converter = EncryptedStringConverter.class)
     private String authConfig;
 
     /** Monitoring optionnel du processus de l'application (CPU / RAM pendant les executions). */
@@ -107,8 +111,9 @@ public class Application {
     @Column(name = "monitoring_header_name")
     private String monitoringHeaderName;
 
-    /** Jeton ou valeur d'en-tete : secret, jamais expose par l'API. */
+    /** Jeton ou valeur d'en-tete : secret, jamais expose par l'API, chiffre en base (voir security.SecretCipher). */
     @Column(name = "monitoring_secret")
+    @Convert(converter = EncryptedStringConverter.class)
     private String monitoringSecret;
 
     @Column(name = "monitoring_interval_seconds", nullable = false)

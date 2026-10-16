@@ -123,6 +123,8 @@ services:
       # Genere par Keycloak a l'import du realm (jamais une valeur connue a
       # l'avance) - voir keycloak/README.md, section "Apres l'import".
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:?KEYCLOAK_ADMIN_CLIENT_SECRET doit etre recupere dans la Console Admin Keycloak apres import (voir keycloak/README.md)}
+      # Cle de chiffrement des secrets des applications testees (voir docs/SECRETS.md).
+      LOADPILOT_SECRETS_KEY: ${LOADPILOT_SECRETS_KEY:?LOADPILOT_SECRETS_KEY doit etre definie (cle AES-256 en Base64, voir docs/SECRETS.md)}
       # Origine du NAVIGATEUR (cote hote, voir frontend ci-dessous) - jamais
       # un nom de service Docker interne.
       FRONTEND_ORIGIN: http://localhost:3000

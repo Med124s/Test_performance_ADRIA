@@ -46,6 +46,11 @@ springdoc:
 app:
   # Version de l'application, recopiee au build depuis <version> du pom.xml (ne pas l'ecrire ici).
   version: '@project.version@'
+  secrets:
+    # Cle AES-256 (32 octets en Base64) qui chiffre en base les secrets des applications testees.
+    # OBLIGATOIRE : sans elle, LoadPilot refuse de demarrer. Jamais de valeur ici ni dans Git.
+    # Voir docs/SECRETS.md (generation, configuration, rotation).
+    encryption-key: ${LOADPILOT_SECRETS_KEY:}
   availability:
     # Timeout (secondes) du test de disponibilite reel d'une Application
     # (voir service.http.HttpAvailabilityChecker) - configurable par

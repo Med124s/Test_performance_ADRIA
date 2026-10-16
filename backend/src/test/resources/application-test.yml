@@ -28,6 +28,10 @@ logging:
     liquibase: INFO
 
 app:
+  secrets:
+    # Cle FICTIVE reservee aux tests (texte « loadpilot-test-only-not-a-secret » en Base64) :
+    # ne protege aucune donnee reelle, jamais utilisee hors de src/test.
+    encryption-key: bG9hZHBpbG90LXRlc3Qtb25seS1ub3QtYS1zZWNyZXQ=
   scheduler:
     # P1-B - intervalle tres long en test (1h) : le poller reste actif
     # (@EnableScheduling n'est jamais desactive - on veut que le contexte

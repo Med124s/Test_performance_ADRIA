@@ -54,6 +54,7 @@ cd perftest-frontend; npm test; npm run build   # tests et build frontend
 ## Règles
 
 - **Secrets** : jamais dans Git (`.env`, mots de passe, secret client Keycloak, sauvegardes Keycloak). Toujours passer par des variables d'environnement.
+- **Secrets des applications testées** : chiffrés en base (AES-GCM), clé `LOADPILOT_SECRETS_KEY` obligatoire au démarrage (voir `docs/SECRETS.md`). Ne jamais la perdre, ni la journaliser.
 - **`/api/reset`** de banking-test-api : jamais dans un scénario de charge, car il remet les données de démo à zéro.
 - **Erreurs aléatoires** : banking-test-api renvoie des 409/500 aléatoires (7 % par défaut). Lancer avec `ERROR_RATE=0` pour des résultats sans ces erreurs.
 - **Données** : ne pas supprimer de données existantes, ni lancer `VACUUM FULL`, sans accord.
