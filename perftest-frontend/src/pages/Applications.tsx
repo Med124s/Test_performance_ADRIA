@@ -1,4 +1,4 @@
-import { inUserZone } from '../utils/userTimezone'
+import { formatDate } from '../utils/dateFormat'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { BackendApplicationRequest, BackendApplicationResponse, BackendApplicationStatus, BackendApplicationTestResponse, BackendScenarioResponse, BackendExecutionResponse } from '../types/backendContracts'
@@ -361,12 +361,6 @@ function Applications() {
 
   const scenarioCountByApp = (applicationId: string) =>
     scenarios.filter((s) => s.applicationId === applicationId).length
-
-  const formatDate = (iso: string) => {
-    const d = new Date(iso)
-    if (isNaN(d.getTime())) return iso
-    return d.toLocaleDateString('fr-FR', inUserZone()) + ' ' + d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))
-  }
 
   /** Durée minimale d'affichage du chargement (visible même si la réponse
    * est instantanée) — n'allonge jamais une réponse plus lente. */

@@ -1,4 +1,4 @@
-import { inUserZone } from '../utils/userTimezone'
+import { formatDate } from '../utils/dateFormat'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -318,12 +318,6 @@ function Scenarios() {
     } finally {
       setLaunchingScenarioId(null)
     }
-  }
-
-  const formatDate = (iso: string) => {
-    const d = new Date(iso)
-    if (isNaN(d.getTime())) return iso
-    return d.toLocaleDateString('fr-FR', inUserZone()) + ' ' + d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))
   }
 
   // Suppression réelle contre Spring Boot : le backend refuse lui-même

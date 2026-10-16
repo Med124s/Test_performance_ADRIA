@@ -1,4 +1,4 @@
-import { inUserZone } from '../utils/userTimezone'
+import { formatDate } from '../utils/dateFormat'
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Line, Doughnut, Bar } from 'react-chartjs-2'
@@ -69,12 +69,6 @@ function describeApiError(err: unknown, fallback: string): string {
     }
   }
   return err instanceof Error ? err.message : fallback
-}
-
-function formatDate(iso: string) {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('fr-FR', inUserZone()) + ' ' + d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit', second: '2-digit' }))
 }
 
 function formatDurationMs(ms: number | null): string {
@@ -242,7 +236,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
           </div>
           <p>
             Scénario <Link to={`/scenarios?q=${encodeURIComponent(execution.scenarioName)}`} className="text-decoration-none">{execution.scenarioName}</Link>
-            {' '}— lancée le {formatDate(execution.startedAt)}
+            {' '}— lancée le {formatDate(execution.startedAt, { seconds: true })}
           </p>
         </div>
         <div className="header-actions d-flex gap-2">

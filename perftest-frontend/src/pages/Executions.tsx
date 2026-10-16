@@ -1,4 +1,4 @@
-import { inUserZone } from '../utils/userTimezone'
+import { formatDate } from '../utils/dateFormat'
 import { useRegressionThreshold } from '../utils/thresholds'
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -68,12 +68,6 @@ const PERIODS: Period[] = ['', '24h', '7d', '30d', 'custom']
 /** En attente, en cours ou en pause : annulable, jamais supprimable. */
 function isActive(status: BackendExecutionStatus): boolean {
   return status === 'QUEUED' || status === 'RUNNING' || status === 'PAUSED'
-}
-
-function formatDate(iso: string) {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('fr-FR', inUserZone()) + ' ' + d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))
 }
 
 // ============================================================

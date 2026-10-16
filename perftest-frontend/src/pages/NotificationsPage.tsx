@@ -1,4 +1,4 @@
-import { inUserZone } from '../utils/userTimezone'
+import { formatDate } from '../utils/dateFormat'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import TopBar from '../components/TopBar'
@@ -65,12 +65,6 @@ function describeApiError(err: unknown, fallback: string): string {
     }
   }
   return err instanceof Error ? err.message : fallback
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('fr-FR', inUserZone()) + ' ' + d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))
 }
 
 function relatedLink(n: BackendNotificationResponse): string | null {
