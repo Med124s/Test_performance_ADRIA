@@ -17,9 +17,19 @@
 
 import { generateCodeChallenge, generateCodeVerifier, generateState } from './pkce'
 import { KEYCLOAK_CLIENT_ID, KEYCLOAK_ENDPOINTS, REDIRECT_URI } from './keycloakConfig'
+import { announceLogout } from './sessionSync'
 
 const PKCE_STORAGE_KEY = 'loadpilot_pkce'
 const TOKENS_STORAGE_KEY = 'loadpilot_kc_tokens'
+/** Motif de retour à la connexion (gardé le temps du passage par Keycloak, dans cet onglet). */
+const LOGOUT_REASON_KEY = 'loadpilot_logout_reason'
+/** Paramètre lu par le thème Keycloak « loadpilot » pour afficher « Vous avez été déconnecté. » */
+export const LOGOUT_REASON_PARAM = 'lp_reason'
+/** logged_out : déconnexion voulue (bouton, autre onglet, « tous les appareils ») -> formulaire de
+ * connexion obligatoire ; session_ended : session expirée ou fermée côté serveur (constaté par un
+ * rafraîchissement refusé) -> connexion normale (Keycloak redemande le mot de passe si sa session
+ * n'existe plus). Les deux affichent « Vous avez été déconnecté. ». */
+export type LogoutReason = 'logged_out' | 'session_ended'
 
 interface StoredTokens {
   accessToken: string
@@ -62,6 +72,49 @@ function writeTokens(tokens: StoredTokens) {
 
 function clearTokens() {
   sessionStorage.removeItem(TOKENS_STORAGE_KEY)
+}
+
+/** Une session est-elle ouverte dans cet onglet (jetons présents, même expirés) ? */
+export function hasStoredSession(): boolean {
+  return readTokens() !== null
+}
+
+function rememberLogoutReason(reason: LogoutReason) {
+  try {
+    sessionStorage.setItem(LOGOUT_REASON_KEY, reason)
+  } catch {
+    // stockage indisponible : simplement pas de message sur la page de connexion
+  }
+}
+
+function consumeLogoutReason(): LogoutReason | null {
+  try {
+    const reason = sessionStorage.getItem(LOGOUT_REASON_KEY)
+    sessionStorage.removeItem(LOGOUT_REASON_KEY)
+    return reason === 'logged_out' || reason === 'session_ended' ? reason : null
+  } catch {
+    return null
+  }
+}
+
+// ------------------------------------------------------------ fin de session
+// Prévient l'application (AuthContext) que la session de cet onglet est terminée :
+// déconnexion dans un autre onglet, session fermée ailleurs (« tous les appareils »,
+// expiration, compte désactivé). L'application efface alors l'écran et repart vers la connexion.
+type SessionEndedListener = () => void
+const sessionEndedListeners = new Set<SessionEndedListener>()
+
+export function onSessionEnded(listener: SessionEndedListener): () => void {
+  sessionEndedListeners.add(listener)
+  return () => sessionEndedListeners.delete(listener)
+}
+
+/** Termine la session de CET onglet seulement (jetons effacés, motif gardé pour la page de connexion). */
+export function endLocalSession(reason: LogoutReason = 'logged_out'): void {
+  const hadSession = readTokens() !== null
+  clearTokens()
+  rememberLogoutReason(reason)
+  if (hadSession) sessionEndedListeners.forEach((listener) => listener())
 }
 
 /** Décode le payload d'un JWT SANS vérifier sa signature — usage UI
@@ -127,7 +180,17 @@ async function redirectToAuthorization(returnTo?: string, action?: AccountAction
     state,
   })
   if (action) params.set('kc_action', action)
-  window.location.assign(`${KEYCLOAK_ENDPOINTS.authorization()}?${params.toString()}`)
+  // Après une déconnexion : message sur la page de connexion. Déconnexion voulue : toujours le
+  // formulaire (prompt=login), jamais de reconnexion silencieuse sur une session en train de se
+  // fermer. Session expirée : connexion normale (pas de « Please re-authenticate » si la session
+  // Keycloak est en fait encore valide).
+  const reason = consumeLogoutReason()
+  if (reason) {
+    params.set(LOGOUT_REASON_PARAM, 'logged_out')
+    if (reason === 'logged_out') params.set('prompt', 'login')
+  }
+  // replace : la page quittée ne reste pas dans l'historique (« Précédent » n'y ramène pas).
+  window.location.replace(`${KEYCLOAK_ENDPOINTS.authorization()}?${params.toString()}`)
 }
 
 /** Résultat de la dernière action du compte (lu une seule fois), ou null. */
@@ -142,9 +205,12 @@ export function consumeAccountActionResult(): AccountActionResult | null {
   }
 }
 
-/** Oublie la session locale (après « se déconnecter de tous les appareils ») puis renvoie à la connexion. */
+/** Oublie la session locale (après « se déconnecter de tous les appareils ») puis renvoie à la connexion ;
+ * les autres onglets de ce navigateur sont prévenus tout de suite. */
 export async function forgetSessionAndLogin(returnTo?: string): Promise<void> {
+  announceLogout()
   clearTokens()
+  rememberLogoutReason('logged_out')
   await redirectToLogin(returnTo)
 }
 
@@ -200,18 +266,19 @@ async function processRedirectCallback(): Promise<string | null> {
   if (!response.ok) {
     throw new Error(`Échange du code d'autorisation refusé (HTTP ${response.status}).`)
   }
+  const requestedAt = Date.now()
   const json = (await response.json()) as {
     access_token: string
     refresh_token?: string
     id_token?: string
+    expires_in?: number
   }
 
-  const claims = decodeJwtPayload<KeycloakJwtClaims>(json.access_token)
   writeTokens({
     accessToken: json.access_token,
     refreshToken: json.refresh_token ?? null,
     idToken: json.id_token ?? null,
-    expiresAt: claims.exp * 1000,
+    expiresAt: localExpiry(json.access_token, json.expires_in, requestedAt),
   })
 
   // Action du compte (ex. changement de mot de passe) : son résultat est gardé pour la page de retour.
@@ -235,10 +302,23 @@ async function processRedirectCallback(): Promise<string | null> {
   return safeReturnPath(returnTo)
 }
 
-/** Marge (ms) prise avant l'expiration réelle du JWT (voir "exp") pour
- * déclencher un renouvellement — évite qu'un token, valide au moment de la
- * vérification, expire pendant le court trajet jusqu'au backend. */
-const TOKEN_REFRESH_MARGIN_MS = 30_000
+/** Marge (ms) prise avant l'expiration du jeton pour déclencher un renouvellement — évite qu'un
+ * jeton, valide au moment de la vérification, expire pendant le trajet jusqu'au serveur. */
+export const TOKEN_REFRESH_MARGIN_MS = 60_000
+
+/**
+ * Fin de validité du jeton d'accès sur l'HORLOGE DU NAVIGATEUR : heure de la demande + durée de vie
+ * annoncée par Keycloak (expires_in). Jamais la date « exp » seule : elle est écrite avec l'horloge
+ * de Keycloak, qui peut avancer (ex. conteneur Docker en avance de 45 s) — le jeton paraissait alors
+ * valable après son expiration réelle, et la vérification de session concluait à tort à une
+ * déconnexion. Sans expires_in : « exp », sans jamais dépasser la durée de vie du jeton (exp - iat).
+ */
+export function localExpiry(accessToken: string, expiresIn: number | undefined, requestedAt: number): number {
+  if (typeof expiresIn === 'number' && expiresIn > 0) return requestedAt + expiresIn * 1000
+  const claims = decodeJwtPayload<KeycloakJwtClaims & { iat?: number }>(accessToken)
+  const lifetime = claims.iat ? (claims.exp - claims.iat) * 1000 : Number.POSITIVE_INFINITY
+  return Math.min(claims.exp * 1000, requestedAt + lifetime)
+}
 
 /** Une seule opération de renouvellement à la fois : si plusieurs appels
  * API arrivent au même instant sur un token expiré/proche expiration, ils
@@ -254,6 +334,7 @@ let refreshInFlight: Promise<string | null> | null = null
  * laisser l'application redemander une authentification réelle plutôt que
  * de rester dans un état incohérent. Jamais de token fabriqué. */
 async function refreshAccessToken(currentRefreshToken: string): Promise<string | null> {
+  const requestedAt = Date.now()
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     client_id: KEYCLOAK_CLIENT_ID,
@@ -274,12 +355,15 @@ async function refreshAccessToken(currentRefreshToken: string): Promise<string |
   }
 
   if (!response.ok) {
-    clearTokens()
+    // 400/401 : jeton de rafraîchissement refusé (session fermée ailleurs, expirée, compte
+    // désactivé) -> fin de session, retour à la connexion. Autre erreur (Keycloak en panne) :
+    // seulement pas de jeton pour cette requête.
+    if (response.status === 400 || response.status === 401) endLocalSession('session_ended')
+    else clearTokens()
     return null
   }
 
-  const json = (await response.json()) as { access_token: string; refresh_token?: string }
-  const claims = decodeJwtPayload<KeycloakJwtClaims>(json.access_token)
+  const json = (await response.json()) as { access_token: string; refresh_token?: string; expires_in?: number }
   writeTokens({
     accessToken: json.access_token,
     // Keycloak ne renvoie pas toujours un nouveau refresh token (dépend de
@@ -287,7 +371,7 @@ async function refreshAccessToken(currentRefreshToken: string): Promise<string |
     // déjà connu est conservé si absent, jamais mis à `null`.
     refreshToken: json.refresh_token ?? currentRefreshToken,
     idToken: readTokens()?.idToken ?? null,
-    expiresAt: claims.exp * 1000,
+    expiresAt: localExpiry(json.access_token, json.expires_in, requestedAt),
   })
   return json.access_token
 }
@@ -319,6 +403,19 @@ export async function getAccessToken(): Promise<string | null> {
   return refreshInFlight
 }
 
+/** Nouveau jeton tout de suite (ex. après « Modifier » mon nom ou mon e-mail : le jeton porte
+ * l'identité affichée). Renvoie false si aucun renouvellement n'a été possible. */
+export async function refreshTokensNow(): Promise<boolean> {
+  const tokens = readTokens()
+  if (!tokens?.refreshToken) return false
+  if (!refreshInFlight) {
+    refreshInFlight = refreshAccessToken(tokens.refreshToken).finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return (await refreshInFlight) !== null
+}
+
 export async function getCurrentClaims(): Promise<KeycloakJwtClaims | null> {
   const token = await getAccessToken()
   if (!token) return null
@@ -333,17 +430,82 @@ export async function isAuthenticated(): Promise<boolean> {
   return (await getAccessToken()) !== null
 }
 
+let verifyInFlight: Promise<boolean> | null = null
+
+/** userinfo accepte-t-il ce jeton ? (false seulement sur 401 / 403 ; erreur réseau : exception). */
+async function userinfoAccepted(token: string): Promise<boolean> {
+  const response = await fetch(KEYCLOAK_ENDPOINTS.userinfo(), { headers: { Authorization: `Bearer ${token}` } })
+  return !(response.status === 401 || response.status === 403)
+}
+
+/**
+ * Rafraîchissement en TÂCHE DE FOND : toutes les `intervalMs`, si l'onglet est affiché et que le
+ * jeton d'accès arrive à moins de TOKEN_REFRESH_MARGIN_MS de sa fin, il est renouvelé — sans
+ * attendre une requête ni une action de l'utilisateur. Onglet masqué : rien (la session Keycloak
+ * peut alors expirer par inactivité, comme prévu) ; au retour, la vérification de session
+ * renouvelle le jeton si la session existe encore. Renvoie la fonction d'arrêt.
+ */
+export function startBackgroundRefresh(intervalMs = 15_000): () => void {
+  const tick = () => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+    const tokens = readTokens()
+    if (tokens?.refreshToken && Date.now() >= tokens.expiresAt - TOKEN_REFRESH_MARGIN_MS) void getAccessToken()
+  }
+  const timer = window.setInterval(tick, intervalMs)
+  return () => window.clearInterval(timer)
+}
+
+/**
+ * Vérifie auprès de Keycloak que la session existe encore (userinfo) : le jeton d'accès reste
+ * valable jusqu'à 5 min même après une déconnexion ailleurs, lui seul ne suffit pas. Session
+ * fermée -> fin de session locale (false). Keycloak injoignable : rien n'est décidé (true).
+ */
+export function verifySession(): Promise<boolean> {
+  if (!verifyInFlight) {
+    verifyInFlight = (async () => {
+      if (!readTokens()) return false
+      const token = await getAccessToken()
+      if (!token) {
+        // Rafraîchissement refusé (déjà signalé) ou impossible : la session n'est plus utilisable.
+        if (readTokens()) return true
+        return false
+      }
+      try {
+        if (await userinfoAccepted(token)) return true
+        // 401 : jeton d'accès refusé. Ce n'est PAS forcément une fin de session (jeton tout juste
+        // expiré) : seul un rafraîchissement refusé la prouve (refreshAccessToken termine alors la
+        // session). Rafraîchissement réussi : nouvelle vérification avec le nouveau jeton.
+        if (!(await refreshTokensNow())) return readTokens() !== null
+        const fresh = readTokens()?.accessToken
+        if (fresh && !(await userinfoAccepted(fresh))) {
+          endLocalSession('session_ended')
+          return false
+        }
+      } catch {
+        // réseau indisponible : on réessaiera à la prochaine vérification
+      }
+      return true
+    })().finally(() => {
+      verifyInFlight = null
+    })
+  }
+  return verifyInFlight
+}
+
 /** Déconnexion RÉELLE : invalide la session SSO Keycloak elle-même (pas
- * seulement l'état local) — voir Phase 16, section 11. Après l'appel,
- * Keycloak redirige vers `REDIRECT_URI`, où l'application (non connectée)
- * renvoie aussitôt vers la page de connexion LoadPilot. */
+ * seulement l'état local) — voir Phase 16, section 11. Les autres onglets sont
+ * prévenus aussitôt. Après l'appel, Keycloak redirige vers `REDIRECT_URI`, où
+ * l'application (non connectée) renvoie vers la page de connexion LoadPilot,
+ * avec le message « Vous avez été déconnecté. » */
 export function logout(): void {
   const tokens = readTokens()
+  announceLogout()
   clearTokens()
+  rememberLogoutReason('logged_out')
 
   const params = new URLSearchParams({ client_id: KEYCLOAK_CLIENT_ID, post_logout_redirect_uri: REDIRECT_URI })
   if (tokens?.idToken) {
     params.set('id_token_hint', tokens.idToken)
   }
-  window.location.assign(`${KEYCLOAK_ENDPOINTS.endSession()}?${params.toString()}`)
+  window.location.replace(`${KEYCLOAK_ENDPOINTS.endSession()}?${params.toString()}`)
 }

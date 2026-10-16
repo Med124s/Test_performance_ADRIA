@@ -229,8 +229,12 @@ class ScenarioStatusAndBulkControllerTest {
     @Test
     void page_filtersByStatusAndSearch_andSortsByDate() throws Exception {
         String appId = createApplication("page-app-unique");
+        // Dates de creation toujours distinctes (sinon l'ordre de deux scenarios crees dans la meme
+        // microseconde est indetermine et le tri par date ne peut pas etre verifie).
         String first = createScenario(appId, "Pagine 1", false);
+        Thread.sleep(2);
         createScenario(appId, "Pagine 2", false);
+        Thread.sleep(2);
         String third = createScenario(appId, "Pagine 3", false);
         send(post("/api/scenarios/" + third + "/deactivate"), AS_ENGINEER, null).andExpect(status().isOk());
 

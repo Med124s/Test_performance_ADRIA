@@ -5,7 +5,7 @@ import type { BackendAuditLogResponse } from '../../types/backendContracts'
 
 const auth = vi.hoisted(() => ({ roles: ['ROLE_SUPER_ADMIN'] }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ authProvider: 'keycloak', rawRoles: auth.roles, user: { id: 'u-admin' } }) }))
-const api = vi.hoisted(() => ({ list: vi.fn(), actors: vi.fn(), exportCsv: vi.fn(), settings: vi.fn(), updateSettings: vi.fn(), getById: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), actors: vi.fn(), settings: vi.fn(), updateSettings: vi.fn(), getById: vi.fn() }))
 vi.mock('../../services/api/auditBackend', () => ({ auditBackendApi: api, SYSTEM_ACTOR: '__system' }))
 const toast = vi.hoisted(() => ({ showToast: vi.fn() }))
 vi.mock('../../context/ToastContext', () => ({ useToast: () => toast }))
@@ -180,16 +180,11 @@ describe('Journal d’audit — page', () => {
     expect(location).not.toContain('entree=')
   })
 
-  it('export CSV avec les filtres en cours', async () => {
-    api.exportCsv.mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
-    const createUrl = vi.fn(() => 'blob:x')
-    Object.assign(URL, { createObjectURL: createUrl, revokeObjectURL: vi.fn() })
+  it('plus d’export CSV dans le journal d’audit', async () => {
     renderPage('/audit-logs?categorie=SECURITY')
     await screen.findByText('Modification de l’application « Banking »')
-    fireEvent.click(screen.getByRole('button', { name: /Exporter en CSV/ }))
-    await waitFor(() => expect(api.exportCsv).toHaveBeenCalled())
-    expect(api.exportCsv.mock.calls[0][0].category).toBe('SECURITY')
-    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(expect.stringContaining('Export CSV'), 'success'))
+    expect(screen.queryByRole('button', { name: /Exporter/ })).toBeNull()
+    expect(pageSource).not.toMatch(/exportCsv|Exporter en CSV/)
   })
 
   it('réservé au Super administrateur : l’ingénieur voit « Accès restreint » sans appel au serveur', () => {
@@ -204,7 +199,7 @@ describe('Journal d’audit — page', () => {
   it('journal en lecture seule : aucune suppression ni modification proposée', () => {
     for (const source of [pageSource, panelSource]) {
       const apiCalls = [...source.matchAll(/auditBackendApi\.(\w+)/g)].map((m) => m[1])
-      expect(apiCalls.every((name) => ['list', 'actors', 'exportCsv'].includes(name))).toBe(true)
+      expect(apiCalls.every((name) => ['list', 'actors'].includes(name))).toBe(true)
       expect(source).not.toMatch(/Supprimer|Modifier l/)
     }
   })

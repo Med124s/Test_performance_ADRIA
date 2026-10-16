@@ -20,4 +20,7 @@ public interface ProfileService {
      * @throws com.loadpilot.backend.exception.InvalidProfileException si le fuseau horaire n'est pas un identifiant IANA valide.
      */
     ProfileResponse updateProfile(CurrentUser currentUser, ProfileUpdateRequest request);
+
+    /** Prenom, nom et e-mail du compte connecte : Super administrateur seulement (403 sinon), journalise avant -> apres. */
+    ProfileResponse updateIdentity(CurrentUser currentUser, com.loadpilot.backend.dto.request.ProfileIdentityRequest request);
 }

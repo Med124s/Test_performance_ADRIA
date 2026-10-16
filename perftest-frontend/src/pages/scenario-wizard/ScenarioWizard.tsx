@@ -1,5 +1,5 @@
 import { loadThresholds } from '../../utils/thresholds'
-import { loadLoadDefaults } from '../../utils/loadDefaults'
+import { loadLoadLimits } from '../../utils/loadLimits'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BlockerFunction, Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
@@ -27,8 +27,6 @@ import { analyzeCsv } from './csvModel'
 import { EMPTY_INFO, defaultDraftName, fullRequest, isBlankStep, parseDraft, serializeDraft, stateFromBackend, workSnapshot } from './draftModel'
 import {
   DEFAULT_LOAD,
-  loadFromDefaults,
-  limitsOf,
   DraftStep,
   LoadConfig,
   LoadLimits,
@@ -211,27 +209,17 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     return () => { cancelled = true }
   }, [isEdit, draftId])
 
-  // ------------------------------------------------------------ charge par défaut
+  // ------------------------------------------------------------ limites du serveur
 
-  // Limite d'utilisateurs du serveur (validation, tous modes) ; nouveau scénario : charge
-  // pré-remplie avec la « Charge par défaut » (Paramètres > Système), preset « Personnalisé »,
-  // tant que l'utilisateur n'y a pas touché. Jamais pour un brouillon ni une modification.
+  // Limites d'un test (utilisateurs, durée, itérations, débit cible) : plages et validation de
+  // l'étape « Charge & résumé », tous modes. Un nouveau scénario part du profil « Smoke ».
   useEffect(() => {
     let cancelled = false
-    loadLoadDefaults().then((d) => {
-      if (cancelled || !d) return
-      setLoadLimits(limitsOf(d))
-      if (isEdit || draftId) return
-      const suggested = loadFromDefaults(d)
-      const untouched = (l: LoadConfig) => JSON.stringify(l) === JSON.stringify(DEFAULT_LOAD)
-      setLoad((l) => (untouched(l) ? suggested : l))
-      setBaseline((b) => {
-        const parsed = JSON.parse(b) as unknown[]
-        return untouched(parsed[2] as LoadConfig) ? JSON.stringify([parsed[0], parsed[1], suggested]) : b
-      })
+    loadLoadLimits().then((limits) => {
+      if (!cancelled && limits) setLoadLimits(limits)
     })
     return () => { cancelled = true }
-  }, [isEdit, draftId])
+  }, [])
 
   // ------------------------------------------------------------ reprise d'un brouillon
 

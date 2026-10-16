@@ -458,17 +458,16 @@ class ExecutionHistoryAndReportTest {
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Content-Disposition", org.hamcrest.Matchers.containsString(".csv")))
                 .andReturn().getResponse().getContentAsByteArray();
 
-        String csv = new String(csvBytes, java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(csv).contains("EXECUTION");
-        assertThat(csv).contains("LOAD CONFIGURATION");
-        assertThat(csv).contains("STATISTICS");
-        assertThat(csv).contains("STEPS");
-        assertThat(csv).contains("ERRORS");
-        assertThat(csv).contains(executionId);
-        // Plus d'ecart-type ; utilisateur et temps de pause presents.
-        assertThat(csv).doesNotContain("stdDev");
-        assertThat(csv).contains("triggeredBy");
-        assertThat(csv).contains("paused_ms");
+        // UN seul tableau (les etapes) au format « Excel en francais » : BOM, « ; », en-tetes avec unites.
+        assertThat(csvBytes[0]).isEqualTo((byte) 0xEF);
+        String csv = new String(csvBytes, java.nio.charset.StandardCharsets.UTF_8).substring(1);
+        assertThat(csv).startsWith("Étape;Méthode;URL;Requêtes;Succès;Échecs;Taux d’erreurs (%);Min (ms);Moyenne (ms);P95 (ms);P99 (ms);Max (ms)\r\n");
+        assertThat(csv).contains("ok-step;GET;/ok;");
+        assertThat(csv).doesNotContain("EXECUTION").doesNotContain("STATISTICS");
+        // Le resume (autre tableau, autre fichier) contient l'identifiant de l'execution.
+        String summary = new String(mockMvc.perform(get("/api/executions/" + executionId + "/report/export").param("table", "summary").with(AS_VIEWER))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(summary).contains("Identifiant de l’exécution;" + executionId).contains("Lancé par;").contains("Dont pause (s);0,00");
 
         // Jamais de donnee sensible dans l'export (prompt section 25).
         String lower = csv.toLowerCase();
@@ -502,9 +501,13 @@ class ExecutionHistoryAndReportTest {
         String csv = new String(csvBytes, java.nio.charset.StandardCharsets.UTF_8);
 
         // La valeur brute "=1+1" ne doit jamais apparaitre en debut de
-        // cellule (donc jamais juste apres une virgule ou en debut de
-        // ligne) - elle doit avoir ete prefixee d'une apostrophe.
-        assertThat(csv).doesNotContain(",=1+1");
-        assertThat(csv).contains("'=1+1");
+        // cellule (donc jamais juste apres un « ; » ou en debut de
+        // ligne) - elle doit avoir ete prefixee d'une apostrophe. Le nom
+        // du scenario figure dans le tableau Resume.
+        String summary = new String(mockMvc.perform(get("/api/executions/" + executionId + "/report/export").param("table", "summary").with(AS_VIEWER))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(summary).doesNotContain(";=1+1");
+        assertThat(summary).contains("Scénario;'=1+1");
+        assertThat(csv).isNotEmpty();
     }
 }

@@ -1,3 +1,4 @@
+import { inUserZone } from '../../utils/userTimezone'
 import { BackendDashboardTrend } from '../../types/backendContracts'
 import { formatSignedPercent } from '../../utils/numberFormat'
 
@@ -46,5 +47,5 @@ export function trendDisplay(trend: BackendDashboardTrend, changePercent: number
 
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleString('fr-FR', inUserZone({ day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }))
 }

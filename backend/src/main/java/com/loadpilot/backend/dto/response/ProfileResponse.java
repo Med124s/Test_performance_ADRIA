@@ -25,6 +25,11 @@ public record ProfileResponse(
         /** Libelle francais du role applicatif : « Super administrateur », « Ingénieur performance », « Observateur ». */
         String appRoleLabel,
         /** Apparence choisie : LIGHT, DARK ou SYSTEM ; null = jamais choisie. */
-        String theme
+        String theme,
+        /** Prenom et nom (systeme d'authentification) : pre-remplissent « Modifier ». */
+        String firstName,
+        String lastName,
+        /** true pour le Super administrateur seulement : nom, prenom et e-mail modifiables. */
+        boolean canEditIdentity
 ) {
 }

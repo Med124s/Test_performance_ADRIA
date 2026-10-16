@@ -4,6 +4,7 @@
 // modifications non enregistrées.
 // ============================================================
 
+import { inUserZone } from '../../utils/userTimezone'
 import { BackendScenarioFullRequest, BackendScenarioResponse, BackendStepResponse } from '../../types/backendContracts'
 import { analyzeCsv } from './csvModel'
 import { QueryParamRow, parseQueryString, splitUrl, urlWithQuery, variablesFromJson, variablesToJson } from './variablesModel'
@@ -143,7 +144,7 @@ export function savedInfo(scenario: BackendScenarioResponse): ScenarioInfo {
 }
 
 export function defaultDraftName(now = new Date()): string {
-  return `Brouillon du ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+  return `Brouillon du ${now.toLocaleDateString('fr-FR', inUserZone())} ${now.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))}`
 }
 
 export const isBlankStep = (s: DraftStep) => {

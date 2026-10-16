@@ -1,3 +1,9 @@
+// Page de connexion ouverte par LoadPilot après une déconnexion : message « Vous avez été déconnecté. »
+const loggedOut = document.getElementById('lp-logged-out')
+if (loggedOut && new URLSearchParams(window.location.search).get('lp_reason') === 'logged_out') {
+  loggedOut.hidden = false
+}
+
 // Bouton « Afficher / masquer le mot de passe » des champs LoadPilot (lp.ftl).
 document.querySelectorAll('[data-lp-reveal]').forEach((button) => {
   const input = document.getElementById(button.getAttribute('aria-controls'))

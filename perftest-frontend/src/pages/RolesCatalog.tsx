@@ -95,11 +95,6 @@ function RolesCatalog({ embedded = false }: { embedded?: boolean } = {}) {
             </tbody>
           </table>
         </div>
-        <p className="ur-perm-note">
-          <i className="bi bi-shield-check me-1" aria-hidden="true"></i>
-          Les rôles sont gérés de façon centralisée. Pour attribuer un rôle, utilisez l’onglet <Link to="/utilisateurs?tab=utilisateurs">Utilisateurs</Link>.
-          Ces droits sont appliqués par le serveur LoadPilot, pas seulement par l’interface.
-        </p>
       </div>
     </div>
   )

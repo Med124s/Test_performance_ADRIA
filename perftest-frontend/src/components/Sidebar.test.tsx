@@ -7,7 +7,9 @@ import indexHtml from '../../index.html?raw'
 import loginSource from '../pages/Login.tsx?raw'
 import themeLogo from '../../../keycloak/themes/loadpilot/login/lp.ftl?raw'
 import themeMessagesFr from '../../../keycloak/themes/loadpilot/login/messages/messages_fr.properties?raw'
+import packageJson from '../../package.json?raw'
 import { ToastProvider } from '../context/ToastContext'
+import { resetAppVersionCache } from '../utils/appVersion'
 
 const auth = vi.hoisted(() => ({ roles: ['ROLE_SUPER_ADMIN'], logout: vi.fn() }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({
@@ -16,6 +18,9 @@ vi.mock('../context/AuthContext', () => ({ useAuth: () => ({
 }) }))
 const exec = vi.hoisted(() => ({ getPage: vi.fn(), execute: vi.fn() }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: exec }))
+// Version renvoyée par GET /api/version (le numéro n'est jamais écrit dans le frontend).
+const appInfo = vi.hoisted(() => ({ get: vi.fn() }))
+vi.mock('../services/api/appInfoBackend', () => ({ appInfoBackendApi: appInfo }))
 vi.mock('../services/api/scenariosBackend', () => ({ scenariosBackendApi: { getAll: () => Promise.resolve([
   { id: 'sc-1', name: 'Parcours bancaire', applicationName: 'Banking', status: 'ACTIVE', archived: false, applicationArchived: false,
     virtualUsers: 10, rampUpSeconds: 10, durationSeconds: 60, iterations: null },
@@ -54,22 +59,25 @@ beforeEach(() => {
   vi.clearAllMocks()
   auth.roles = ['ROLE_SUPER_ADMIN']
   exec.getPage.mockResolvedValue(counts(0))
+  resetAppVersionCache()
+  appInfo.get.mockResolvedValue({ name: 'LoadPilot', version: '1.0.0' })
   try { localStorage.setItem('pt_sidebar_expanded', '1') } catch { /* ignoré */ }
 })
 
 describe('Barre latérale', () => {
-  it('« LoadPilot », sections TESTS / ANALYSE / ADMINISTRATION en français, sans Notifications ni Rapports', async () => {
+  it('« LoadPilot », sections TESTS / ANALYSE (Comparer, Rapports) / ADMINISTRATION en français, sans Notifications', async () => {
     renderAt()
     expect(screen.getByText('LoadPilot')).toBeTruthy()
     const labels = within(nav()).getAllByRole('link').map((a) => a.getAttribute('aria-label'))
-    expect(labels).toEqual(['Dashboard', 'Applications', 'Scénarios', 'Exécutions', 'Planification', 'Comparer',
+    expect(labels).toEqual(['Dashboard', 'Applications', 'Scénarios', 'Exécutions', 'Planification', 'Comparer', 'Rapports',
       'Utilisateurs et rôles', 'Journal d’audit', 'Paramètres'])
     expect(within(nav()).getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual([null, 'Tests', 'Analyse', 'Administration'])
-    for (const old of ['Overview', 'Account', 'Users & Roles', 'Audit Logs', 'Settings', 'Configurations', 'Catalogue des rôles', 'Notifications', 'Rapports']) {
+    for (const old of ['Overview', 'Account', 'Users & Roles', 'Audit Logs', 'Settings', 'Configurations', 'Catalogue des rôles', 'Notifications', 'Reports']) {
       expect(within(nav()).queryByText(old)).toBeNull()
     }
     expect(within(nav()).getByRole('link', { name: 'Comparer' }).getAttribute('href')).toBe('/executions/compare')
     expect(within(nav()).getByRole('link', { name: 'Paramètres' }).getAttribute('href')).toBe('/parametres')
+    expect(within(nav()).getByRole('link', { name: 'Rapports' }).getAttribute('href')).toBe('/rapports')
   })
 
   it('ADMINISTRATION visible seulement pour le Super Administrateur ; VIEWER sans « Lancer un test »', () => {
@@ -114,25 +122,40 @@ describe('Barre latérale', () => {
     expect(screen.queryByText('Mode clair')).toBeNull()
   })
 
-  it('carte utilisateur : menu Mon profil / Déconnexion ; plus de bouton Déconnexion séparé', async () => {
+  it('pied : plus de carte utilisateur (le compte est dans la barre du haut), « LoadPilot v1.0.0 · © année » non cliquable', async () => {
     renderAt()
-    // Rôle en français sous le nom (jamais « Admin » ni le code technique).
-    expect(screen.getByRole('button', { name: 'Menu de Admin Test' }).textContent).toContain('Administrateur')
-    expect(screen.queryByRole('button', { name: 'Déconnexion' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Menu de Admin Test' }))
-    const menu = screen.getByRole('menu', { name: 'Compte' })
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['Mon profil', 'Déconnexion'])
-    fireEvent.click(within(menu).getByRole('menuitem', { name: /Mon profil/ }))
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/parametres?tab=profil'))
-    fireEvent.click(screen.getByRole('button', { name: 'Menu de Admin Test' }))
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('menu')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Menu de Admin Test' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /Déconnexion/ }))
-    // La déconnexion passe par Keycloak, qui renvoie ensuite vers la page de connexion :
-    // plus de navigation vers l'ancienne page /login.
-    expect(auth.logout).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('location').textContent).toBe('/parametres?tab=profil')
+    const aside = screen.getByRole('complementary', { name: 'Navigation principale' })
+    expect(within(aside).queryByRole('button', { name: /Mon compte/ })).toBeNull()
+    expect(within(aside).queryByRole('button', { name: /Déconnexion/ })).toBeNull()
+    expect(within(aside).queryByText('Admin Test')).toBeNull()
+    expect(within(aside).queryByText('AT')).toBeNull()
+    const line = await within(aside).findByText(`LoadPilot v1.0.0 · © ${new Date().getFullYear()}`)
+    expect(line.closest('.sb-version')).toBeTruthy()
+    expect(line.closest('a, button')).toBeNull()
+    expect(appInfo.get).toHaveBeenCalledTimes(1)
+    // Pied : seulement le bouton thème et la ligne de version.
+    const footer = aside.querySelector('.sb-footer') as HTMLElement
+    expect(within(footer).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Passer en mode sombre'])
+  })
+
+  it('version : replié, version courte seule ; inconnue (serveur injoignable), rien n’est affiché', async () => {
+    localStorage.setItem('pt_sidebar_expanded', '0')
+    const { unmount } = renderAt()
+    const short = await screen.findByText('v1.0.0')
+    expect(short.classList.contains('sb-when-collapsed')).toBe(true)
+    expect(screen.getByText(/^LoadPilot v1\.0\.0 · ©/).classList.contains('sb-when-expanded')).toBe(true)
+    unmount()
+    resetAppVersionCache()
+    appInfo.get.mockRejectedValue(new Error('hors ligne'))
+    renderAt()
+    await waitFor(() => expect(appInfo.get).toHaveBeenCalledTimes(2))
+    expect(document.querySelector('.sb-version')).toBeNull()
+    expect(screen.queryByText(/^v\d/)).toBeNull()
+  })
+
+  it('un seul numéro de version : lu sur le serveur, jamais écrit dans le frontend', () => {
+    expect(sidebarSource).not.toMatch(/\d+\.\d+\.\d+/)
+    expect(JSON.parse(packageJson).version).toBeUndefined()
   })
 
   it('« Lancer un test » : choix du scénario avec recherche (actifs avec étapes), puis suivi en direct', async () => {
@@ -176,11 +199,11 @@ describe('Nom du produit et anciennes adresses', () => {
     for (const src of [indexHtml, loginSource, sidebarSource, appSource, themeLogo, themeMessagesFr]) expect(src).not.toMatch(/Cadence/)
   })
 
-  it('anciennes adresses redirigées vers les nouvelles pages ; Métriques, Historique, Rapports retirées', () => {
+  it('anciennes adresses redirigées vers les nouvelles pages ; Métriques et Historique retirées ; une seule page Rapports', () => {
     const redirects: [string, string][] = [
       ['settings', '/parametres?tab=profil'], ['settings/integrations', '/parametres?tab=integrations'],
       ['configurations', '/parametres?tab=systeme'], ['users-roles', '/utilisateurs?tab=utilisateurs'],
-      ['roles-catalog', '/utilisateurs?tab=roles'], ['rapports', '/executions'],
+      ['roles-catalog', '/utilisateurs?tab=roles'], ['reports', '/rapports'],
       ['metriques/*', '/'], ['historique/*', '/executions'],
     ]
     for (const [from, to] of redirects) {
@@ -190,6 +213,7 @@ describe('Nom du produit et anciennes adresses', () => {
     expect(appSource).toMatch(/<Route path="utilisateurs" element={<UtilisateursRoles \/>} \/>/)
     expect(appSource).toMatch(/<Route path="notifications" element={<NotificationsPage \/>} \/>/)
     expect(appSource).toMatch(/<Route path="audit-logs" element={<AuditLogs \/>} \/>/)
+    expect(appSource).toMatch(/<Route path="rapports" element={<Reports \/>} \/>/)
     expect(Object.keys(import.meta.glob('../pages/{Metriques,Historique,Rapports}.tsx'))).toHaveLength(0)
   })
 })

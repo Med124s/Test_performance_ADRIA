@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BackendDashboardOverview, BackendDashboardScenarioRow } from '../types/backendContracts'
@@ -7,7 +7,7 @@ import { rangeBounds, trendDisplay } from './dashboard/dashboardModel'
 
 vi.mock('react-chartjs-2', () => ({ Line: ({ data }: { data: { labels: string[] } }) => <div data-testid="line">{data.labels.length} points</div> }))
 vi.mock('../components/TopBar', () => ({ default: () => <div /> }))
-const dash = vi.hoisted(() => ({ getOverview: vi.fn(), getScenarioTrend: vi.fn() }))
+const dash = vi.hoisted(() => ({ getOverview: vi.fn(), getScenarioTrend: vi.fn(), getLatestByScenario: vi.fn() }))
 const apps = vi.hoisted(() => ({ getAll: vi.fn() }))
 const execs = vi.hoisted(() => ({ getStatus: vi.fn() }))
 vi.mock('../services/api/dashboardBackend', () => ({ dashboardBackendApi: dash }))
@@ -30,13 +30,19 @@ const overview = (patch: Partial<BackendDashboardOverview> = {}): BackendDashboa
     { kind: 'REGRESSION', severity: 'warning', title: 'Scénario « Parcours bancaire » : P95 en hausse de 23,4 %', detail: 'P95 334 ms → 412 ms', link: '/executions/report/ex-2' },
     { kind: 'APPLICATION_FAILED', severity: 'danger', title: 'Application « Banking » : connexion en échec', detail: 'Connexion refusée', link: '/applications?q=Banking' },
   ],
-  latestByScenario: [row(), row({ executionId: 'ex-9', scenarioId: 'sc-2', scenarioName: 'Santé', status: 'SUCCESS', p95Ms: 20, errorRate: 0,
-    cpuMaxPercent: null, previousExecutionId: null, previousP95Ms: null, p95ChangePercent: null, trend: 'NONE', startedAt: '2026-10-05T09:00:00Z' })],
+  scenarios: [{ scenarioId: 'sc-1', scenarioName: 'Parcours bancaire' }, { scenarioId: 'sc-2', scenarioName: 'Santé' }],
   slowestSteps: [{ stepName: 'Virement national', method: 'POST', scenarioName: 'Parcours bancaire', executionId: 'ex-2', p95Ms: 520, requests: 1250 }],
   running: [], recent: [{ id: 'ex-2', scenarioName: 'Parcours bancaire', applicationName: 'Banking', status: 'FAILED', startedAt: '2026-10-06T09:00:00Z', duration: 60000 }],
   upcoming: [{ id: 'sch-1', name: 'Nuit', scenarioName: 'Parcours bancaire', nextRunAt: '2026-10-07T02:00:00Z' }],
   ...patch,
 })
+
+const TWO_ROWS = [row(), row({ executionId: 'ex-9', scenarioId: 'sc-2', scenarioName: 'Santé', status: 'SUCCESS', p95Ms: 20, errorRate: 0,
+  cpuMaxPercent: null, previousExecutionId: null, previousP95Ms: null, p95ChangePercent: null, trend: 'NONE', startedAt: '2026-10-05T09:00:00Z' })]
+
+/** Serveur simulé : découpe `all` comme GET /api/dashboard/latest-by-scenario (page à partir de 0). */
+const serve = (all: BackendDashboardScenarioRow[]) => ({ page, size }: { page: number; size: number }) => Promise.resolve({
+  content: all.slice(page * size, page * size + size), page, size, totalElements: all.length, totalPages: Math.ceil(all.length / size) })
 
 const renderDashboard = () => render(
   <MemoryRouter initialEntries={['/']}>
@@ -49,6 +55,7 @@ const renderDashboard = () => render(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  dash.getLatestByScenario.mockImplementation(serve(TWO_ROWS))
   apps.getAll.mockResolvedValue([{ id: 'app-1', name: 'Banking' }, { id: 'app-2', name: 'Autre' }])
   dash.getScenarioTrend.mockResolvedValue({ scenarioId: 'sc-1', scenarioName: 'Parcours bancaire', points: [
     { executionId: 'ex-1', startedAt: '2026-10-05T09:00:00Z', status: 'SUCCESS', p95Ms: 334, errorRate: 0, throughputRps: 70, virtualUsers: 20 },
@@ -104,8 +111,9 @@ describe('Dashboard', () => {
     expect(watch.getByRole('link', { name: /Voir le rapport/ }).getAttribute('href')).toBe('/executions/report/ex-2')
     expect(watch.getByRole('link', { name: /Ouvrir/ }).getAttribute('href')).toBe('/applications?q=Banking')
 
-    const rows = screen.getAllByTestId('scenario-row')
+    const rows = await screen.findAllByTestId('scenario-row')
     expect(rows).toHaveLength(2)
+    expect(screen.getByText('Affichage de 1 à 2 sur 2 scénarios')).toBeTruthy()
     const first = within(rows[0])
     expect(first.getByText('412 ms')).toBeTruthy()
     expect(first.getByText('68,7 req/s')).toBeTruthy()
@@ -138,7 +146,8 @@ describe('Dashboard', () => {
   })
 
   it('états vides : aucun point d’attention, aucune exécution, évolution impossible avec moins de deux exécutions', async () => {
-    dash.getOverview.mockResolvedValue(overview({ watchItems: [], latestByScenario: [], slowestSteps: [], recent: [], upcoming: [],
+    dash.getLatestByScenario.mockImplementation(serve([]))
+    dash.getOverview.mockResolvedValue(overview({ watchItems: [], scenarios: [], slowestSteps: [], recent: [], upcoming: [],
       kpis: { p95Ms: null, errorRate: null, requests: 0, executions: 0, running: 0 }, statusCounts: { success: 0, failed: 0, cancelled: 0, running: 0 } }))
     renderDashboard()
     expect(await screen.findByText(/✓ Aucun point d’attention/)).toBeTruthy()
@@ -147,6 +156,77 @@ describe('Dashboard', () => {
     expect(screen.getByText('Aucune exécution planifiée à venir.')).toBeTruthy()
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
     expect(screen.queryByTestId('running-block')).toBeNull()
+  })
+
+  it('« Dernière exécution par scénario » : 10 par page côté serveur, Précédent / Suivant / numéros, « Affichage de X à Y sur Z scénarios »', async () => {
+    const all = Array.from({ length: 25 }, (_, i) => row({ executionId: `ex-${i + 1}`, scenarioId: `sc-${i + 1}`, scenarioName: `Scénario ${i + 1}` }))
+    dash.getLatestByScenario.mockImplementation(serve(all))
+    dash.getOverview.mockResolvedValue(overview())
+    renderDashboard()
+    expect(await screen.findByText('Affichage de 1 à 10 sur 25 scénarios')).toBeTruthy()
+    expect(dash.getLatestByScenario).toHaveBeenLastCalledWith({ applicationId: undefined, page: 0, size: 10 })
+    expect(screen.getAllByTestId('scenario-row')).toHaveLength(10)
+    expect(screen.getAllByTestId('scenario-row')[0].textContent).toContain('Scénario 1')
+
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    expect(await screen.findByText('Affichage de 11 à 20 sur 25 scénarios')).toBeTruthy()
+    expect(dash.getLatestByScenario).toHaveBeenLastCalledWith({ applicationId: undefined, page: 1, size: 10 })
+    expect(screen.getAllByTestId('scenario-row')[0].textContent).toContain('Scénario 11')
+    fireEvent.click(screen.getByTitle('Suivant'))
+    expect(await screen.findByText('Affichage de 21 à 25 sur 25 scénarios')).toBeTruthy()
+    expect(screen.getAllByTestId('scenario-row')).toHaveLength(5)
+    expect(screen.getByTitle('Suivant')).toBeDisabled()
+    fireEvent.click(screen.getByTitle('Précédent'))
+    expect(await screen.findByText('Affichage de 11 à 20 sur 25 scénarios')).toBeTruthy()
+  })
+
+  it('filtres application et période : envoyés au tableau, retour en page 1', async () => {
+    const all = Array.from({ length: 15 }, (_, i) => row({ executionId: `ex-${i + 1}`, scenarioId: `sc-${i + 1}`, scenarioName: `Scénario ${i + 1}` }))
+    dash.getLatestByScenario.mockImplementation(serve(all))
+    dash.getOverview.mockResolvedValue(overview())
+    renderDashboard()
+    await screen.findByText('Affichage de 1 à 10 sur 15 scénarios')
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    await screen.findByText('Affichage de 11 à 15 sur 15 scénarios')
+    const before = dash.getLatestByScenario.mock.calls.length
+    fireEvent.change(screen.getByLabelText('Application'), { target: { value: 'app-1' } })
+    await vi.waitFor(() => expect(dash.getLatestByScenario).toHaveBeenLastCalledWith({ applicationId: 'app-1', page: 0, size: 10 }))
+    // Une seule requête du tableau par changement de filtre (pas une seconde au retour de la vue d'ensemble).
+    await vi.waitFor(() => expect(dash.getOverview).toHaveBeenLastCalledWith({ applicationId: 'app-1' }))
+    await screen.findByText('Affichage de 1 à 10 sur 15 scénarios')
+    expect(dash.getLatestByScenario.mock.calls.length - before).toBe(1)
+    fireEvent.click(screen.getByRole('radio', { name: '7 jours' }))
+    await vi.waitFor(() => {
+      const arg = dash.getLatestByScenario.mock.calls[dash.getLatestByScenario.mock.calls.length - 1][0]
+      expect(arg).toMatchObject({ applicationId: 'app-1', page: 0, size: 10 })
+      expect(new Date(arg.to).getTime() - new Date(arg.from).getTime()).toBe(7 * 24 * 3600 * 1000)
+    })
+    expect(await screen.findByText('Affichage de 1 à 10 sur 15 scénarios')).toBeTruthy()
+  })
+
+  it('changement de page : ancienne page atténuée pendant le chargement, puis fondu une seule fois', async () => {
+    const all = Array.from({ length: 12 }, (_, i) => row({ executionId: `ex-${i + 1}`, scenarioId: `sc-${i + 1}`, scenarioName: `Scénario ${i + 1}` }))
+    dash.getLatestByScenario.mockImplementation(serve(all))
+    dash.getOverview.mockResolvedValue(overview())
+    renderDashboard()
+    await screen.findByText('Affichage de 1 à 10 sur 12 scénarios')
+    const firstBody = screen.getAllByTestId('scenario-row')[0].closest('tbody')!
+    expect(firstBody.classList.contains('db-fade-in')).toBe(true)
+
+    let answer: () => void = () => {}
+    dash.getLatestByScenario.mockImplementationOnce((args: { page: number; size: number }) => new Promise((r) => { answer = () => r(serve(all)(args)) }))
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    // Pendant le chargement : l'ancienne page reste affichée, atténuée.
+    const wrapper = firstBody.closest('.db-page')!
+    expect(wrapper.classList.contains('loading')).toBe(true)
+    expect(wrapper.getAttribute('aria-busy')).toBe('true')
+    expect(screen.getAllByTestId('scenario-row')[0].textContent).toContain('Scénario 1')
+    await act(async () => { answer(); await Promise.resolve() })
+    await screen.findByText('Affichage de 11 à 12 sur 12 scénarios')
+    const secondBody = screen.getAllByTestId('scenario-row')[0].closest('tbody')!
+    expect(secondBody).not.toBe(firstBody)
+    expect(secondBody.classList.contains('db-fade-in')).toBe(true)
+    expect(secondBody.closest('.db-page')!.classList.contains('loading')).toBe(false)
   })
 
   it('évolution des performances filtrée par étape : P95 et erreurs de l’étape choisie', async () => {

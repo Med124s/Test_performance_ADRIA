@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
@@ -8,7 +8,8 @@ import { BackendExecutionReportResponse, BackendStepReportEntry } from '../types
 vi.mock('react-chartjs-2', () => ({ Bar: () => <div />, Line: () => <div /> }))
 vi.mock('../components/TopBar', () => ({ default: () => <div /> }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ authProvider: 'keycloak', rawRoles: ['ROLE_PERFORMANCE_ENGINEER'] }) }))
-const api = vi.hoisted(() => ({ getReport: vi.fn(), exportReportCsv: vi.fn(), getTimeline: vi.fn(), getExtremes: vi.fn(), getResultDetail: vi.fn() }))
+const api = vi.hoisted(() => ({ getReport: vi.fn(), exportReportCsv: vi.fn(), exportReportXlsx: vi.fn(), exportReportCsvZip: vi.fn(),
+  exportReportPdf: vi.fn(), getTimeline: vi.fn(), getExtremes: vi.fn(), getResultDetail: vi.fn() }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: api }))
 
 import ExecutionReport from './ExecutionReport'
@@ -124,17 +125,30 @@ describe('Rapport d’exécution', () => {
     expect(screen.queryByText(/en pause/)).toBeNull()
   })
 
-  it('export CSV toujours disponible', async () => {
+  it('exports : Excel par défaut, puis PDF et CSV (étapes), autres tableaux CSV et .zip dans « ⋯ »', async () => {
     api.getReport.mockResolvedValue(report())
-    api.exportReportCsv.mockResolvedValue(new Blob(['a;b'], { type: 'text/csv' }))
+    const file = (name: string) => ({ blob: new Blob(['x']), fileName: name })
+    api.exportReportXlsx.mockResolvedValue(file('Rapport_Parcours_2026-10-10_18h13.xlsx'))
+    api.exportReportCsv.mockResolvedValue(file('Rapport_Parcours_2026-10-10_18h13_Etapes.csv'))
+    api.exportReportCsvZip.mockResolvedValue(file('Rapport_Parcours_2026-10-10_18h13_CSV.zip'))
     URL.createObjectURL = vi.fn(() => 'blob:report')
     URL.revokeObjectURL = vi.fn()
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     renderReport()
-    fireEvent.click(await screen.findByRole('button', { name: /Exporter CSV/ }))
-    expect(await screen.findByText('Export CSV généré avec succès.')).toBeTruthy()
-    expect(api.exportReportCsv).toHaveBeenCalledWith('ex-1')
-    expect(click).toHaveBeenCalled()
+    const excel = await screen.findByRole('button', { name: /Exporter Excel/ })
+    expect(excel.className).toContain('pt-btn-primary')
+    fireEvent.click(excel)
+    expect(await screen.findByText('Export Excel téléchargé.')).toBeTruthy()
+    expect(api.exportReportXlsx).toHaveBeenCalledWith('ex-1')
+    fireEvent.click(screen.getByRole('button', { name: /Exporter CSV/ }))
+    await waitFor(() => expect(api.exportReportCsv).toHaveBeenCalledWith('ex-1', 'steps'))
+    await screen.findByText('Export CSV (étapes) téléchargé.')
+    fireEvent.click(screen.getByRole('button', { name: 'Autres exports CSV' }))
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent?.trim()))
+      .toEqual(['CSV : erreurs', 'CSV : analyse dans le temps', 'CSV : résumé', 'CSV : les 4 tableaux (.zip)'])
+    fireEvent.click(screen.getByRole('menuitem', { name: /les 4 tableaux/ }))
+    await waitFor(() => expect(api.exportReportCsvZip).toHaveBeenCalledWith('ex-1'))
+    expect(click).toHaveBeenCalledTimes(3)
     click.mockRestore()
   })
 

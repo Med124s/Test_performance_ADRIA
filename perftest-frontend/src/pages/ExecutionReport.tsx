@@ -1,3 +1,4 @@
+import { inUserZone } from '../utils/userTimezone'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import TopBar from '../components/TopBar'
@@ -11,6 +12,20 @@ import { formatNumber, formatPercent } from '../utils/numberFormat'
 import TimelineAnalysis from './execution-report/TimelineAnalysis'
 import ExtremesPanel from './execution-report/ExtremesPanel'
 import { KeepToggle, RetentionNotice } from './execution-report/Retention'
+import { saveBlob } from '../utils/download'
+import RowActionsMenu from './executions/RowActionsMenu'
+
+/** Exports du rapport, tous générés par le serveur. */
+const REPORT_EXPORTS = {
+  xlsx: { label: 'Excel', run: executionsBackendApi.exportReportXlsx },
+  pdf: { label: 'PDF', run: executionsBackendApi.exportReportPdf },
+  csv: { label: 'CSV (étapes)', run: (id: string) => executionsBackendApi.exportReportCsv(id, 'steps') },
+  csvErrors: { label: 'CSV (erreurs)', run: (id: string) => executionsBackendApi.exportReportCsv(id, 'errors') },
+  csvTimeline: { label: 'CSV (analyse dans le temps)', run: (id: string) => executionsBackendApi.exportReportCsv(id, 'timeline') },
+  csvSummary: { label: 'CSV (résumé)', run: (id: string) => executionsBackendApi.exportReportCsv(id, 'summary') },
+  zip: { label: 'CSV (4 tableaux, .zip)', run: executionsBackendApi.exportReportCsvZip },
+} as const
+type ExportKind = keyof typeof REPORT_EXPORTS
 
 // ============================================================
 // Phase 23 — même politique de double chaîne que ExecutionDetail.tsx : un
@@ -62,7 +77,7 @@ function SpringExecutionReport({ id }: { id: string }) {
   const [report, setReport] = useState<BackendExecutionReportResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState<ExportKind | null>(null)
   const [extreme, setExtreme] = useState<'MIN' | 'MAX' | null>(null)
 
   useEffect(() => {
@@ -76,24 +91,18 @@ function SpringExecutionReport({ id }: { id: string }) {
     return () => { cancelled = true }
   }, [id])
 
-  const handleExport = async () => {
+  // Exports générés par le serveur (journalisés) : Excel par défaut, PDF, CSV d'un tableau ou des 4 (.zip).
+  const handleExport = async (kind: ExportKind) => {
     if (exporting) return
-    setExporting(true)
+    setExporting(kind)
     try {
-      const blob = await executionsBackendApi.exportReportCsv(id)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `execution-report-${id}.csv`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      showToast('Export CSV généré avec succès.', 'success')
+      const { blob, fileName } = await REPORT_EXPORTS[kind].run(id)
+      saveBlob(blob, fileName)
+      showToast(`Export ${REPORT_EXPORTS[kind].label} téléchargé.`, 'success')
     } catch (err) {
-      showToast(describeApiError(err, "Erreur lors de l'export."), 'danger')
+      showToast(describeApiError(err, `L’export ${REPORT_EXPORTS[kind].label} a échoué.`), 'danger')
     } finally {
-      setExporting(false)
+      setExporting(null)
     }
   }
 
@@ -146,15 +155,33 @@ function SpringExecutionReport({ id }: { id: string }) {
               {meta.text}
             </span>
           </div>
-          <p>Exécution lancée le {new Date(report.startedAt).toLocaleString('fr-FR')} sur <strong>{report.applicationName}</strong></p>
+          <p>Exécution lancée le {new Date(report.startedAt).toLocaleString('fr-FR', inUserZone())} sur <strong>{report.applicationName}</strong></p>
         </div>
         <div className="d-flex align-items-center gap-2 flex-wrap">
           <KeepToggle executionId={id} retention={report.retention}
             onChange={(retention) => setReport((r) => (r ? { ...r, retention } : r))} />
-          <button className="pt-btn-outline" onClick={handleExport} disabled={exporting}>
-            <i className={`bi ${exporting ? 'bi-arrow-repeat pt-spin' : 'bi-download'}`}></i>
-            {exporting ? 'Export...' : 'Exporter CSV'}
-          </button>
+          {!['QUEUED', 'RUNNING', 'PAUSED'].includes(report.status) && (
+            <>
+              <button className="pt-btn-primary" onClick={() => handleExport('xlsx')} disabled={!!exporting}>
+                <i className={`bi ${exporting === 'xlsx' ? 'bi-arrow-repeat pt-spin' : 'bi-file-earmark-excel'}`} aria-hidden="true"></i>
+                {exporting === 'xlsx' ? 'Export…' : 'Exporter Excel'}
+              </button>
+              <button className="pt-btn-outline" onClick={() => handleExport('pdf')} disabled={!!exporting}>
+                <i className={`bi ${exporting === 'pdf' ? 'bi-arrow-repeat pt-spin' : 'bi-file-earmark-pdf'}`} aria-hidden="true"></i>
+                {exporting === 'pdf' ? 'Export…' : 'Exporter en PDF'}
+              </button>
+              <button className="pt-btn-outline" onClick={() => handleExport('csv')} disabled={!!exporting} title="Données brutes : tableau des étapes">
+                <i className={`bi ${exporting === 'csv' ? 'bi-arrow-repeat pt-spin' : 'bi-filetype-csv'}`} aria-hidden="true"></i>
+                {exporting === 'csv' ? 'Export…' : 'Exporter CSV'}
+              </button>
+              <RowActionsMenu label="Autres exports CSV" actions={[
+                { label: 'CSV : erreurs', icon: 'bi-filetype-csv', onSelect: () => handleExport('csvErrors') },
+                { label: 'CSV : analyse dans le temps', icon: 'bi-filetype-csv', onSelect: () => handleExport('csvTimeline') },
+                { label: 'CSV : résumé', icon: 'bi-filetype-csv', onSelect: () => handleExport('csvSummary') },
+                { label: 'CSV : les 4 tableaux (.zip)', icon: 'bi-file-earmark-zip', onSelect: () => handleExport('zip') },
+              ]} />
+            </>
+          )}
           <TopBar searchPlaceholder="" />
         </div>
       </div>

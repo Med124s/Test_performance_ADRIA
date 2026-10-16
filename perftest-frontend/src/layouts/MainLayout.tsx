@@ -1,3 +1,4 @@
+import { setUserTimezone } from '../utils/userTimezone'
 import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
@@ -21,13 +22,13 @@ function MainLayout() {
   // de la TopBar, fermé au clic sur le fond ou après une navigation.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
-  // Apparence mémorisée sur le profil : retrouvée à la connexion, enregistrée à chaque choix
+  // Apparence et fuseau horaire mémorisés sur le profil : retrouvés à la connexion ; apparence enregistrée à chaque choix
   // (bouton de la barre latérale ou Paramètres). Un échec réseau ne change rien à l'affichage.
   useEffect(() => {
     setThemeSaver((preference) => {
       profileBackendApi.updateTheme(preference.toUpperCase() as 'LIGHT' | 'DARK' | 'SYSTEM').catch(() => {})
     })
-    profileBackendApi.get().then((p) => applyProfileTheme(p.theme)).catch(() => {})
+    profileBackendApi.get().then((p) => { applyProfileTheme(p.theme); setUserTimezone(p.timezone) }).catch(() => {})
     return () => setThemeSaver(null)
   }, [])
 

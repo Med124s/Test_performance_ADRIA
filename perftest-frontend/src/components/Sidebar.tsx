@@ -2,7 +2,7 @@ import { FocusEvent, MouseEvent, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { executionsBackendApi } from '../services/api/executionsBackend'
-import { roleLabelFromRawRoles } from '../utils/appRoles'
+import { useAppVersion } from '../utils/appVersion'
 import LaunchTestModal from './LaunchTestModal'
 import './navigation.css'
 
@@ -10,13 +10,13 @@ import './navigation.css'
 // Barre latérale de LoadPilot, en français :
 //   Dashboard (seul)
 //   TESTS : Applications, Scénarios, Exécutions (badge : en cours), Planification
-//   ANALYSE : Comparer
+//   ANALYSE : Comparer, Rapports (résultats des tests terminés)
 //   ADMINISTRATION (Super Administrateur) : Utilisateurs et rôles, Journal d'audit, Paramètres
 // « Lancer un test » ouvre le choix du scénario puis le suivi en direct ;
-// thème clair / sombre par un bouton icône ; carte utilisateur avec menu
-// (Mon profil, Déconnexion). Mode réduit : icônes seules avec infobulle
-// (survol ET focus clavier), élément actif marqué d'une barre.
-// Les notifications sont dans la cloche du header (plus dans ce menu).
+// thème clair / sombre par un bouton icône ; en bas, « LoadPilot v<version> · © <année> » (discret,
+// non cliquable). Mode réduit : icônes seules avec infobulle (survol ET focus clavier), élément
+// actif marqué d'une barre. Le compte (« Mon compte », déconnexion) et les notifications sont dans
+// la barre du haut.
 // ============================================================
 
 /** Rafraîchissement du badge « en cours » d'Exécutions (une requête légère). */
@@ -54,7 +54,7 @@ interface FloatingLabel {
 const isUnder = (base: string) => (p: string) => p === base || p.startsWith(base + '/')
 
 function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: SidebarProps) {
-  const { user, logout, authProvider, rawRoles } = useAuth()
+  const { authProvider, rawRoles } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const isSuperAdmin = authProvider === 'keycloak' && rawRoles.includes('ROLE_SUPER_ADMIN')
@@ -101,7 +101,10 @@ function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: Sideba
         { path: '/planification', icon: 'bi-calendar-week', label: 'Planification' },
       ],
     },
-    { id: 'analyse', label: 'Analyse', items: [{ path: '/executions/compare', icon: 'bi-layout-three-columns', label: 'Comparer' }] },
+    { id: 'analyse', label: 'Analyse', items: [
+      { path: '/executions/compare', icon: 'bi-layout-three-columns', label: 'Comparer' },
+      { path: '/rapports', icon: 'bi-file-earmark-bar-graph', label: 'Rapports' },
+    ] },
     ...(isSuperAdmin ? [{
       id: 'admin', label: 'Administration', items: [
         { path: '/utilisateurs', icon: 'bi-people', label: 'Utilisateurs et rôles' },
@@ -143,28 +146,11 @@ function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: Sideba
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
-  // Menu de la carte utilisateur.
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const userMenuRef = useRef<HTMLDivElement | null>(null)
-  const userButtonRef = useRef<HTMLButtonElement | null>(null)
-  useEffect(() => {
-    if (!userMenuOpen) return
-    const onDown = (e: globalThis.MouseEvent) => { if (!userMenuRef.current?.contains(e.target as Node)) setUserMenuOpen(false) }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setUserMenuOpen(false); userButtonRef.current?.focus() } }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
-  }, [userMenuOpen])
-  useEffect(() => { setUserMenuOpen(false) }, [location.pathname])
-
   const [launchOpen, setLaunchOpen] = useState(false)
 
-  const handleLogout = () => {
-    setUserMenuOpen(false)
-    // Keycloak ferme la session puis renvoie vers l'application, qui (non
-    // connectée) affiche directement la page de connexion LoadPilot.
-    logout()
-  }
+  // Version lue sur le serveur (seule définition : backend/pom.xml).
+  const version = useAppVersion()
+  const year = new Date().getFullYear()
 
   const renderNavLink = (item: NavItem) => {
     const active = isActive(item)
@@ -190,7 +176,6 @@ function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: Sideba
   }
 
   const themeLabel = darkMode ? 'Passer en mode clair' : 'Passer en mode sombre'
-  const userName = user?.name || 'Utilisateur'
 
   return (
     <>
@@ -240,32 +225,17 @@ function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: Sideba
         </nav>
 
         <div className="pt-sidebar-footer sb-footer">
-          <div className="sb-user" ref={userMenuRef}>
-            <button ref={userButtonRef} type="button" className="sb-user-btn" aria-haspopup="menu" aria-expanded={userMenuOpen}
-              aria-label={`Menu de ${userName}`} onClick={() => setUserMenuOpen((o) => !o)}
-              onMouseEnter={showLabel(userName)} onMouseLeave={hideLabel} onFocus={showLabel(userName)} onBlur={hideLabel}>
-              <span className="user-avatar" aria-hidden="true">{user?.initials || 'U'}</span>
-              <span className="user-info sb-when-expanded">
-                <span className="sb-user-name">{userName}</span>
-                <small>{roleLabelFromRawRoles(rawRoles)}</small>
-              </span>
-              <i className="bi bi-chevron-up sb-when-expanded sb-user-chevron" aria-hidden="true"></i>
-            </button>
-            {userMenuOpen && (
-              <div className="sb-user-menu" role="menu" aria-label="Compte">
-                <button type="button" role="menuitem" className="sb-menu-item" onClick={() => navigate('/parametres?tab=profil')}>
-                  <i className="bi bi-person-circle" aria-hidden="true"></i> Mon profil
-                </button>
-                <button type="button" role="menuitem" className="sb-menu-item danger" onClick={handleLogout}>
-                  <i className="bi bi-box-arrow-right" aria-hidden="true"></i> Déconnexion
-                </button>
-              </div>
-            )}
-          </div>
           <button type="button" className="sb-theme-btn" onClick={toggleDarkMode} title={themeLabel} aria-label={themeLabel}
             onMouseEnter={showLabel(themeLabel)} onMouseLeave={hideLabel} onFocus={showLabel(themeLabel)} onBlur={hideLabel}>
             <i className={`bi ${darkMode ? 'bi-sun' : 'bi-moon-stars'}`} aria-hidden="true"></i>
           </button>
+          {/* Nom · version · année (informatif, non cliquable). Replié : version courte seule. */}
+          {version && (
+            <p className="sb-version">
+              <span className="sb-when-expanded">LoadPilot v{version} · © {year}</span>
+              <span className="sb-when-collapsed" title={`LoadPilot v${version}`}>v{version}</span>
+            </p>
+          )}
         </div>
 
         {floatingLabel && (

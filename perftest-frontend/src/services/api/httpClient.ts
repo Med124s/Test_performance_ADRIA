@@ -10,7 +10,7 @@
 // token Keycloak est disponible (voir services/auth/keycloakClient.ts).
 // ============================================================
 
-import { getAccessToken } from '../auth/keycloakClient'
+import { getAccessToken, verifySession } from '../auth/keycloakClient'
 
 export class ApiError extends Error {
   status: number
@@ -43,6 +43,9 @@ function createClient(baseUrl: string, serviceLabel: string) {
     }
 
     if (!response.ok) {
+      // 401 : la session a peut-être été fermée ailleurs -> vérification auprès de Keycloak
+      // (fin de session et retour à la connexion si c'est le cas).
+      if (response.status === 401) void verifySession()
       let message = `Erreur ${response.status} sur ${path}`
       try {
         const body = await response.json()

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import TopBar from '../components/TopBar'
-import Pagination from '../components/Pagination'
 import { BackendApplicationResponse, BackendDashboardOverview } from '../types/backendContracts'
 import { applicationsBackendApi } from '../services/api/applicationsBackend'
 import { dashboardBackendApi } from '../services/api/dashboardBackend'
 import { useApiItem, useApiList } from '../hooks/useApiResource'
-import { formatMs, formatNumber, formatPercent, formatRps } from '../utils/numberFormat'
-import { RANGE_OPTIONS, RangePreset, executionStatusMeta, formatDateTime, rangeBounds, trendDisplay } from './dashboard/dashboardModel'
+import { formatMs, formatNumber, formatPercent } from '../utils/numberFormat'
+import { RANGE_OPTIONS, RangePreset, executionStatusMeta, formatDateTime, rangeBounds } from './dashboard/dashboardModel'
+import LatestByScenarioTable from './dashboard/LatestByScenarioTable'
 import PerformanceTrend from './dashboard/PerformanceTrend'
 import RunningExecutions from './dashboard/RunningExecutions'
 import './dashboard/dashboard.css'
@@ -20,33 +20,27 @@ import './dashboard/dashboard.css'
 // période) ; rien n'est agrégé dans le navigateur.
 // ============================================================
 
-const PAGE_SIZE = 10
-
 function Dashboard() {
-  const navigate = useNavigate()
   const { data: applications } = useApiList<BackendApplicationResponse>(() => applicationsBackendApi.getAll())
   const [appId, setAppId] = useState('')
   const [preset, setPreset] = useState<RangePreset>('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
-  const [page, setPage] = useState(1)
   const range = useMemo(() => rangeBounds(preset, customFrom, customTo), [preset, customFrom, customTo])
 
   const { data, loading, error, refetch } = useApiItem<BackendDashboardOverview>(
     () => dashboardBackendApi.getOverview({ applicationId: appId || undefined, ...range }), [appId, range.from, range.to])
 
-  useEffect(() => setPage(1), [appId, range.from, range.to])
-  // Exécutions en cours : le Dashboard se met à jour tout seul toutes les 10 s.
+  // Exécutions en cours : le Dashboard se met à jour tout seul toutes les 10 s (tableau paginé compris :
+  // « refresh » change seulement à ce moment-là, un changement de filtre le relit déjà de lui-même).
   const hasRunning = (data?.running.length ?? 0) > 0
+  const [refresh, setRefresh] = useState(0)
   useEffect(() => {
     if (!hasRunning) return
-    const timer = window.setInterval(() => refetch(), 10_000)
+    const timer = window.setInterval(() => { refetch(); setRefresh((n) => n + 1) }, 10_000)
     return () => window.clearInterval(timer)
   }, [hasRunning, refetch])
 
-  const rows = data?.latestByScenario ?? []
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
-  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const appName = appId ? applications.find((a) => a.id === appId)?.name ?? 'Application' : 'Toutes les applications'
 
   return (
@@ -134,61 +128,12 @@ function Dashboard() {
             )}
           </div>
 
-          {/* ---- Dernière exécution par scénario */}
-          <div className="pt-card mb-3 db-card" style={{ padding: 0 }}>
-            <div className="db-card-head" style={{ padding: '1rem 1rem 0.5rem' }}>
-              <h2 className="db-title mb-0"><i className="bi bi-list-check"></i>Dernière exécution par scénario</h2>
-              <span className="db-muted">Clic sur une ligne : rapport de l’exécution</span>
-            </div>
-            {rows.length === 0 ? (
-              <p className="db-empty" style={{ padding: '0 1rem 1rem' }}>Aucune exécution sur la période.</p>
-            ) : (
-              <>
-                <div className="pt-table-wrapper">
-                  <table className="pt-table db-table">
-                    <thead>
-                      <tr>
-                        <th>Scénario</th><th>Application</th><th>Dernière exécution</th><th>Statut</th>
-                        <th className="text-end">P95</th><th className="text-end">Erreurs</th><th className="text-end">Débit</th>
-                        <th className="text-end" title="CPU maximal du processus de l’application testée (si monitoring configuré), en % d’un cœur">CPU max</th>
-                        <th className="text-end" title="Écart du P95 avec l’exécution précédente du même scénario">vs précédente</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pageRows.map((r) => {
-                        const t = trendDisplay(r.trend, r.p95ChangePercent)
-                        const open = () => navigate(`/executions/report/${r.executionId}`)
-                        return (
-                          <tr key={r.executionId} className="db-row" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open() }}
-                            data-testid="scenario-row">
-                            <td data-label="Scénario" className="fw-semibold">{r.scenarioName}</td>
-                            <td data-label="Application" className="db-muted">{r.applicationName}</td>
-                            <td data-label="Dernière exécution">{formatDateTime(r.startedAt)}</td>
-                            <td data-label="Statut"><span className={`pt-pill ${executionStatusMeta(r.status).pill}`}>{executionStatusMeta(r.status).label}</span></td>
-                            <td data-label="P95" className="text-end">{formatMs(r.p95Ms)}</td>
-                            <td data-label="Erreurs" className="text-end">{formatPercent(r.errorRate)}</td>
-                            <td data-label="Débit" className="text-end">{formatRps(r.throughputRps)}</td>
-                            <td data-label="CPU max" className="text-end">{r.cpuMaxPercent == null ? '—' : formatPercent(r.cpuMaxPercent)}</td>
-                            <td data-label="vs précédente" className={`text-end db-trend ${t.tone}`} title={t.title}>
-                              {t.arrow && <span aria-hidden="true">{t.arrow} </span>}{t.text}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                {rows.length > PAGE_SIZE && (
-                  <Pagination page={page} totalPages={totalPages} onPageChange={setPage} startIndex={(page - 1) * PAGE_SIZE + 1}
-                    endIndex={Math.min(page * PAGE_SIZE, rows.length)} totalItems={rows.length} itemLabel="scénarios" />
-                )}
-              </>
-            )}
-          </div>
+          {/* ---- Dernière exécution par scénario (paginé côté serveur) */}
+          <LatestByScenarioTable applicationId={appId || undefined} range={range} refreshKey={refresh} />
 
           {/* ---- Évolution / Étapes les plus lentes */}
           <div className="row g-3 mb-3">
-            <div className="col-12 col-xl-7"><PerformanceTrend scenarios={rows} range={range} /></div>
+            <div className="col-12 col-xl-7"><PerformanceTrend scenarios={data.scenarios} range={range} /></div>
             <div className="col-12 col-xl-5">
               <div className="pt-card h-100 db-card">
                 <h2 className="db-title"><i className="bi bi-hourglass-split"></i>Étapes les plus lentes</h2>

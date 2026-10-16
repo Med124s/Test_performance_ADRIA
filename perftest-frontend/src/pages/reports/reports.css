@@ -1,0 +1,7 @@
+/* Page Rapports : reprend la mise en page de la liste des exécutions (executions.css). */
+.rp-rate { font-variant-numeric: tabular-nums; }
+.rp-rate.bad { color: var(--pt-danger); font-weight: 600; }
+[data-theme="dark"] .rp-rate.bad { color: #FCA5A5; }
+.rp-table .ex-icon-btn:disabled { opacity: 0.6; cursor: progress; }
+.rp-table .ex-icon-btn.rp-excel { color: #15803D; }
+[data-theme="dark"] .rp-table .ex-icon-btn.rp-excel { color: #4ADE80; }

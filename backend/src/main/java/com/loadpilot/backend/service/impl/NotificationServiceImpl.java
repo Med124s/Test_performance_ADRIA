@@ -34,6 +34,8 @@ public class NotificationServiceImpl implements NotificationService {
     private static final Logger log = LoggerFactory.getLogger(NotificationServiceImpl.class);
     private static final int MESSAGE_MAX_LENGTH = 1000;
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt");
+    /** Taille maximale d'une page de la liste (choix 20 / 50 / 100 dans l'interface). */
+    static final int MAX_PAGE_SIZE = 100;
 
     private final NotificationRepository notificationRepository;
     private final AppUserRepository appUserRepository;
@@ -108,14 +110,24 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional(readOnly = true)
     public PagedResponse<NotificationResponse> list(String keycloakSubject, Boolean readFilter, int page, int size) {
+        return list(keycloakSubject, readFilter, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<NotificationResponse> list(String keycloakSubject, Boolean readFilter,
+                                                    java.util.Collection<NotificationType> types, int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(MAX_PAGE_SIZE, Math.max(1, size));
         Optional<AppUser> recipient = appUserRepository.findByKeycloakSubject(keycloakSubject);
         if (recipient.isEmpty()) {
-            return new PagedResponse<>(java.util.List.of(), page, size, 0, 0);
+            return new PagedResponse<>(java.util.List.of(), safePage, safeSize, 0, 0);
         }
-        PageRequest pageRequest = PageRequest.of(page, size, NEWEST_FIRST);
-        Page<Notification> result = readFilter != null
-                ? notificationRepository.findByRecipientIdAndReadOrderByCreatedAtDesc(recipient.get().getId(), readFilter, pageRequest)
-                : notificationRepository.findByRecipientIdOrderByCreatedAtDesc(recipient.get().getId(), pageRequest);
+        boolean allTypes = types == null || types.isEmpty();
+        // Tri stable (date puis id) : deux notifications de la meme milliseconde ne changent jamais de page.
+        PageRequest pageRequest = PageRequest.of(safePage, safeSize, NEWEST_FIRST.and(Sort.by(Sort.Direction.DESC, "id")));
+        Page<Notification> result = notificationRepository.search(recipient.get().getId(), readFilter, allTypes,
+                allTypes ? java.util.List.of(NotificationType.EXECUTION_SUCCESS) : types, pageRequest);
         return new PagedResponse<>(
                 notificationMapper.toResponseList(result.getContent()),
                 result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());

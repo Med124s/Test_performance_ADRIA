@@ -1009,23 +1009,59 @@ body {
   .pt-pagination .pages { flex-wrap: wrap; }
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ============================================================
+   Barre de défilement : fine, arrondie, discrète au repos, un peu plus foncée au survol.
+   Toute la fenêtre et toutes les zones qui défilent (tableaux, panneaux, modales, menus).
+   Couleurs tirées du thème (--pt-*) : clair et sombre sans autre règle.
+   - Chrome, Edge, Safari : pseudo-éléments ::-webkit-scrollbar (forme, arrondi, survol).
+   - Firefox : scrollbar-width / scrollbar-color, SEULEMENT là où ::-webkit-scrollbar n'existe pas
+     (sinon Chrome 121+ ignorerait les règles ci-dessus et afficherait sa barre standard).
+   - Autre navigateur : sa barre par défaut, rien ne casse.
+   Apparence uniquement : défilement, molette et zones cliquables inchangés.
+   ============================================================ */
+:root {
+  /* Repli (navigateurs sans color-mix) : bordure du thème au repos. */
+  --pt-scrollbar-thumb: var(--pt-border);
+  --pt-scrollbar-thumb-hover: var(--pt-text-light);
+  --pt-scrollbar-thumb-active: var(--pt-text-muted);
+}
+@supports (color: color-mix(in srgb, red 50%, transparent)) {
+  :root {
+    --pt-scrollbar-thumb: color-mix(in srgb, var(--pt-text-light) 50%, transparent);
+  }
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: var(--pt-border);
-  border-radius: 3px;
+  /* Bord transparent : pouce visible de 6 px, centré, dans une piste de 10 px. */
+  background-color: var(--pt-scrollbar-thumb);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  min-height: 32px;
+  min-width: 32px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--pt-scrollbar-thumb-hover);
+}
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--pt-scrollbar-thumb-active);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--pt-text-light);
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+  }
+  :root {
+    scrollbar-color: var(--pt-scrollbar-thumb) transparent;
+  }
 }
 
 /* Responsive */

@@ -13,7 +13,7 @@ vi.mock('../../services/api/profileBackend', () => ({ profileBackendApi: profile
 const prefsApi = vi.hoisted(() => ({ list: vi.fn(), update: vi.fn(), channels: vi.fn(), setEnabled: vi.fn() }))
 vi.mock('../../services/api/notificationPreferencesBackend', () => ({ notificationPreferencesBackendApi: prefsApi }))
 const settingsApi = vi.hoisted(() => ({ thresholds: vi.fn(), updateThresholds: vi.fn(), storage: vi.fn(), integrations: vi.fn(), sendTestEmail: vi.fn(),
-  loadDefaults: vi.fn(), updateLoadDefaults: vi.fn(), limits: vi.fn(), updateLimits: vi.fn(),
+  limits: vi.fn(), updateLimits: vi.fn(),
   resultsRetention: vi.fn(), updateResultsRetention: vi.fn() }))
 vi.mock('../../services/api/settingsBackend', () => ({ settingsBackendApi: settingsApi }))
 const systemApi = vi.hoisted(() => ({ get: vi.fn() }))
@@ -28,6 +28,7 @@ import Configurations, { formatDuration } from '../Configurations'
 import SettingsIntegrations from '../SettingsIntegrations'
 import { formatBytes, formatNextRun, formatRunDate } from './StorageStatus'
 import { validateThresholds } from './ThresholdsCard'
+import { perTestRule } from './LimitsCard'
 import { resetThemeForTests, setThemeSaver } from '../../utils/theme'
 import { useDarkMode } from '../../utils/useDarkMode'
 import { resetThresholdsCache } from '../../utils/thresholds'
@@ -160,7 +161,8 @@ describe('Mon profil', () => {
 
 const LIMITS_RESPONSE = {
   limits: [
-    { key: 'virtualUsersPerTest', label: 'Utilisateurs virtuels par test', unit: 'utilisateurs', value: 500, ceiling: 500 },
+    // Le serveur ne renvoie jamais « par test » au-dessus de « au total » (plafond 500, total 200).
+    { key: 'virtualUsersPerTest', label: 'Utilisateurs virtuels par test', unit: 'utilisateurs', value: 200, ceiling: 500 },
     { key: 'virtualUsersTotal', label: 'Utilisateurs virtuels au total', unit: 'utilisateurs', value: 200, ceiling: 200 },
     { key: 'concurrentTests', label: 'Tests en même temps', unit: 'tests', value: 10, ceiling: 10 },
     { key: 'maxDurationSeconds', label: 'Durée maximale d’un test', unit: 's', value: 3600, ceiling: 3600 },
@@ -169,8 +171,6 @@ const LIMITS_RESPONSE = {
   ],
   executionTimeoutSeconds: 30, availabilityTimeoutSeconds: 5, effectiveVirtualUsersPerTest: 200,
 }
-const DEFAULTS = { virtualUsers: 1, thinkTimeMs: 0, rampUpSeconds: 0, durationSeconds: null, iterations: 1, targetRps: null,
-  maxVirtualUsers: 200, maxDurationSeconds: 3600, maxIterations: 10000, maxTargetRps: 500, problems: [] as string[] }
 
 describe('Système', () => {
   beforeEach(() => {
@@ -183,8 +183,6 @@ describe('Système', () => {
     settingsApi.resultsRetention.mockResolvedValue({ resultsDays: 90, requestDetailsDays: 30 })
     auditApi.settings.mockResolvedValue({ logReads: false, retentionDays: 365 })
     settingsApi.updateThresholds.mockImplementation((t) => Promise.resolve(t))
-    settingsApi.loadDefaults.mockResolvedValue({ ...DEFAULTS })
-    settingsApi.updateLoadDefaults.mockImplementation((v) => Promise.resolve({ ...DEFAULTS, ...v }))
   })
   const renderSystem = () => render(<MemoryRouter><Configurations embedded /></MemoryRouter>)
 
@@ -194,7 +192,9 @@ describe('Système', () => {
     const field = (label: RegExp) => within(card).getByRole('textbox', { name: label }) as HTMLInputElement
     await waitFor(() => expect(field(/Durée maximale d’un test/).value).toBe('3600'))
     expect(within(card).getByText('Maximum 3 600 (plafond du serveur).')).toBeTruthy()
-    expect(within(card).getByText(/Maximum 500 \(plafond du serveur\)\. Limite réellement applicable : 200 \(le total est plus bas\)\./)).toBeTruthy()
+    expect(field(/Utilisateurs virtuels par test/).closest('.st-field')!.textContent).toContain('Maximum 500 (plafond du serveur).')
+    // Valeurs cohérentes : plus d'estimation « réellement applicable ».
+    expect(card.textContent).not.toMatch(/réellement applicable/)
     expect(within(card).getAllByRole('textbox')).toHaveLength(6)
     // Délais : lecture seule, unités lisibles ; plus de « Vérification des planifications ».
     expect(within(card).getByText('30 s')).toBeTruthy()
@@ -211,22 +211,68 @@ describe('Système', () => {
     fireEvent.change(field(/Tests en même temps/), { target: { value: '3' } })
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
-    await waitFor(() => expect(settingsApi.updateLimits).toHaveBeenCalledWith({ virtualUsersPerTest: 500, virtualUsersTotal: 200,
+    await waitFor(() => expect(settingsApi.updateLimits).toHaveBeenCalledWith({ virtualUsersPerTest: 200, virtualUsersTotal: 200,
       concurrentTests: 3, maxDurationSeconds: 1800, maxIterations: 10000, maxTargetRps: 500 }))
     expect(toast.showToast).toHaveBeenCalledWith('Limites enregistrées : elles s’appliquent aux prochains enregistrements, lancements et planifications.', 'success')
-    // La carte « Charge par défaut » est relue avec les nouvelles limites.
-    await waitFor(() => expect(settingsApi.loadDefaults).toHaveBeenCalledTimes(2))
   })
 
-  it('charge par défaut au-delà des limites actuelles : avertissement dans sa carte', async () => {
-    settingsApi.loadDefaults.mockResolvedValue({ ...DEFAULTS, durationSeconds: 600, maxDurationSeconds: 300,
-      problems: ['La durée ne doit pas dépasser 300 s (limite d’un test sur ce serveur).'] })
+  it('« par test » choisi au-dessus de « au total » : refusé avant l’envoi, message clair', async () => {
     renderSystem()
-    const card = (await screen.findByRole('heading', { name: 'Charge par défaut' })).closest('section')!
-    const alert = await within(card).findByRole('alert')
-    expect(alert.textContent).toBe('La charge par défaut dépasse les limites actuelles : La durée ne doit pas dépasser 300 s (limite d’un test sur ce serveur). Corrigez-la ci-dessous.')
-    // Le champ concerné montre la même erreur ; l'enregistrement reste bloqué tant qu'elle n'est pas corrigée.
-    expect(within(card).getByText('La durée ne doit pas dépasser 300 s (limite d’un test sur ce serveur).', { selector: '.st-field-help' })).toBeTruthy()
+    const card = (await screen.findByRole('heading', { name: 'Limites' })).closest('section')!
+    const perTest = await within(card).findByRole('textbox', { name: /Utilisateurs virtuels par test/ })
+    await waitFor(() => expect((perTest as HTMLInputElement).value).toBe('200'))
+    const save = within(card).getByRole('button', { name: 'Enregistrer' }) as HTMLButtonElement
+
+    fireEvent.change(perTest, { target: { value: '300' } })
+    expect(within(card).getByText('La limite par test ne peut pas dépasser la limite au total (200).')).toBeTruthy()
+    expect(perTest.getAttribute('aria-invalid')).toBe('true')
+    expect(save.disabled).toBe(true)
+    // Chaque champ garde son propre plafond (message du plafond en premier).
+    fireEvent.change(perTest, { target: { value: '600' } })
+    expect(within(card).getByText('Utilisateurs virtuels par test : maximum 500 (plafond du serveur).')).toBeTruthy()
+    // Les deux changés, « par test » au-dessus du nouveau total : refusé aussi.
+    fireEvent.change(perTest, { target: { value: '150' } })
+    fireEvent.change(within(card).getByRole('textbox', { name: /Utilisateurs virtuels au total/ }), { target: { value: '120' } })
+    expect(within(card).getByText('La limite par test ne peut pas dépasser la limite au total (120).')).toBeTruthy()
+    expect(save.disabled).toBe(true)
+    fireEvent.change(perTest, { target: { value: '120' } })
+    expect(within(card).queryByText(/ne peut pas dépasser/)).toBeNull()
+    expect(save.disabled).toBe(false)
+    expect(settingsApi.updateLimits).not.toHaveBeenCalled()
+  })
+
+  it('total baissé sous « par test » : annoncé, puis « par test » ramené par le serveur et expliqué', async () => {
+    settingsApi.updateLimits.mockImplementationOnce((v) => Promise.resolve({ ...LIMITS_RESPONSE,
+      limits: LIMITS_RESPONSE.limits.map((l) => ({ ...l, value: l.key === 'virtualUsersPerTest' ? Math.min(v.virtualUsersPerTest, v.virtualUsersTotal) : v[l.key] })),
+      effectiveVirtualUsersPerTest: 150,
+      notices: ['« Utilisateurs virtuels par test » ramenée de 200 à 150 : la limite par test ne peut pas dépasser la limite au total.'] }))
+    renderSystem()
+    const card = (await screen.findByRole('heading', { name: 'Limites' })).closest('section')!
+    const perTest = await within(card).findByRole('textbox', { name: /Utilisateurs virtuels par test/ }) as HTMLInputElement
+    await waitFor(() => expect(perTest.value).toBe('200'))
+    fireEvent.change(within(card).getByRole('textbox', { name: /Utilisateurs virtuels au total/ }), { target: { value: '150' } })
+    // Pas une erreur : un avertissement, l'enregistrement reste possible.
+    expect(within(card).getByRole('status').textContent)
+      .toContain('Sera ramenée à 150 à l’enregistrement : la limite par test ne peut pas dépasser la limite au total.')
+    const save = within(card).getByRole('button', { name: 'Enregistrer' }) as HTMLButtonElement
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+    await waitFor(() => expect(perTest.value).toBe('150'))
+    expect(settingsApi.updateLimits).toHaveBeenCalledWith(expect.objectContaining({ virtualUsersPerTest: 200, virtualUsersTotal: 150 }))
+    expect(toast.showToast).toHaveBeenCalledWith('« Utilisateurs virtuels par test » ramenée de 200 à 150 : la limite par test ne peut pas dépasser la limite au total.', 'info')
+    // Cohérent : plus d'avertissement ni d'estimation.
+    expect(within(card).queryByRole('status')).toBeNull()
+    expect(card.textContent).not.toMatch(/réellement applicable|Sera ramenée/)
+  })
+
+  it('règle « par test ≤ au total » (même logique que le serveur)', () => {
+    expect(perTestRule('200', '200', 200)).toEqual({})
+    expect(perTestRule('100', '200', 200)).toEqual({})
+    expect(perTestRule('300', '200', 200).error).toBe('La limite par test ne peut pas dépasser la limite au total (200).')
+    expect(perTestRule('200', '150', 200).notice).toBe('Sera ramenée à 150 à l’enregistrement : la limite par test ne peut pas dépasser la limite au total.')
+    expect(perTestRule('1500', '1200', 200).error).toBe('La limite par test ne peut pas dépasser la limite au total (1 200).')
+    expect(perTestRule('', '150', 200)).toEqual({})
+    expect(perTestRule('200', 'abc', 200)).toEqual({})
   })
 
   it('taille de la base, dernière et prochaine purge', async () => {
@@ -254,41 +300,13 @@ describe('Système', () => {
     expect(toast.showToast).toHaveBeenCalledWith('Seuils par défaut enregistrés.', 'success')
   })
 
-  it('charge par défaut : au-dessus des seuils, mêmes libellés, validation, enregistrement après modification', async () => {
+  it('plus de carte « Charge par défaut » : Limites, Seuils par défaut, Conservation, Journal d’audit', async () => {
     renderSystem()
-    const heading = await screen.findByRole('heading', { name: 'Charge par défaut' })
+    await screen.findByRole('heading', { name: 'Seuils par défaut' })
     const titles = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
-    expect(titles.indexOf('Charge par défaut')).toBe(titles.indexOf('Seuils par défaut') - 1)
-    const card = heading.closest('section')!
-    const input = (label: RegExp) => within(card).getByRole('textbox', { name: label }) as HTMLInputElement
-    await waitFor(() => expect(input(/Utilisateurs virtuels/).value).toBe('1'))
-    expect(input(/Think time \(ms\)/).value).toBe('0')
-    expect(input(/Ramp-up \(s\)/).value).toBe('0')
-    expect(input(/Durée \(s\)/).placeholder).toBe('Sans limite de temps')
-    expect(input(/Itérations/).value).toBe('1')
-    expect(input(/Débit cible \(req\/s\)/).placeholder).toBe('Illimité')
-    expect(within(card).getAllByText('*')).toHaveLength(3)
-    expect(within(card).getByText('Nombre d’utilisateurs simulés en parallèle (1 à 200).')).toBeTruthy()
-    expect(within(card).getByText(/Ni durée ni itérations : chaque utilisateur joue le scénario une seule fois/)).toBeTruthy()
-    expect(within(card).getByText(/le test s’arrête à la première limite atteinte/)).toBeTruthy()
-    const save = within(card).getByRole('button', { name: 'Enregistrer' }) as HTMLButtonElement
-    expect(save.disabled).toBe(true)
-
-    fireEvent.change(input(/Utilisateurs virtuels/), { target: { value: '250' } })
-    expect(within(card).getByText('Le nombre d’utilisateurs ne doit pas dépasser 200 (limite d’un test sur ce serveur).')).toBeTruthy()
-    expect(save.disabled).toBe(true)
-    fireEvent.change(input(/Utilisateurs virtuels/), { target: { value: '20' } })
-    fireEvent.change(input(/Durée \(s\)/), { target: { value: '60' } })
-    fireEvent.change(input(/Ramp-up \(s\)/), { target: { value: '60' } })
-    expect(within(card).getByText('Le ramp-up doit être plus court que la durée.')).toBeTruthy()
-    fireEvent.change(input(/Ramp-up \(s\)/), { target: { value: '10' } })
-    fireEvent.change(input(/Itérations/), { target: { value: '' } })
-    expect(save.disabled).toBe(false)
-    fireEvent.click(save)
-    await waitFor(() => expect(settingsApi.updateLoadDefaults).toHaveBeenCalledWith(
-      { virtualUsers: 20, thinkTimeMs: 0, rampUpSeconds: 10, durationSeconds: 60, iterations: null, targetRps: null }))
-    expect(toast.showToast).toHaveBeenCalledWith('Charge par défaut enregistrée.', 'success')
-    await waitFor(() => expect(save.disabled).toBe(true))
+    expect(titles).not.toContain('Charge par défaut')
+    expect(titles.indexOf('Limites')).toBe(titles.indexOf('Seuils par défaut') - 1)
+    expect(screen.queryByText(/Charge par défaut/)).toBeNull()
   })
 
   it('utilitaires', () => {

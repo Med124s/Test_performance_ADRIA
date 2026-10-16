@@ -14,6 +14,7 @@ vi.mock('../pages/UsersRoles', () => ({ default: () => <div>LISTE UTILISATEURS</
 vi.mock('../pages/RolesCatalog', () => ({ default: () => <div>CATALOGUE RÔLES</div> }))
 
 import NotificationBell from './NotificationBell'
+import { resetUnreadForTests } from '../services/notifications/unreadNotifications'
 import Parametres from '../pages/Parametres'
 import UtilisateursRoles from '../pages/UtilisateursRoles'
 
@@ -31,6 +32,7 @@ const at = (url: string, element: JSX.Element) => render(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetUnreadForTests()
   auth.roles = ['ROLE_SUPER_ADMIN']
 })
 

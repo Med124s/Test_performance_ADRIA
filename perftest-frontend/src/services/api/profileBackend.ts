@@ -5,7 +5,7 @@
 // ============================================================
 
 import { springHttp } from './httpClient'
-import { BackendProfileResponse, BackendProfileSecurity, BackendProfileUpdateRequest } from '../../types/backendContracts'
+import { BackendProfileIdentityRequest, BackendProfileResponse, BackendProfileSecurity, BackendProfileUpdateRequest } from '../../types/backendContracts'
 
 const RESOURCE = '/api/profile'
 
@@ -15,6 +15,9 @@ export const profileBackendApi = {
     springHttp.patch<BackendProfileResponse>(RESOURCE, { timezone } satisfies BackendProfileUpdateRequest),
   updateTheme: (theme: 'LIGHT' | 'DARK' | 'SYSTEM') =>
     springHttp.patch<BackendProfileResponse>(RESOURCE, { theme } satisfies BackendProfileUpdateRequest),
+  /** Super administrateur seulement (403 sinon) : journalisé avant → après. */
+  updateIdentity: (identity: BackendProfileIdentityRequest) =>
+    springHttp.put<BackendProfileResponse>(`${RESOURCE}/identity`, identity),
   security: () => springHttp.get<BackendProfileSecurity>(`${RESOURCE}/security`),
   logoutEverywhere: () => springHttp.post<void>(`${RESOURCE}/logout-everywhere`),
   passwordChanged: () => springHttp.post<{ recorded: boolean }>(`${RESOURCE}/password-changed`),

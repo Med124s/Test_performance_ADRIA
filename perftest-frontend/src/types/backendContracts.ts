@@ -63,6 +63,18 @@ export interface BackendProfileResponse {
   appRoleLabel?: string | null
   /** Apparence mémorisée sur le profil ; null = jamais choisie. */
   theme?: 'LIGHT' | 'DARK' | 'SYSTEM' | null
+  /** Prénom et nom (système d'authentification), pour pré-remplir « Modifier ». */
+  firstName?: string | null
+  lastName?: string | null
+  /** true pour le Super administrateur seulement : prénom, nom et e-mail modifiables. */
+  canEditIdentity?: boolean
+}
+
+/** PUT /api/profile/identity (Super administrateur) : jamais le nom d'utilisateur, le rôle ni l'état du compte. */
+export interface BackendProfileIdentityRequest {
+  firstName: string
+  lastName: string
+  email: string
 }
 
 /** PATCH /api/profile : préférences facultatives (null = inchangée). username/name/email restent
@@ -82,30 +94,23 @@ export interface BackendProfileSecurity {
   message: string | null
 }
 
-/** GET/PUT /api/settings/load-defaults : charge proposée aux nouveaux scénarios (null = champ vide). */
-export interface BackendLoadDefaults {
-  virtualUsers: number
-  thinkTimeMs: number
-  rampUpSeconds: number
-  durationSeconds: number | null
-  iterations: number | null
-  targetRps: number | null
-  /** Lecture seule : limites en vigueur (Paramètres > Système > Limites). */
+/** GET/PUT /api/settings/limits : limites applicatives (≤ plafond du serveur) et délais en lecture seule. */
+export type BackendLimitKey = 'virtualUsersPerTest' | 'virtualUsersTotal' | 'concurrentTests' | 'maxDurationSeconds' | 'maxIterations' | 'maxTargetRps'
+/** GET /api/settings/load-limits : limites d'un test lues par l'assistant (tout utilisateur connecté). */
+export interface BackendLoadLimits {
   maxVirtualUsers: number
   maxDurationSeconds: number
   maxIterations: number
   maxTargetRps: number
-  /** Règles que la charge par défaut enregistrée ne respecte plus (une limite a baissé). */
-  problems: string[]
 }
 
-/** GET/PUT /api/settings/limits : limites applicatives (≤ plafond du serveur) et délais en lecture seule. */
-export type BackendLimitKey = 'virtualUsersPerTest' | 'virtualUsersTotal' | 'concurrentTests' | 'maxDurationSeconds' | 'maxIterations' | 'maxTargetRps'
 export interface BackendExecutionLimits {
   limits: { key: BackendLimitKey; label: string; unit: string; value: number; ceiling: number }[]
   executionTimeoutSeconds: number
   availabilityTimeoutSeconds: number
   effectiveVirtualUsersPerTest: number
+  /** Ce que l'enregistrement a ajusté de lui-même (ex. « par test » ramenée au total) ; vide en lecture. */
+  notices?: string[]
 }
 
 /** GET/PUT /api/settings/thresholds : seuils proposés aux nouveaux scénarios et seuil de régression. */
@@ -1013,7 +1018,9 @@ export interface BackendDashboardOverview {
   kpis: { p95Ms: number | null; errorRate: number | null; requests: number; executions: number; running: number }
   statusCounts: { success: number; failed: number; cancelled: number; running: number; thresholdsExceeded?: number }
   watchItems: BackendDashboardWatchItem[]
-  latestByScenario: BackendDashboardScenarioRow[]
+  /** Scénarios exécutés dans la période (le plus récent d'abord), pour « Évolution des performances ».
+   *  Le tableau de leurs dernières exécutions est paginé : GET /api/dashboard/latest-by-scenario. */
+  scenarios: BackendDashboardScenarioOption[]
   slowestSteps: { stepName: string; method: string | null; scenarioName: string; executionId: string; p95Ms: number; requests: number }[]
   running: BackendDashboardExecutionBrief[]
   recent: BackendDashboardExecutionBrief[]
@@ -1032,6 +1039,12 @@ export interface BackendDashboardWatchItem {
 /** WORSE (rouge), BETTER (vert), SAME (gris, écart faible), NONE (gris, pas de comparaison). */
 export type BackendDashboardTrend = 'WORSE' | 'BETTER' | 'SAME' | 'NONE'
 
+export interface BackendDashboardScenarioOption {
+  scenarioId: string
+  scenarioName: string
+}
+
+/** Ligne de GET /api/dashboard/latest-by-scenario (paginé, le plus récent d'abord). */
 export interface BackendDashboardScenarioRow {
   executionId: string
   scenarioId: string

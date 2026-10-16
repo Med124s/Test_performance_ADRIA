@@ -135,6 +135,17 @@ class DashboardOverviewTest {
         return json(req, null);
     }
 
+    /** Tableau « Derniere execution par scenario » (pagine). */
+    private JsonNode latest(String appId, Instant from, Instant to, Integer page, Integer size) throws Exception {
+        MockHttpServletRequestBuilder req = get("/api/dashboard/latest-by-scenario");
+        if (appId != null) req.param("applicationId", appId);
+        if (from != null) req.param("from", from.toString());
+        if (to != null) req.param("to", to.toString());
+        if (page != null) req.param("page", String.valueOf(page));
+        if (size != null) req.param("size", String.valueOf(size));
+        return json(req, null);
+    }
+
     private static List<String> kinds(JsonNode overview) {
         List<String> out = new ArrayList<>();
         overview.get("watchItems").forEach(i -> out.add(i.get("kind").asText() + ":" + i.get("title").asText()));
@@ -165,8 +176,13 @@ class DashboardOverviewTest {
         assertThat(a.get("kpis").get("requests").asLong()).isEqualTo(40);
         assertThat(a.get("kpis").get("errorRate").asDouble()).isZero();
         assertThat(a.get("statusCounts").get("success").asLong()).isEqualTo(2);
-        JsonNode row = a.get("latestByScenario").get(0);
-        assertThat(a.get("latestByScenario").size()).isEqualTo(1);
+        JsonNode rowsA = latest(appA, testStart, null, null, null);
+        assertThat(rowsA.get("totalElements").asLong()).isEqualTo(1);
+        assertThat(rowsA.get("size").asInt()).as("10 lignes par page par defaut").isEqualTo(10);
+        JsonNode row = rowsA.get("content").get(0);
+        assertThat(a.get("scenarios")).hasSize(1);
+        assertThat(a.get("scenarios").get(0).get("scenarioId").asText()).isEqualTo(s1);
+        assertThat(a.has("latestByScenario")).as("plus de liste complete dans la vue d'ensemble").isFalse();
         assertThat(row.get("executionId").asText()).isEqualTo(run2);
         assertThat(row.get("previousExecutionId").asText()).isEqualTo(run1);
         JsonNode report1 = json(get("/api/executions/" + run1 + "/report"), null).get("statistics");
@@ -182,7 +198,7 @@ class DashboardOverviewTest {
         JsonNode onlyRun2 = overview(appA, afterRun1, null);
         assertThat(onlyRun2.get("kpis").get("executions").asLong()).isEqualTo(1);
         assertThat(onlyRun2.get("kpis").get("p95Ms").asLong()).isEqualTo(report2.get("p95").asLong());
-        assertThat(onlyRun2.get("latestByScenario").get(0).get("previousExecutionId").asText())
+        assertThat(latest(appA, afterRun1, null, null, null).get("content").get(0).get("previousExecutionId").asText())
                 .as("comparaison avec l'execution precedente meme hors periode").isEqualTo(run1);
 
         // ---- application B : derniere execution allee au bout avec 100 % d'erreurs -> seuils depasses, aucune regression
@@ -190,7 +206,7 @@ class DashboardOverviewTest {
         assertThat(b.get("kpis").get("errorRate").asDouble()).isEqualTo(100.0);
         assertThat(b.get("statusCounts").get("thresholdsExceeded").asLong()).isEqualTo(1);
         assertThat(b.get("statusCounts").get("failed").asLong()).isZero();
-        assertThat(b.get("latestByScenario").get(0).get("trend").asText()).isEqualTo("NONE");
+        assertThat(latest(appB, testStart, null, null, null).get("content").get(0).get("trend").asText()).isEqualTo("NONE");
         assertThat(kinds(b)).hasSize(1).allMatch(k -> k.startsWith("THRESHOLDS_EXCEEDED:"));
         assertThat(b.get("watchItems").get(0).get("detail").asText()).isEqualTo("Taux d'erreurs 100 %");
         assertThat(b.get("watchItems").get(0).get("link").asText()).isEqualTo("/executions/report/" + run3);
@@ -198,7 +214,7 @@ class DashboardOverviewTest {
         // ---- toutes les applications : les deux scenarios, tries du plus recent au plus ancien
         JsonNode all = overview(null, testStart, null);
         List<String> rows = new ArrayList<>();
-        all.get("latestByScenario").forEach(r -> rows.add(r.get("executionId").asText()));
+        latest(null, testStart, null, 0, 100).get("content").forEach(r -> rows.add(r.get("executionId").asText()));
         assertThat(rows).containsSubsequence(run3, run2);
         assertThat(all.get("recent").get(0).get("id").asText()).isEqualTo(run3);
         assertThat(all.get("slowestSteps").get(0).get("p95Ms").asLong()).isEqualTo(report2.get("p95").asLong());
@@ -212,12 +228,65 @@ class DashboardOverviewTest {
     }
 
     @Test
+    void latestByScenario_paginatedOnTheServer_newestFirst_withFilters() throws Exception {
+        latencyMs = 1;
+        Instant start = Instant.now().minusSeconds(1);
+        String appId = app("dash-pages", null);
+        String other = app("dash-pages-autre", null);
+        List<String> runs = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            runs.add(run(scenario(appId, "Page-" + i + "-" + UUID.randomUUID().toString().substring(0, 4), "/ok")));
+        }
+        String otherRun = run(scenario(other, "Autre-" + UUID.randomUUID().toString().substring(0, 4), "/ok"));
+        // Un scenario relance : une seule ligne (sa derniere execution), remontee en tete.
+        String firstScenario = json(get("/api/executions/" + runs.get(0)), null).get("scenarioId").asText();
+        String rerun = run(firstScenario);
+
+        // Application filtree, 5 par page : 12 scenarios, 3 pages (5, 5, 2), la plus recente d'abord, sans doublon.
+        List<String> seen = new ArrayList<>();
+        for (int p = 0; p < 3; p++) {
+            JsonNode page = latest(appId, start, null, p, 5);
+            assertThat(page.get("totalElements").asLong()).isEqualTo(12);
+            assertThat(page.get("totalPages").asInt()).isEqualTo(3);
+            assertThat(page.get("page").asInt()).isEqualTo(p);
+            assertThat(page.get("content").size()).isEqualTo(p < 2 ? 5 : 2);
+            page.get("content").forEach(r -> seen.add(r.get("executionId").asText()));
+        }
+        assertThat(seen).doesNotHaveDuplicates().hasSize(12).doesNotContain(runs.get(0), otherRun);
+        assertThat(seen.get(0)).as("scenario relance en tete").isEqualTo(rerun);
+        List<String> expectedOrder = new ArrayList<>(runs.subList(1, 12));
+        java.util.Collections.reverse(expectedOrder);
+        assertThat(seen.subList(1, 12)).as("du plus recent au plus ancien").isEqualTo(expectedOrder);
+
+        // Defaut : 10 par page ; bornes de taille et de page.
+        JsonNode byDefault = latest(appId, start, null, null, null);
+        assertThat(byDefault.get("content").size()).isEqualTo(10);
+        assertThat(byDefault.get("totalPages").asInt()).isEqualTo(2);
+        assertThat(latest(appId, start, null, 0, 5000).get("size").asInt()).isEqualTo(100);
+        assertThat(latest(appId, start, null, -2, 0).get("page").asInt()).isZero();
+        assertThat(latest(appId, start, null, 9, 10).get("content")).isEmpty();
+
+        // Toutes les applications : l'autre application est comptee aussi.
+        assertThat(latest(null, start, null, 0, 100).get("content").findValuesAsText("executionId")).contains(otherRun, rerun);
+        // Periode : seulement la relance (lancee apres la 12e execution).
+        Instant beforeRerun = Instant.parse(json(get("/api/executions/" + rerun + "/report"), null).get("startedAt").asText());
+        JsonNode recentOnly = latest(appId, beforeRerun, null, null, null);
+        assertThat(recentOnly.get("totalElements").asLong()).isEqualTo(1);
+        assertThat(recentOnly.get("content").get(0).get("executionId").asText()).isEqualTo(rerun);
+        assertThat(recentOnly.get("content").get(0).get("previousExecutionId").asText()).as("comparaison conservee").isEqualTo(runs.get(0));
+        latencyMs = 10;
+    }
+
+    @Test
     void emptyPeriod_andMonitoringDown_andFailedApplication() throws Exception {
         JsonNode empty = overview(null, Instant.now().plusSeconds(3600), Instant.now().plusSeconds(7200));
         assertThat(empty.get("kpis").get("executions").asLong()).isZero();
         assertThat(empty.get("kpis").get("p95Ms").isNull()).isTrue();
         assertThat(empty.get("kpis").get("errorRate").isNull()).isTrue();
-        assertThat(empty.get("latestByScenario")).isEmpty();
+        assertThat(empty.get("scenarios")).isEmpty();
+        JsonNode emptyRows = latest(null, Instant.now().plusSeconds(3600), Instant.now().plusSeconds(7200), null, null);
+        assertThat(emptyRows.get("content")).isEmpty();
+        assertThat(emptyRows.get("totalElements").asLong()).isZero();
         assertThat(empty.get("slowestSteps")).isEmpty();
 
         int closed;

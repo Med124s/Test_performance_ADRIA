@@ -77,7 +77,6 @@ export default function AuditLogs() {
   const [actors, setActors] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [exporting, setExporting] = useState(false)
   const requestId = useRef(0)
 
   const update = useCallback((changes: Record<string, string | null>, keepPage = false) => {
@@ -155,44 +154,18 @@ export default function AuditLogs() {
     setParams(new URLSearchParams(), { replace: true })
   }
 
-  const exportCsv = async () => {
-    setExporting(true)
-    try {
-      const blob = await auditBackendApi.exportCsv(filters)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `journal-audit-${new Date().toISOString().slice(0, 10)}.csv`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      showToast(filtersActive ? 'Export CSV téléchargé (avec les filtres en cours).' : 'Export CSV téléchargé.', 'success')
-    } catch (err) {
-      showToast(describeError(err), 'danger')
-    } finally {
-      setExporting(false)
-    }
-  }
-
   const rows = data?.content ?? []
   const total = data?.totalElements ?? 0
   const totalPages = Math.max(1, data?.totalPages ?? 1)
   const selected = detailId ? rows.find((r) => r.id === detailId) ?? null : null
 
-  const header = (withExport: boolean) => (
+  const header = () => (
     <div className="pt-page-header au-header">
       <div className="page-title">
         <h1>Journal d’audit</h1>
         <p>Qui a fait quoi, et quand</p>
       </div>
       <div className="d-flex align-items-center gap-2">
-        {withExport && (
-          <button type="button" className="pt-btn-outline" onClick={exportCsv} disabled={exporting || total === 0}>
-            <i className={`bi ${exporting ? 'bi-arrow-repeat pt-spin' : 'bi-download'}`} aria-hidden="true"></i>
-            {exporting ? 'Export…' : 'Exporter en CSV'}
-          </button>
-        )}
         <TopBar searchPlaceholder="" />
       </div>
     </div>
@@ -201,7 +174,7 @@ export default function AuditLogs() {
   if (!canView) {
     return (
       <div className="pt-content">
-        {header(false)}
+        {header()}
         <div className="pt-card">
           <div className="pt-empty-state" style={{ padding: '4rem 1.5rem' }}>
             <i className="bi bi-shield-lock" style={{ fontSize: '40px', color: 'var(--pt-text-light)' }} aria-hidden="true"></i>
@@ -215,7 +188,7 @@ export default function AuditLogs() {
 
   return (
     <div className="pt-content">
-      {header(true)}
+      {header()}
 
       <div className="au-filters" role="search" aria-label="Filtrer le journal">
         <div className="au-search">

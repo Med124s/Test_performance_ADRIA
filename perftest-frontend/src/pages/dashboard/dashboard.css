@@ -41,6 +41,15 @@
 .db-table .db-row { cursor: pointer; }
 .db-table .db-row:hover, .db-table .db-row:focus-visible { background: var(--pt-sidebar-item-hover); outline: none; }
 .db-table td, .db-table th { white-space: nowrap; }
+/* Changement de page : l'ancienne page s'atténue pendant le chargement, la nouvelle apparaît en fondu (une fois). */
+.db-page { transition: opacity 0.15s ease; }
+.db-page.loading { opacity: 0.55; }
+.db-fade-in { animation: db-fade-in 0.18s ease-out 1; }
+@keyframes db-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .db-page { transition: none; }
+  .db-fade-in { animation: none; }
+}
 .db-trend { font-weight: 700; font-variant-numeric: tabular-nums; }
 .db-trend.bad { color: var(--pt-danger); }
 .db-trend.good { color: var(--pt-success); }

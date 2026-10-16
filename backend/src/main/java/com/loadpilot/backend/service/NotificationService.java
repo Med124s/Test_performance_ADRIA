@@ -24,6 +24,13 @@ public interface NotificationService {
     /** Notifications du SEUL utilisateur authentifie courant - jamais celles d'un autre. */
     PagedResponse<NotificationResponse> list(String keycloakSubject, Boolean readFilter, int page, int size);
 
+    /**
+     * Meme liste, filtree aussi par types (null ou vide : tous). Les plus recentes en premier ;
+     * page >= 0 et taille entre 1 et 100 (valeurs hors bornes ramenees dans ces limites).
+     */
+    PagedResponse<NotificationResponse> list(String keycloakSubject, Boolean readFilter,
+                                             java.util.Collection<NotificationType> types, int page, int size);
+
     long countUnread(String keycloakSubject);
 
     /** @throws com.loadpilot.backend.exception.ResourceNotFoundException si absente ou n'appartenant pas a cet utilisateur. */

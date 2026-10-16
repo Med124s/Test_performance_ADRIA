@@ -17,7 +17,9 @@ public record DashboardOverviewResponse(
         Kpis kpis,
         StatusCounts statusCounts,
         List<WatchItem> watchItems,
-        List<ScenarioRow> latestByScenario,
+        /** Scenarios executes dans la periode (le plus recent d'abord), pour le graphique « Evolution ».
+         *  Le tableau de leurs dernieres executions est pagine : GET /api/dashboard/latest-by-scenario. */
+        List<ScenarioOption> scenarios,
         List<SlowStep> slowestSteps,
         List<ExecutionBrief> running,
         List<ExecutionBrief> recent,
@@ -46,6 +48,9 @@ public record DashboardOverviewResponse(
             String applicationName, Instant startedAt, ExecutionStatus status, Integer virtualUsers, Long p95Ms,
             BigDecimal errorRate, Double throughputRps, Double cpuMaxPercent, String previousExecutionId, Long previousP95Ms,
             Double p95ChangePercent, String trend) {
+    }
+
+    public record ScenarioOption(String scenarioId, String scenarioName) {
     }
 
     public record SlowStep(String stepName, String method, String scenarioName, String executionId, Long p95Ms, int requests) {

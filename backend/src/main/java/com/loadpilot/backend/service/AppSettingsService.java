@@ -31,13 +31,6 @@ public class AppSettingsService {
     public static final String DEFAULT_MAX_ERROR_RATE = "thresholds.default-max-error-rate";
     public static final String DEFAULT_MAX_P95_MS = "thresholds.default-max-p95-ms";
     public static final String REGRESSION_PERCENT = "thresholds.regression-percent";
-    /** Charge proposee aux nouveaux scenarios (Parametres > Systeme > Charge par defaut) ; "" = vide. */
-    public static final String LOAD_VIRTUAL_USERS = "load.virtual-users";
-    public static final String LOAD_THINK_TIME_MS = "load.think-time-ms";
-    public static final String LOAD_RAMP_UP_SECONDS = "load.ramp-up-seconds";
-    public static final String LOAD_DURATION_SECONDS = "load.duration-seconds";
-    public static final String LOAD_ITERATIONS = "load.iterations";
-    public static final String LOAD_TARGET_RPS = "load.target-rps";
 
     public static final boolean DEFAULT_LOG_READS = false;
     public static final int DEFAULT_RETENTION_DAYS = 365;
@@ -88,19 +81,6 @@ public class AppSettingsService {
                 return defaultValue;
             }
         }).orElse(defaultValue);
-    }
-
-    /** Entier facultatif : absent = defaultValue, "" = null (champ vide), illisible = defaultValue. */
-    public Integer getOptionalInt(String key, Integer defaultValue) {
-        Optional<String> raw = get(key);
-        if (raw.isEmpty()) return defaultValue;
-        String v = raw.get().trim();
-        if (v.isEmpty()) return null;
-        try {
-            return Integer.parseInt(v);
-        } catch (NumberFormatException e) {
-            return defaultValue;
-        }
     }
 
     @Transactional

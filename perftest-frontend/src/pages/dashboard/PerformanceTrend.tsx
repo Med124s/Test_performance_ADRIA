@@ -1,8 +1,9 @@
+import { inUserZone } from '../../utils/userTimezone'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Line } from 'react-chartjs-2'
 import { CategoryScale, Chart as ChartJS, Legend, LinearScale, LineElement, PointElement, Tooltip } from 'chart.js'
-import { BackendDashboardScenarioRow, BackendScenarioTrend } from '../../types/backendContracts'
+import { BackendDashboardScenarioOption, BackendScenarioTrend } from '../../types/backendContracts'
 import { dashboardBackendApi } from '../../services/api/dashboardBackend'
 import { ApiError } from '../../services/api/httpClient'
 import { formatMs, formatNumber, formatPercent } from '../../utils/numberFormat'
@@ -13,7 +14,7 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip,
 // « Évolution des performances » : P95 et taux d'erreurs de chaque exécution terminée du scénario
 // choisi sur la période ; clic sur un point = rapport de l'exécution.
 
-export default function PerformanceTrend({ scenarios, range }: { scenarios: BackendDashboardScenarioRow[]; range: { from?: string; to?: string } }) {
+export default function PerformanceTrend({ scenarios, range }: { scenarios: BackendDashboardScenarioOption[]; range: { from?: string; to?: string } }) {
   const navigate = useNavigate()
   const [scenarioId, setScenarioId] = useState<string>('')
   const [stepName, setStepName] = useState<string>('')
@@ -37,7 +38,7 @@ export default function PerformanceTrend({ scenarios, range }: { scenarios: Back
   const byStep = !!stepName && trend?.stepName === stepName
   const p95Of = (p: (typeof points)[number]) => (byStep ? p.stepP95Ms ?? null : p.p95Ms)
   const errOf = (p: (typeof points)[number]) => (byStep ? p.stepErrorRate ?? null : p.errorRate)
-  const labels = points.map((p) => new Date(p.startedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))
+  const labels = points.map((p) => new Date(p.startedAt).toLocaleString('fr-FR', inUserZone({ day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })))
   const data = {
     labels,
     datasets: [

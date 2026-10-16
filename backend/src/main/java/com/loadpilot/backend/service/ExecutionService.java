@@ -89,5 +89,4 @@ public interface ExecutionService {
 
     /** P1-A — export CSV du meme rapport (memes autorisations que la
      * consultation, voir ExecutionController). */
-    String exportReportCsv(UUID id);
 }

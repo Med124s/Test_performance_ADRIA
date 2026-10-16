@@ -26,6 +26,8 @@ import {
   BackendApplicationDashboardResponse,
   BackendDashboardOverview,
   BackendDashboardResponse,
+  BackendDashboardScenarioRow,
+  BackendPagedResponse,
   BackendScenarioTrend,
 } from '../../types/backendContracts'
 
@@ -44,6 +46,11 @@ export const dashboardBackendApi = {
   /** Nouveau Dashboard : tout, filtré par application (optionnelle) et période. */
   getOverview: (filter: { applicationId?: string; from?: string; to?: string }) =>
     springHttp.get<BackendDashboardOverview>(`${RESOURCE}/overview${query(filter)}`),
+  /** « Dernière exécution par scénario », paginé côté serveur (page à partir de 0, 10 lignes par défaut). */
+  getLatestByScenario: (filter: { applicationId?: string; from?: string; to?: string; page: number; size: number }) =>
+    springHttp.get<BackendPagedResponse<BackendDashboardScenarioRow>>(`${RESOURCE}/latest-by-scenario${query({
+      applicationId: filter.applicationId, from: filter.from, to: filter.to, page: String(filter.page), size: String(filter.size),
+    })}`),
   /** Évolution du P95 et du taux d'erreurs d'un scénario sur la période. */
   getScenarioTrend: (scenarioId: string, range: { from?: string; to?: string }, stepName?: string) =>
     springHttp.get<BackendScenarioTrend>(`${RESOURCE}/scenario-trend${query({ scenarioId, ...range, stepName })}`),

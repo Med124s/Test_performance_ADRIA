@@ -1,11 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react'
 import { AUTH_PROVIDER } from '../services/auth/keycloakConfig'
 import {
+  endLocalSession,
   getCurrentClaims,
   handleRedirectCallback,
+  hasStoredSession,
+  onSessionEnded,
   redirectToLogin,
+  refreshTokensNow,
+  startBackgroundRefresh,
+  verifySession,
   logout as keycloakLogout,
 } from '../services/auth/keycloakClient'
+import { onLogoutAnnounced } from '../services/auth/sessionSync'
+
+/** Vérification de la session Keycloak pendant que l'onglet est affiché. */
+export const SESSION_CHECK_INTERVAL_MS = 30_000
 import { backendRolesToFrontendRole } from '../utils/roleMapping'
 import { initialsOf } from '../utils/userDisplay'
 
@@ -56,6 +66,8 @@ interface AuthContextValue {
   /** Échec du retour de Keycloak (échange du code refusé, état invalide…) :
    * la redirection automatique est alors suspendue pour éviter une boucle. */
   authError: string | null
+  /** Recharge l'identité affichée depuis un nouveau jeton (après « Modifier » dans Mon compte). */
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -66,6 +78,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [returnTo, setReturnTo] = useState<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
+
+  /** Identité et rôles affichés, lus dans le jeton courant. */
+  const applyClaims = async () => {
+    const claims = await getCurrentClaims()
+    const roles = claims?.realm_access?.roles ?? []
+    const role = claims ? backendRolesToFrontendRole(roles) : null
+    setRawRoles(roles)
+    // Initiales calculées sur le nom AFFICHÉ (« Admin Test » -> « AT »),
+    // jamais sur l'e-mail, pour que l'avatar corresponde au nom à côté.
+    const name = claims?.name || claims?.preferred_username || 'Utilisateur'
+    setUser(claims && role ? { id: claims.sub, name, email: claims.email || '', role, initials: initialsOf(name) } : null)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -83,20 +107,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       setReturnTo(requestedPath)
 
-      const claims = await getCurrentClaims()
-      const roles = claims?.realm_access?.roles ?? []
-      const role = claims ? backendRolesToFrontendRole(roles) : null
-
-      setRawRoles(roles)
-      // Initiales calculées sur le nom AFFICHÉ (« Admin Test » -> « AT »),
-      // jamais sur l'e-mail, pour que l'avatar corresponde au nom à côté.
-      const name = claims?.name || claims?.preferred_username || 'Utilisateur'
-      setUser(claims && role ? { id: claims.sub, name, email: claims.email || '', role, initials: initialsOf(name) } : null)
+      await applyClaims()
       setIsLoading(false)
     })()
     return () => {
       cancelled = true
     }
+  }, [])
+
+  // Déconnexion globale : une session terminée (ici, dans un autre onglet, ou ailleurs) vide
+  // aussitôt l'écran — ProtectedRoute repart alors vers la page de connexion.
+  useEffect(() => {
+    const offEnded = onSessionEnded(() => {
+      setUser(null)
+      setRawRoles([])
+    })
+    // Un autre onglet ou une autre fenêtre de ce navigateur vient de se déconnecter.
+    const offAnnounced = onLogoutAnnounced(() => endLocalSession('logged_out'))
+    // Session fermée ailleurs (« tous les appareils », expiration, compte désactivé) : vérifiée au
+    // retour sur l'onglet et régulièrement tant qu'il est affiché.
+    const check = () => {
+      if (document.visibilityState === 'visible' && hasStoredSession()) void verifySession()
+    }
+    const timer = window.setInterval(check, SESSION_CHECK_INTERVAL_MS)
+    // Jeton d'accès renouvelé en tâche de fond avant sa fin (onglet affiché), sans action de l'utilisateur.
+    const stopRefresh = startBackgroundRefresh()
+    document.addEventListener('visibilitychange', check)
+    window.addEventListener('focus', check)
+    // « Précédent » après la déconnexion : une page restaurée depuis le cache du navigateur
+    // n'est jamais montrée sans session (masquée puis rechargée -> page de connexion).
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      if (!hasStoredSession()) {
+        document.documentElement.style.visibility = 'hidden'
+        window.location.reload()
+      } else {
+        check()
+      }
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      offEnded()
+      offAnnounced()
+      window.clearInterval(timer)
+      stopRefresh()
+      document.removeEventListener('visibilitychange', check)
+      window.removeEventListener('focus', check)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [])
+
+  const refreshUser = useCallback(async () => {
+    await refreshTokensNow()
+    await applyClaims()
   }, [])
 
   const loginWithKeycloak = (path?: string) => {
@@ -127,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         returnTo,
         clearReturnTo,
         authError,
+        refreshUser,
       }}
     >
       {children}

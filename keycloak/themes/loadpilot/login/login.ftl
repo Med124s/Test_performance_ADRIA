@@ -10,6 +10,10 @@
     <#elseif section = "subtitle">
         <p class="lp-subtitle">${msg("lpLoginSubtitle")}</p>
     <#elseif section = "form">
+        <#-- Retour après une déconnexion (LoadPilot ajoute lp_reason=logged_out) : affiché par loadpilot.js. -->
+        <#if !(message?has_content)>
+            <div id="lp-logged-out" hidden><@lp.alert type="info">${msg("lpLoggedOut")}</@lp.alert></div>
+        </#if>
         <div id="kc-form">
             <#if realm.password>
                 <form id="kc-form-login" class="lp-form" onsubmit="login.disabled = true; return true;" action="${url.loginAction}" method="post" novalidate="novalidate">

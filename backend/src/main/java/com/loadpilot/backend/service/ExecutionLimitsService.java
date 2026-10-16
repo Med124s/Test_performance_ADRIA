@@ -80,16 +80,28 @@ public class ExecutionLimitsService {
         return ceilings.get(limit);
     }
 
-    /** Limite applicative en vigueur : reglee dans Parametres, jamais au-dessus du plafond (defaut = plafond). */
+    /**
+     * Limite applicative en vigueur : reglee dans Parametres, jamais au-dessus du plafond (defaut = plafond).
+     * « Par test » n'est jamais au-dessus de « au total » : une ancienne valeur enregistree plus haute (ou un
+     * plafond du serveur baisse depuis) ne cree donc jamais de configuration incoherente.
+     */
     public int value(Limit limit) {
+        if (limit == Limit.VIRTUAL_USERS_PER_TEST) {
+            return Math.min(storedValue(limit), value(Limit.VIRTUAL_USERS_TOTAL));
+        }
+        return storedValue(limit);
+    }
+
+    /** Valeur enregistree (bornee par le plafond), avant la regle « par test <= au total ». */
+    private int storedValue(Limit limit) {
         int ceiling = ceiling(limit);
         int configured = settings.getInt(limit.settingKey, ceiling);
         return Math.max(1, Math.min(configured, ceiling));
     }
 
-    /** Utilisateurs reellement possibles pour un test : la plus petite de la limite par test et du total. */
+    /** Utilisateurs reellement possibles pour un test (par test, jamais au-dessus du total). */
     public int maxVirtualUsersPerTest() {
-        return Math.min(value(Limit.VIRTUAL_USERS_PER_TEST), value(Limit.VIRTUAL_USERS_TOTAL));
+        return value(Limit.VIRTUAL_USERS_PER_TEST);
     }
 
     public LoadLimits loadLimits() {
@@ -101,9 +113,20 @@ public class ExecutionLimitsService {
         for (Limit l : Limit.values()) {
             list.add(new ExecutionLimitsResponse.Limit(l.apiKey, l.label, l.unit, value(l), ceiling(l)));
         }
-        return new ExecutionLimitsResponse(list, executionTimeoutSeconds, availabilityTimeoutSeconds, maxVirtualUsersPerTest());
+        return new ExecutionLimitsResponse(list, executionTimeoutSeconds, availabilityTimeoutSeconds, maxVirtualUsersPerTest(), List.of());
     }
 
+    /** Message de refus : « par test » choisi au-dessus de « au total » (meme texte que l'interface). */
+    public static String perTestAboveTotal(int total) {
+        return "La limite par test ne peut pas dépasser la limite au total (" + LoadRules.number(total) + ").";
+    }
+
+    /**
+     * Enregistre les limites. « Par test » au-dessus de « au total » :
+     *   - « par test » laisse tel quel (seul le total a ete baisse) : ramene au total, explique dans la
+     *     reponse et au journal d'audit ;
+     *   - « par test » modifie par l'administrateur : refuse (400), jamais enregistre.
+     */
     public ExecutionLimitsResponse update(ExecutionLimitsRequest request, String updatedBy) {
         Map<Limit, Integer> requested = new LinkedHashMap<>();
         requested.put(Limit.VIRTUAL_USERS_PER_TEST, request.virtualUsersPerTest());
@@ -119,17 +142,46 @@ public class ExecutionLimitsService {
         });
         if (!errors.isEmpty()) throw new BadRequestException(String.join(" ", errors));
 
+        // Avant : valeurs enregistrees (une ancienne incoherence apparait telle quelle au journal).
         Map<Limit, Integer> before = new LinkedHashMap<>();
-        for (Limit l : Limit.values()) before.put(l, value(l));
+        for (Limit l : Limit.values()) before.put(l, storedValue(l));
+
+        List<String> notices = new ArrayList<>();
+        String automatic = null;
+        int perTest = request.virtualUsersPerTest();
+        int total = request.virtualUsersTotal();
+        int shownPerTest = value(Limit.VIRTUAL_USERS_PER_TEST);
+        // « Par test » laisse tel que l'administrateur le voyait : seul le total a pu le faire bouger.
+        boolean perTestUntouched = perTest == shownPerTest;
+        if (perTest > total) {
+            if (!perTestUntouched) throw new BadRequestException(perTestAboveTotal(total));
+            requested.put(Limit.VIRTUAL_USERS_PER_TEST, total);
+            notices.add("« " + Limit.VIRTUAL_USERS_PER_TEST.label + " » ramenée de " + LoadRules.number(shownPerTest) + " à "
+                    + LoadRules.number(total) + " : la limite par test ne peut pas dépasser la limite au total.");
+        }
+        int storedPerTest = before.get(Limit.VIRTUAL_USERS_PER_TEST);
+        int finalPerTest = requested.get(Limit.VIRTUAL_USERS_PER_TEST);
+        if (perTestUntouched && finalPerTest != storedPerTest) {
+            // Baisse non choisie par l'administrateur (total baisse, ou ancienne valeur enregistree trop haute).
+            automatic = "Utilisateurs virtuels par test ramené de " + LoadRules.number(storedPerTest) + " à "
+                    + LoadRules.number(finalPerTest) + " automatiquement (pas plus que la limite au total, "
+                    + LoadRules.number(total) + ")";
+        }
+
         requested.forEach((l, v) -> settings.set(l.settingKey, String.valueOf(v), updatedBy));
         AuditEvent event = AuditEvent.of(AuditAction.UPDATE, AuditModule.SETTINGS)
                 .target(AuditTargetType.SETTINGS, "limits", "Limites du serveur")
-                .description("Limites des tests modifiées (effet sur les prochains enregistrements, lancements et planifications)");
+                .description("Limites des tests modifiées (effet sur les prochains enregistrements, lancements et planifications)"
+                        + (automatic == null ? "" : ". " + automatic + "."));
         for (Limit l : Limit.values()) {
-            event.change(l.label, display(l, before.get(l)), display(l, value(l)));
+            String after = display(l, storedValue(l));
+            if (l == Limit.VIRTUAL_USERS_PER_TEST && automatic != null) after += " (automatiquement)";
+            event.change(l.label, display(l, before.get(l)), after);
         }
         auditLogService.record(event);
-        return get();
+        ExecutionLimitsResponse saved = get();
+        return new ExecutionLimitsResponse(saved.limits(), saved.executionTimeoutSeconds(), saved.availabilityTimeoutSeconds(),
+                saved.effectiveVirtualUsersPerTest(), notices);
     }
 
     /** Message identique a l'interface (null si correct). */

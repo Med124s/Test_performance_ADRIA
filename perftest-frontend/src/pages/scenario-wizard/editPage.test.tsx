@@ -20,9 +20,9 @@ vi.mock('../../services/api/applicationsBackend', () => ({ applicationsBackendAp
 vi.mock('../../services/api/scenariosBackend', () => ({ scenariosBackendApi: scenarios }))
 vi.mock('../../services/api/stepsBackend', () => ({ stepsBackendApi: steps }))
 vi.mock('../../services/api/executionsBackend', () => ({ executionsBackendApi: { execute: vi.fn() } }))
-// Charge par défaut différente du scénario : un scénario existant ne doit jamais en hériter.
+// Limites du serveur lues par l'assistant (plages et validation de « Charge & résumé »).
 vi.mock('../../services/api/settingsBackend', () => ({ settingsBackendApi: {
-  loadDefaults: () => Promise.resolve({ virtualUsers: 99, thinkTimeMs: 999, rampUpSeconds: 9, durationSeconds: 900, iterations: 9, targetRps: 9, maxVirtualUsers: 200 }),
+  loadLimits: () => Promise.resolve({ maxVirtualUsers: 200, maxDurationSeconds: 3600, maxIterations: 10000, maxTargetRps: 500 }),
   thresholds: () => Promise.resolve({ maxErrorRatePercent: 1, maxP95Ms: 0, regressionPercent: 20 }),
 } }))
 

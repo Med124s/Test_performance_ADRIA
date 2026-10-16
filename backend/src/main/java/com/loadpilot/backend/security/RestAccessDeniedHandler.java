@@ -26,7 +26,10 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
         responseWriter.write(
                 response,
                 HttpStatus.FORBIDDEN,
-                "Vous etes authentifie mais vous n'avez pas les permissions necessaires pour cette action.",
+                // Refus metier explique (ex. modification de son identite) : message precis.
+                accessDeniedException instanceof com.loadpilot.backend.exception.ForbiddenActionException
+                        ? accessDeniedException.getMessage()
+                        : "Vous etes authentifie mais vous n'avez pas les permissions necessaires pour cette action.",
                 request.getRequestURI()
         );
     }

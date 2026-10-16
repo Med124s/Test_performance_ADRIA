@@ -21,7 +21,10 @@ public record CurrentUser(
         String username,
         String name,
         String email,
-        Set<String> roles
+        Set<String> roles,
+        /** Prenom et nom (claims given_name / family_name), null si absents. */
+        String firstName,
+        String lastName
 ) {
 
     /**
@@ -39,7 +42,9 @@ public record CurrentUser(
                 jwt.getClaimAsString("preferred_username"),
                 jwt.getClaimAsString("name"),
                 jwt.getClaimAsString("email"),
-                roles
+                roles,
+                jwt.getClaimAsString("given_name"),
+                jwt.getClaimAsString("family_name")
         );
     }
 }

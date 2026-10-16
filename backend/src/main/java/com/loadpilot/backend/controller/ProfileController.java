@@ -59,6 +59,21 @@ public class ProfileController {
         return profileService.updateProfile(currentUser, request);
     }
 
+    /**
+     * Prenom, nom et e-mail du compte connecte, dans le systeme d'authentification. Super
+     * administrateur seulement : 403 avec la raison pour les autres roles (meme en appelant l'API
+     * directement), refus journalise. Jamais le nom d'utilisateur, le role ni l'etat du compte.
+     */
+    @org.springframework.web.bind.annotation.PutMapping("/identity")
+    @Operation(summary = "Modifier mon nom et mon e-mail (Super administrateur)",
+            description = "Journalise avant -> apres. 403 pour Ingénieur performance et Observateur ; 409 si l'e-mail est déjà utilisé.")
+    @ApiResponse(responseCode = "403", description = "Rôle insuffisant, ou nom d'utilisateur / rôle / état du compte demandés (vérifié AVANT les champs)")
+    public ProfileResponse updateIdentity(@RequestBody com.loadpilot.backend.dto.request.ProfileIdentityRequest request,
+                                          @AuthenticationPrincipal Jwt jwt,
+                                          Authentication authentication) {
+        return profileService.updateIdentity(CurrentUser.from(jwt, authentication), request);
+    }
+
     @GetMapping("/security")
     @Operation(summary = "Securite de mon compte", description = "Derniere connexion et sessions ouvertes (appareil / navigateur, dates) du compte connecte.")
     public com.loadpilot.backend.dto.response.ProfileSecurityResponse security(@AuthenticationPrincipal Jwt jwt) {

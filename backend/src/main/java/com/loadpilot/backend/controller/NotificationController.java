@@ -2,9 +2,11 @@ package com.loadpilot.backend.controller;
 
 import com.loadpilot.backend.dto.response.NotificationResponse;
 import com.loadpilot.backend.dto.response.PagedResponse;
+import com.loadpilot.backend.enums.NotificationType;
 import com.loadpilot.backend.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -37,13 +39,15 @@ public class NotificationController {
     private final NotificationService notificationService;
 
     @GetMapping
-    @Operation(summary = "Lister mes notifications", description = "Les plus recentes en premier. ?read=true/false filtre optionnellement par statut de lecture.")
+    @Operation(summary = "Lister mes notifications", description = "Les plus recentes en premier, par pages (20 par defaut, 100 au plus)."
+            + " ?read=true/false filtre par statut de lecture ; ?type=... (repetable) filtre par type.")
     public PagedResponse<NotificationResponse> list(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) Boolean read,
+            @RequestParam(required = false) List<NotificationType> type,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return notificationService.list(jwt.getSubject(), read, page, size);
+        return notificationService.list(jwt.getSubject(), read, type, page, size);
     }
 
     @GetMapping("/unread-count")

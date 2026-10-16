@@ -1,5 +1,8 @@
+import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { roleLabelFromRawRoles } from '../utils/appRoles'
+import AccountPanel from './account/AccountPanel'
+import { accountRoleLabel } from './account/accountModel'
 import NotificationBell from './NotificationBell'
 
 interface TopBarIconsProps {
@@ -7,7 +10,24 @@ interface TopBarIconsProps {
 }
 
 function TopBarIcons({ onOpenMobileMenu }: TopBarIconsProps) {
-  const { user, rawRoles } = useAuth()
+  const { user, rawRoles, logout } = useAuth()
+  const location = useLocation()
+  const userName = user?.name || 'Utilisateur'
+
+  // Carte utilisateur : ouvre le panneau « Mon compte » sous la carte. Fermeture au clic à
+  // l'extérieur, avec Échap (focus rendu à la carte) et après une navigation.
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => { setOpen(false) }, [location.pathname])
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (!wrapRef.current?.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); buttonRef.current?.focus() } }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
 
   return (
     <div className="pt-global-topbar">
@@ -25,27 +45,20 @@ function TopBarIcons({ onOpenMobileMenu }: TopBarIconsProps) {
 
       {/* Cloche : panneau des dernières notifications et lien vers la page complète. */}
       <NotificationBell />
-      <div className="topbar-icon" style={{ gap: '0.5rem', padding: '0 0.5rem', width: 'auto' }}>
-        <div
-          style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: '50%',
-            background: 'var(--pt-primary)',
-            color: 'white',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '12px',
-            fontWeight: 600,
-          }}
-        >
-          {user?.initials || 'AU'}
-        </div>
-        <div style={{ lineHeight: 1.2, textAlign: 'left' }}>
-          <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--pt-text)' }}>{user?.name || 'Admin User'}</div>
-          <div style={{ fontSize: '11px', color: 'var(--pt-text-muted)' }}>{roleLabelFromRawRoles(rawRoles)}</div>
-        </div>
+      <div className="tb-account" ref={wrapRef}>
+        <button ref={buttonRef} type="button" className="topbar-icon tb-account-btn" aria-haspopup="dialog" aria-expanded={open}
+          aria-label={`Mon compte : ${userName}`} onClick={() => setOpen((o) => !o)}>
+          <span className="tb-account-avatar" aria-hidden="true">{user?.initials || 'U'}</span>
+          <span className="tb-account-text">
+            <span className="tb-account-name">{userName}</span>
+            <span className="tb-account-role">{accountRoleLabel(rawRoles)}</span>
+          </span>
+          <i className="bi bi-chevron-down tb-account-chevron" aria-hidden="true"></i>
+        </button>
+        {open && (
+          <AccountPanel onClose={() => { setOpen(false); buttonRef.current?.focus() }}
+            onLogout={() => { setOpen(false); logout() }} />
+        )}
       </div>
     </div>
   )

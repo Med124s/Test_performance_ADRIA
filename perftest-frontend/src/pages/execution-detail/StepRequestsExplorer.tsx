@@ -1,3 +1,4 @@
+import { inUserZone } from '../../utils/userTimezone'
 import { useEffect, useState } from 'react'
 import { BackendExecutionRequestRow, BackendRequestDetailMode, BackendStepReportEntry } from '../../types/backendContracts'
 import { executionsBackendApi } from '../../services/api/executionsBackend'
@@ -108,7 +109,7 @@ function StepRequests({ executionId, step, virtualUsers }: { executionId: string
             ) : rows.map((r) => (
               <tr key={r.resultId} className={r.detailKind ? 'ed-row-clickable' : undefined}
                 onClick={r.detailKind ? () => setOpenResult(r.resultId) : undefined}>
-                <td>{new Date(r.timestamp).toLocaleTimeString('fr-FR')}</td>
+                <td>{new Date(r.timestamp).toLocaleTimeString('fr-FR', inUserZone())}</td>
                 <td>VU {(r.virtualUser ?? 0) + 1}</td>
                 <td>{(r.iteration ?? 0) + 1}</td>
                 <td><span className="badge bg-light text-dark border">{r.httpStatus ?? '—'}</span></td>

@@ -1,6 +1,7 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { executionsBackendApi } from '../services/api/executionsBackend'
+import { refreshUnreadSoon } from '../services/notifications/unreadNotifications'
 import { BackendExecutionReportResponse, BackendExecutionStatus, BackendExecutionStatusResponse } from '../types/backendContracts'
 import { TERMINAL_EXECUTION_STATUSES, executionStatusMeta } from '../utils/executionStatus'
 import './executionMonitor.css'
@@ -116,6 +117,8 @@ export function ExecutionMonitorProvider({ children }: { children: ReactNode }) 
           .then(async (status) => {
             patch(id, { status, connectionError: null, ...(status.scenarioName ? { scenarioName: status.scenarioName } : {}) })
             if (isTerminal(status)) {
+              // La notification de fin est créée juste après : compteur de la cloche relu sans attendre.
+              refreshUnreadSoon()
               const report = await executionsBackendApi.getReport(id).catch(() => null)
               patch(id, { report })
             }

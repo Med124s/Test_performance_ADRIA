@@ -114,9 +114,7 @@ class SettingsPagesTest {
         settings.set(AppSettingsService.DEFAULT_MAX_ERROR_RATE, "1.0", "test");
         settings.set(AppSettingsService.DEFAULT_MAX_P95_MS, "0", "test");
         settings.set(AppSettingsService.REGRESSION_PERCENT, "20.0", "test");
-        for (String key : List.of(AppSettingsService.LOAD_VIRTUAL_USERS, AppSettingsService.LOAD_THINK_TIME_MS, AppSettingsService.LOAD_RAMP_UP_SECONDS,
-                AppSettingsService.LOAD_DURATION_SECONDS, AppSettingsService.LOAD_ITERATIONS, AppSettingsService.LOAD_TARGET_RPS,
-                "limits.virtual-users-per-test", "limits.virtual-users-total", "limits.concurrent-tests", "limits.max-duration-seconds",
+        for (String key : List.of("limits.virtual-users-per-test", "limits.virtual-users-total", "limits.concurrent-tests", "limits.max-duration-seconds",
                 "limits.max-iterations", "limits.max-target-rps")) {
             settingsRepository.deleteById(key);
         }
@@ -334,77 +332,22 @@ class SettingsPagesTest {
         assertThat(channels.get("email").asBoolean()).as("aucun serveur e-mail en test").isFalse();
     }
 
-    // ---------------------------------------------------------------- charge par defaut
-
-    private static Map<String, Object> load(Integer vu, Integer think, Integer ramp, Integer duration, Integer iterations, Integer rps) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("virtualUsers", vu);
-        m.put("thinkTimeMs", think);
-        m.put("rampUpSeconds", ramp);
-        m.put("durationSeconds", duration);
-        m.put("iterations", iterations);
-        m.put("targetRps", rps);
-        return m;
-    }
-
-    private String errorOf(Map<String, Object> body) throws Exception {
-        MvcResult r = perform(put("/api/settings/load-defaults"), body, ADMIN);
-        assertThat(r.getResponse().getStatus()).isEqualTo(400);
-        return json(r).get("message").asText();
-    }
+    // ---------------------------------------------------------------- limites lues par l'assistant
 
     @Test
-    void loadDefaults_initialValues_readByAll_adminOnly() throws Exception {
-        JsonNode initial = json(perform(get("/api/settings/load-defaults"), null, VIEWER));
-        // Valeurs de l'assistant : 1 utilisateur, 1 passage, sans pause ni montee.
-        assertThat(initial.get("virtualUsers").asInt()).isEqualTo(1);
-        assertThat(initial.get("thinkTimeMs").asInt()).isZero();
-        assertThat(initial.get("rampUpSeconds").asInt()).isZero();
-        assertThat(initial.get("durationSeconds").isNull()).isTrue();
-        assertThat(initial.get("iterations").asInt()).isEqualTo(1);
-        assertThat(initial.get("targetRps").isNull()).isTrue();
-        assertThat(initial.get("maxVirtualUsers").asInt()).as("min(500 par test, 200 au total)").isEqualTo(200);
-        assertThat(perform(put("/api/settings/load-defaults"), load(10, 500, 10, 60, null, null), ENGINEER).getResponse().getStatus()).isEqualTo(403);
-        assertThat(mockMvc.perform(get("/api/settings/load-defaults")).andReturn().getResponse().getStatus()).isEqualTo(401);
-    }
-
-    @Test
-    void loadDefaults_validation_sameRulesAndMessagesAsWizard() throws Exception {
-        assertThat(errorOf(load(null, 0, 0, null, null, null))).isEqualTo("Le nombre d’utilisateurs est obligatoire.");
-        assertThat(errorOf(load(0, 0, 0, null, null, null))).isEqualTo("Le nombre d’utilisateurs doit être au moins 1.");
-        assertThat(errorOf(load(201, 0, 0, null, null, null))).isEqualTo("Le nombre d’utilisateurs ne doit pas dépasser 200 (limite d’un test sur ce serveur).");
-        assertThat(errorOf(load(1, null, 0, null, null, null))).isEqualTo("Le think time est obligatoire.");
-        assertThat(errorOf(load(1, -1, 0, null, null, null))).isEqualTo("Le think time doit être au moins 0.");
-        assertThat(errorOf(load(1, 0, null, null, null, null))).isEqualTo("Le ramp-up est obligatoire.");
-        assertThat(errorOf(load(1, 0, 0, 0, null, null))).isEqualTo("La durée doit être au moins 1.");
-        assertThat(errorOf(load(1, 0, 0, null, 0, null))).isEqualTo("Le nombre d’itérations doit être au moins 1.");
-        assertThat(errorOf(load(1, 0, 0, null, null, 0))).isEqualTo("Le débit cible doit être au moins 1.");
-        assertThat(errorOf(load(10, 0, 60, 60, null, null))).isEqualTo("Le ramp-up doit être plus court que la durée.");
-        // Facultatifs vides acceptes ; limite exacte acceptee ; ramp-up sans duree accepte.
-        assertThat(perform(put("/api/settings/load-defaults"), load(200, 0, 120, null, null, null), ADMIN).getResponse().getStatus()).isEqualTo(200);
-    }
-
-    @Test
-    void loadDefaults_audited_andExistingScenariosNeverChanged() throws Exception {
-        String appId = json(perform(post("/api/applications"), Map.of("name", "charge-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
-        JsonNode existing = json(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Existant", "virtualUsers", 3,
-                "rampUpSeconds", 2, "durationSeconds", 30, "thinkTimeMs", 100), ENGINEER));
-
-        JsonNode updated = json(perform(put("/api/settings/load-defaults"), load(25, 300, 15, 120, null, 50), ADMIN));
-        assertThat(updated.get("virtualUsers").asInt()).isEqualTo(25);
-        assertThat(updated.get("iterations").isNull()).isTrue();
-        assertThat(json(perform(get("/api/settings/load-defaults"), null, ENGINEER)).get("durationSeconds").asInt()).isEqualTo(120);
-
-        AuditLog entry = audits(AuditAction.UPDATE, "load-defaults").get(0);
-        assertThat(entry.getModule()).isEqualTo(AuditModule.SETTINGS);
-        assertThat(entry.getChanges()).contains("Utilisateurs virtuels").contains("\"1\"").contains("\"25\"")
-                .contains("Sans limite de temps").contains("120 s").contains("Itérations").contains("Aucune").contains("Illimité").contains("50 req/s");
-
-        JsonNode after = json(perform(get("/api/scenarios/" + existing.get("id").asText()), null, ENGINEER));
-        assertThat(after.get("virtualUsers").asInt()).isEqualTo(3);
-        assertThat(after.get("rampUpSeconds").asInt()).isEqualTo(2);
-        assertThat(after.get("durationSeconds").asInt()).isEqualTo(30);
-        assertThat(after.get("thinkTimeMs").asInt()).isEqualTo(100);
+    void loadLimits_readByAll_forTheWizard_loadDefaultsRemoved() throws Exception {
+        for (RequestPostProcessor who : List.of(VIEWER, ENGINEER, ADMIN)) {
+            JsonNode limits = json(perform(get("/api/settings/load-limits"), null, who));
+            assertThat(limits.get("maxVirtualUsers").asInt()).as("min(500 par test, 200 au total)").isEqualTo(200);
+            assertThat(limits.get("maxDurationSeconds").asInt()).isEqualTo(3600);
+            assertThat(limits.get("maxIterations").asInt()).isEqualTo(10000);
+            assertThat(limits.get("maxTargetRps").asInt()).isEqualTo(500);
+            assertThat(limits.size()).as("seulement les 4 limites").isEqualTo(4);
+        }
+        assertThat(mockMvc.perform(get("/api/settings/load-limits")).andReturn().getResponse().getStatus()).isEqualTo(401);
+        // « Charge par défaut » retiree : plus de route.
+        assertThat(perform(get("/api/settings/load-defaults"), null, ADMIN).getResponse().getStatus()).isEqualTo(404);
+        assertThat(perform(put("/api/settings/load-defaults"), Map.of("virtualUsers", 5), ADMIN).getResponse().getStatus()).isEqualTo(404);
     }
 
     // ---------------------------------------------------------------- regles de charge d'un scenario
@@ -468,7 +411,8 @@ class SettingsPagesTest {
         JsonNode initial = json(perform(get("/api/settings/limits"), null, ADMIN));
         Map<String, int[]> byKey = new HashMap<>();
         for (JsonNode l : initial.get("limits")) byKey.put(l.get("key").asText(), new int[] {l.get("value").asInt(), l.get("ceiling").asInt()});
-        assertThat(byKey.get("virtualUsersPerTest")).containsExactly(500, 500);
+        // Plafond « par test » 500, mais jamais au-dessus du total (200) : 200 affiché, aucune incohérence.
+        assertThat(byKey.get("virtualUsersPerTest")).containsExactly(200, 500);
         assertThat(byKey.get("virtualUsersTotal")).containsExactly(200, 200);
         assertThat(byKey.get("maxDurationSeconds")).containsExactly(3600, 3600);
         assertThat(byKey.get("maxIterations")).containsExactly(10000, 10000);
@@ -484,22 +428,79 @@ class SettingsPagesTest {
         assertThat(message(perform(put("/api/settings/limits"), limits(0, 200, 10, 3600, 10000, 500), ADMIN)))
                 .isEqualTo("Utilisateurs virtuels par test : au moins 1.");
 
-        JsonNode lowered = json(perform(put("/api/settings/limits"), limits(50, 40, 3, 1800, 500, 100), ADMIN));
+        JsonNode lowered = json(perform(put("/api/settings/limits"), limits(40, 40, 3, 1800, 500, 100), ADMIN));
         assertThat(lowered.get("effectiveVirtualUsersPerTest").asInt()).isEqualTo(40);
         AuditLog entry = audits(AuditAction.UPDATE, "limits").get(0);
         assertThat(entry.getChanges()).contains("Durée maximale d’un test").contains("3 600 s").contains("1 800 s")
                 .contains("Tests en même temps").contains("10 tests").contains("3 tests");
 
-        // Effet immediat : assistant (limites lues avec la charge par defaut), enregistrement, capacite.
-        JsonNode defaults = json(perform(get("/api/settings/load-defaults"), null, ENGINEER));
-        assertThat(defaults.get("maxVirtualUsers").asInt()).isEqualTo(40);
-        assertThat(defaults.get("maxDurationSeconds").asInt()).isEqualTo(1800);
-        assertThat(defaults.get("maxIterations").asInt()).isEqualTo(500);
-        assertThat(defaults.get("maxTargetRps").asInt()).isEqualTo(100);
+        // Effet immediat : assistant (limites lues par tous), enregistrement, capacite.
+        JsonNode wizard = json(perform(get("/api/settings/load-limits"), null, ENGINEER));
+        assertThat(wizard.get("maxVirtualUsers").asInt()).isEqualTo(40);
+        assertThat(wizard.get("maxDurationSeconds").asInt()).isEqualTo(1800);
+        assertThat(wizard.get("maxIterations").asInt()).isEqualTo(500);
+        assertThat(wizard.get("maxTargetRps").asInt()).isEqualTo(100);
         String appId = json(perform(post("/api/applications"), Map.of("name", "limites-app-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
         assertThat(message(saveScenario(appId, Map.of("durationSeconds", 1801))))
                 .isEqualTo("La durée ne doit pas dépasser 1 800 s (limite d’un test sur ce serveur).");
         assertThatThrownBy(() -> registry.reserveCapacity(41)).hasMessageContaining("limite d'un test sur ce serveur (40");
+    }
+
+    private Map<String, Integer> limitValues() throws Exception {
+        Map<String, Integer> values = new HashMap<>();
+        for (JsonNode l : json(perform(get("/api/settings/limits"), null, ADMIN)).get("limits")) values.put(l.get("key").asText(), l.get("value").asInt());
+        return values;
+    }
+
+    private AuditLog limitsAudit(String descriptionPart) {
+        return audits(AuditAction.UPDATE, "limits").stream()
+                .filter(a -> a.getDescription() != null && a.getDescription().contains(descriptionPart)).findFirst().orElseThrow();
+    }
+
+    @Test
+    void limits_perTestNeverAboveTotal_refused_or_lowered_audited() throws Exception {
+        // Choisir « par test » au-dessus de « au total » : refusé, rien n'est enregistré.
+        MvcResult above = perform(put("/api/settings/limits"), limits(300, 200, 10, 3600, 10000, 500), ADMIN);
+        assertThat(above.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(above)).isEqualTo("La limite par test ne peut pas dépasser la limite au total (200).");
+        assertThat(limitValues().get("virtualUsersPerTest")).isEqualTo(200);
+        // Chaque champ reste borné par son propre plafond (contrôlé en premier).
+        assertThat(message(perform(put("/api/settings/limits"), limits(600, 200, 10, 3600, 10000, 500), ADMIN)))
+                .isEqualTo("Utilisateurs virtuels par test : maximum 500 (plafond du serveur).");
+        assertThat(message(perform(put("/api/settings/limits"), limits(150, 250, 10, 3600, 10000, 500), ADMIN)))
+                .isEqualTo("Utilisateurs virtuels au total : maximum 200 (plafond du serveur).");
+        // Égal : accepté.
+        JsonNode equal = json(perform(put("/api/settings/limits"), limits(150, 150, 10, 3600, 10000, 500), ADMIN));
+        assertThat(equal.get("notices").size()).isZero();
+
+        // Total baissé sous « par test » (laissé tel quel) : « par test » suit, message et audit.
+        JsonNode lowered = json(perform(put("/api/settings/limits"), limits(150, 100, 10, 3600, 10000, 500), ADMIN));
+        assertThat(limitValues()).containsEntry("virtualUsersPerTest", 100).containsEntry("virtualUsersTotal", 100);
+        assertThat(lowered.get("effectiveVirtualUsersPerTest").asInt()).isEqualTo(100);
+        assertThat(lowered.get("notices").get(0).asText())
+                .isEqualTo("« Utilisateurs virtuels par test » ramenée de 150 à 100 : la limite par test ne peut pas dépasser la limite au total.");
+        AuditLog auto = limitsAudit("ramené de 150 à 100 automatiquement");
+        assertThat(auto.getDescription()).contains("Utilisateurs virtuels par test ramené de 150 à 100 automatiquement (pas plus que la limite au total, 100)");
+        assertThat(auto.getChanges()).contains("150 utilisateurs").contains("100 utilisateurs (automatiquement)");
+
+        // Les deux changés, « par test » au-dessus du nouveau total : refusé (choix explicite).
+        assertThat(message(perform(put("/api/settings/limits"), limits(120, 110, 10, 3600, 10000, 500), ADMIN)))
+                .isEqualTo("La limite par test ne peut pas dépasser la limite au total (110).");
+        // Total remonté : « par test » garde la valeur choisie, rien d'automatique.
+        JsonNode raised = json(perform(put("/api/settings/limits"), limits(100, 180, 10, 3600, 10000, 500), ADMIN));
+        assertThat(raised.get("notices").size()).isZero();
+        assertThat(limitValues()).containsEntry("virtualUsersPerTest", 100).containsEntry("virtualUsersTotal", 180);
+
+        // Ancienne configuration incohérente déjà en base (500 par test, 150 au total) : jamais visible ni appliquée,
+        // corrigée et journalisée au prochain enregistrement.
+        settings.set("limits.virtual-users-per-test", "500", "ancien");
+        settings.set("limits.virtual-users-total", "150", "ancien");
+        assertThat(limitValues()).containsEntry("virtualUsersPerTest", 150).containsEntry("virtualUsersTotal", 150);
+        assertThat(json(perform(get("/api/settings/load-limits"), null, ENGINEER)).get("maxVirtualUsers").asInt()).isEqualTo(150);
+        JsonNode fixed = json(perform(put("/api/settings/limits"), limits(150, 150, 5, 3600, 10000, 500), ADMIN));
+        assertThat(fixed.get("notices").size()).as("rien ne change à l'écran").isZero();
+        assertThat(settings.getInt("limits.virtual-users-per-test", 0)).isEqualTo(150);
+        assertThat(limitsAudit("ramené de 500 à 150 automatiquement").getChanges()).contains("500 utilisateurs").contains("150 utilisateurs (automatiquement)");
     }
 
     @Test
@@ -512,18 +513,19 @@ class SettingsPagesTest {
         assertThat(message(saveScenario(appId, Map.of("rampUpSeconds", 3601)))).isEqualTo("Le ramp-up ne doit pas dépasser 3 600 s (durée maximale d’un test).");
         assertThat(saveScenario(appId, Map.of("durationSeconds", 3600, "iterations", 10000, "targetRps", 500, "thinkTimeMs", 60000, "rampUpSeconds", 3599))
                 .getResponse().getStatus()).isEqualTo(201);
-        // Charge par defaut : memes limites.
-        assertThat(errorOf(load(1, 0, 0, 3601, null, null))).isEqualTo("La durée ne doit pas dépasser 3 600 s (limite d’un test sur ce serveur).");
+        // Minimums (memes messages que l'assistant).
+        assertThat(message(saveScenario(appId, Map.of("durationSeconds", 0)))).contains("La durée doit être au moins 1.");
+        assertThat(message(saveScenario(appId, Map.of("iterations", 0)))).contains("Le nombre d’itérations doit être au moins 1.");
+        assertThat(message(saveScenario(appId, Map.of("targetRps", 0)))).contains("Le débit cible doit être au moins 1.");
     }
 
     @Test
-    void loweredLimit_existingScenarioKept_launchAndScheduleRefused_defaultsWarned() throws Exception {
+    void loweredLimit_existingScenarioKept_launchAndScheduleRefused() throws Exception {
         String appId = json(perform(post("/api/applications"), Map.of("name", "baisse-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
         String id = json(saveScenario(appId, Map.of("virtualUsers", 2, "rampUpSeconds", 1, "durationSeconds", 600))).get("id").asText();
         perform(post("/api/steps"), Map.of("scenarioId", id, "name", "Accueil", "method", "GET", "url", "/ok", "order", 1), ENGINEER);
-        perform(put("/api/settings/load-defaults"), load(5, 0, 0, 600, null, null), ADMIN);
 
-        perform(put("/api/settings/limits"), limits(500, 200, 10, 300, 10000, 500), ADMIN);
+        assertThat(perform(put("/api/settings/limits"), limits(200, 200, 10, 300, 10000, 500), ADMIN).getResponse().getStatus()).isEqualTo(200);
 
         assertThat(json(perform(get("/api/scenarios/" + id), null, ENGINEER)).get("durationSeconds").asInt()).as("jamais modifie").isEqualTo(600);
         MvcResult launch = perform(post("/api/executions"), Map.of("scenarioId", id), ENGINEER);
@@ -533,7 +535,6 @@ class SettingsPagesTest {
                 "runAt", Instant.now().plusSeconds(86400).toString(), "timezone", "UTC"), ENGINEER);
         assertThat(schedule.getResponse().getStatus()).isEqualTo(400);
         assertThat(message(schedule)).isEqualTo("La durée ne doit pas dépasser 300 s (limite d’un test sur ce serveur). Modifiez la charge du scénario avant de le planifier.");
-        JsonNode defaults = json(perform(get("/api/settings/load-defaults"), null, ADMIN));
-        assertThat(defaults.get("problems").get(0).asText()).isEqualTo("La durée ne doit pas dépasser 300 s (limite d’un test sur ce serveur).");
+        assertThat(json(perform(get("/api/settings/load-limits"), null, ENGINEER)).get("maxDurationSeconds").asInt()).isEqualTo(300);
     }
 }

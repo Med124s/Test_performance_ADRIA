@@ -7,7 +7,6 @@ import AuditSettingsCard from './audit/AuditSettingsCard'
 import ResultsRetentionCard from './audit/ResultsRetentionCard'
 import LimitsCard from './settings/LimitsCard'
 import ThresholdsCard from './settings/ThresholdsCard'
-import LoadDefaultsCard from './settings/LoadDefaultsCard'
 import './audit/audit.css'
 import './settings/settings.css'
 
@@ -16,7 +15,7 @@ export { formatDuration } from './settings/formatDuration'
 // ============================================================
 // Paramètres > « Système » (Super administrateur) :
 //  - limites des tests (modifiables sous le plafond du serveur) et délais en lecture seule ;
-//  - charge et seuils par défaut des nouveaux scénarios ;
+//  - seuils par défaut des nouveaux scénarios ;
 //  - conservation des résultats et journal d'audit, avec la taille de la base et l'état des purges.
 // ============================================================
 
@@ -25,8 +24,6 @@ function Configurations({ embedded = false }: { embedded?: boolean } = {}) {
   const { authProvider, rawRoles } = useAuth()
   const isSuperAdmin = authProvider === 'keycloak' && rawRoles.includes('ROLE_SUPER_ADMIN')
   const [storage, setStorage] = useState<BackendStorageInfo | null>(null)
-  /** Rechargée après un changement de limites (avertissement si la charge par défaut les dépasse). */
-  const [limitsVersion, setLimitsVersion] = useState(0)
 
   useEffect(() => {
     if (!isSuperAdmin) return
@@ -52,8 +49,7 @@ function Configurations({ embedded = false }: { embedded?: boolean } = {}) {
         </div>
       ) : (
         <>
-          <LimitsCard onSaved={() => setLimitsVersion((v) => v + 1)} />
-          <LoadDefaultsCard key={limitsVersion} />
+          <LimitsCard />
           <ThresholdsCard />
           <ResultsRetentionCard storage={storage} />
           <AuditSettingsCard storage={storage} />

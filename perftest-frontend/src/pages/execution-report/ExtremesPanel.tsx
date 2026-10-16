@@ -1,3 +1,4 @@
+import { inUserZone } from '../../utils/userTimezone'
 import { useEffect, useState } from 'react'
 import { BackendExecutionExtremes } from '../../types/backendContracts'
 import { executionsBackendApi } from '../../services/api/executionsBackend'
@@ -83,7 +84,7 @@ export default function ExtremesPanel({ executionId, kind, onClose }: { executio
                       </div>
                       <div className="xp-muted">
                         VU {(first.request.virtualUser ?? 0) + 1} · itération {(first.request.iteration ?? 0) + 1} ·{' '}
-                        {new Date(first.request.timestamp).toLocaleTimeString('fr-FR')} ({formatOffset(first.secondsFromStart)}) ·{' '}
+                        {new Date(first.request.timestamp).toLocaleTimeString('fr-FR', inUserZone())} ({formatOffset(first.secondsFromStart)}) ·{' '}
                         HTTP {first.request.httpStatus ?? '—'}{first.request.success === false && ' (échec)'}
                       </div>
                       <div className="xp-muted">Au même moment : {moment(first, data.intervalSeconds)}</div>
@@ -113,7 +114,7 @@ export default function ExtremesPanel({ executionId, kind, onClose }: { executio
                             <td>{it.request.method && <span className="xp-method">{it.request.method}</span>}{it.request.stepName}</td>
                             <td>{(it.request.virtualUser ?? 0) + 1}</td>
                             <td>{(it.request.iteration ?? 0) + 1}</td>
-                            <td>{new Date(it.request.timestamp).toLocaleTimeString('fr-FR')}</td>
+                            <td>{new Date(it.request.timestamp).toLocaleTimeString('fr-FR', inUserZone())}</td>
                             <td>{formatOffset(it.secondsFromStart).replace('à ', '')}</td>
                             <td><span className={it.request.success === false ? 'text-danger fw-semibold' : ''}>{it.request.httpStatus ?? '—'}</span></td>
                             <td className="text-end fw-semibold">{formatMs(it.request.responseTime)}</td>

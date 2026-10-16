@@ -18,7 +18,7 @@
 
 /* ---- carte du tableau et onglets de statut collés au tableau */
 .pt-card.ex-card { padding: 0; overflow: hidden; min-width: 0; }
-.ex-tabs { display: flex; gap: 0.25rem; padding: 0.5rem 0.75rem 0; border-bottom: 1px solid var(--pt-border); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.ex-tabs { display: flex; gap: 0.25rem; padding: 0.5rem 0.75rem 0; border-bottom: 1px solid var(--pt-border); overflow-x: auto; overflow-y: hidden; }
 .ex-tab { border: none; background: none; padding: 0.55rem 0.8rem 0.6rem; font-size: 13px; font-weight: 600; color: var(--pt-text-muted);
   border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;
   border-radius: 6px 6px 0 0; transition: color 0.15s ease, background 0.15s ease; }

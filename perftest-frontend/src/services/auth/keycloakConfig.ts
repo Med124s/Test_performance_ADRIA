@@ -36,4 +36,6 @@ export const KEYCLOAK_ENDPOINTS = {
   /** "end session" standard OIDC — invalide la VRAIE session SSO Keycloak,
    * pas seulement l'état local (voir Phase 16, section 11). */
   endSession: () => `${realmBaseUrl()}/logout`,
+  /** Répond 401 dès que la session Keycloak n'existe plus (déconnexion ailleurs, compte désactivé…). */
+  userinfo: () => `${realmBaseUrl()}/userinfo`,
 }

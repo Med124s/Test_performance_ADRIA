@@ -1,3 +1,4 @@
+import { inUserZone } from '../../utils/userTimezone'
 import type { BackendStoragePurge } from '../../types/backendContracts'
 import { fullDate } from '../../utils/userDisplay'
 
@@ -18,13 +19,14 @@ export function formatBytes(bytes: number | null | undefined): string | null {
 /** « aujourd’hui à 03:45 », « demain à 03:45 », « hier à 03:30 », sinon « le 12/10 à 03:45 ». */
 export function formatNextRun(iso: string, now = new Date()): string {
   const d = new Date(iso)
-  const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const time = d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))
+  // Jour calendaire dans le fuseau de l'utilisateur (aaaa-mm-jj).
+  const day = (x: Date) => Date.parse(x.toLocaleDateString('en-CA', inUserZone()))
   const diff = Math.round((day(d) - day(now)) / 86_400_000)
   if (diff === 0) return `aujourd’hui à ${time}`
   if (diff === 1) return `demain à ${time}`
   if (diff === -1) return `hier à ${time}`
-  return `le ${d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} à ${time}`
+  return `le ${d.toLocaleDateString('fr-FR', inUserZone({ day: '2-digit', month: '2-digit' }))} à ${time}`
 }
 
 /** Même format, avec une majuscule : « Aujourd’hui à 03:30 ». */

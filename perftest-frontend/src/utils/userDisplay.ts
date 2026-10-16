@@ -1,3 +1,4 @@
+import { inUserZone } from './userTimezone'
 // Affichage des personnes : initiales et couleur d'avatar, dates relatives.
 
 /** Initiales du nom AFFICHÉ (« Admin Test » -> « AT », « viewer-test » -> « VT », « lina » -> « LI »,
@@ -44,6 +45,6 @@ export function fullDate(iso: string | null | undefined): string | null {
   if (!iso) return null
   const d = new Date(iso)
   if (isNaN(d.getTime())) return null
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-    + ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString('fr-FR', inUserZone({ day: 'numeric', month: 'long', year: 'numeric' }))
+    + ' à ' + d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))
 }

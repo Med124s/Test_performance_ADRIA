@@ -36,7 +36,6 @@ public class SettingsController {
     private final ResultsRetentionSettingsService retentionSettingsService;
     private final ThresholdSettingsService thresholdSettingsService;
     private final StorageInfoService storageInfoService;
-    private final com.loadpilot.backend.service.LoadDefaultsService loadDefaultsService;
     private final com.loadpilot.backend.service.ExecutionLimitsService executionLimitsService;
 
     @GetMapping("/audit")
@@ -91,21 +90,17 @@ public class SettingsController {
         return storageInfoService.info();
     }
 
-    /** Lu par l'assistant de scenario (pre-remplissage et limite d'utilisateurs) : tout utilisateur connecte. */
-    @GetMapping("/load-defaults")
+    /**
+     * Limites d'un test (utilisateurs virtuels, duree, iterations, debit cible) appliquees a cet
+     * instant : lues par l'assistant de scenario pour ses plages et sa validation, donc lisibles par
+     * tout utilisateur connecte (le detail des limites et leur modification restent reserves).
+     */
+    @GetMapping("/load-limits")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Charge par defaut des nouveaux scenarios", description = "Valeurs proposees a l'etape « Charge & resume » et limite d'utilisateurs virtuels applicable a un test.")
-    public com.loadpilot.backend.dto.response.LoadDefaultsResponse loadDefaults() {
-        return loadDefaultsService.get();
-    }
-
-    @PutMapping("/load-defaults")
-    @Operation(summary = "Modifier la charge par defaut",
-            description = "Memes regles que l'etape « Charge & resume ». Les scenarios existants ne sont jamais modifies. Journalise avec l'avant -> apres.")
-    public com.loadpilot.backend.dto.response.LoadDefaultsResponse updateLoadDefaults(
-            @RequestBody com.loadpilot.backend.dto.request.LoadDefaultsRequest request, @AuthenticationPrincipal Jwt jwt) {
-        String by = jwt.getClaimAsString("preferred_username");
-        return loadDefaultsService.update(request, by != null ? by : jwt.getSubject());
+    @Operation(summary = "Limites de charge d'un test", description = "maxVirtualUsers (le plus bas entre « par test » et « au total »), "
+            + "maxDurationSeconds, maxIterations, maxTargetRps. Lisible par tout utilisateur connecte.")
+    public com.loadpilot.backend.service.validation.LoadLimits loadLimits() {
+        return executionLimitsService.loadLimits();
     }
 
     @GetMapping("/limits")

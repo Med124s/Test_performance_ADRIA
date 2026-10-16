@@ -1,3 +1,4 @@
+import { useUserTimezone } from '../../utils/userTimezone'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import SearchSelect from '../../components/SearchSelect'
@@ -9,7 +10,7 @@ import {
 } from '../../types/backendContracts'
 import FrDateInput from '../executions/FrDateInput'
 import {
-  FREQUENCY_OPTIONS, Frequency, RecurrenceForm, WEEK_DAYS, browserTimezone, buildCron, describeCron, formatFrDay,
+  FREQUENCY_OPTIONS, Frequency, RecurrenceForm, WEEK_DAYS, buildCron, describeCron, formatFrDay,
   formatInZone, isoToZoned, maskFrDateTime, parseCron, parseFrDateTime, parseTime, timezoneOptions, toFiveFields, zonedToIso,
 } from './scheduleModel'
 
@@ -40,9 +41,11 @@ function message(err: unknown, fallback: string): string {
 export default function ScheduleFormModal({ schedule, scenarios, onClose, onSaved }: Props) {
   const editing = schedule != null
   const titleId = useId()
-  const timezones = useMemo(() => timezoneOptions(), [])
+  // Fuseau de l'utilisateur (Mon profil, sinon navigateur) : proposé pour une nouvelle planification.
+  const userTimezone = useUserTimezone()
+  const timezones = useMemo(() => timezoneOptions(userTimezone), [userTimezone])
 
-  const initialTz = schedule?.timezone ?? browserTimezone
+  const initialTz = schedule?.timezone ?? userTimezone
   const [name, setName] = useState(schedule?.name ?? '')
   const [scenarioId, setScenarioId] = useState(schedule?.scenarioId ?? '')
   const [type, setType] = useState<BackendScheduleType>(schedule?.scheduleType ?? 'RECURRING_CRON')
@@ -147,7 +150,7 @@ export default function ScheduleFormModal({ schedule, scenarios, onClose, onSave
   }
 
   const show = (key: string) => (submitted ? errors[key] : undefined)
-  const differentTz = timezone !== browserTimezone
+  const differentTz = timezone !== userTimezone
 
   return (
     <div className="pl-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose() }}>
@@ -275,7 +278,7 @@ export default function ScheduleFormModal({ schedule, scenarios, onClose, onSave
           <div className="pl-field">
             <label htmlFor={`${titleId}-tz`}>Fuseau horaire</label>
             <select id={`${titleId}-tz`} className="pt-form-control" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-              {timezones.map((z) => <option key={z} value={z}>{z}{z === browserTimezone ? ' (le vôtre)' : ''}</option>)}
+              {timezones.map((z) => <option key={z} value={z}>{z}{z === userTimezone ? ' (le vôtre)' : ''}</option>)}
             </select>
           </div>
 
@@ -306,7 +309,7 @@ export default function ScheduleFormModal({ schedule, scenarios, onClose, onSave
                 {preview.runs.map((r) => (
                   <li key={r}>
                     {formatInZone(r, timezone)}
-                    {differentTz && <span className="pl-local"> — {formatInZone(r, browserTimezone)} chez vous</span>}
+                    {differentTz && <span className="pl-local"> — {formatInZone(r, userTimezone)} chez vous</span>}
                   </li>
                 ))}
               </ol>

@@ -97,7 +97,8 @@ describe('Page de retour après connexion (keycloakClient)', () => {
       assigned = ''
       Object.defineProperty(window, 'location', {
         configurable: true,
-        value: { ...realLocation, origin: 'http://localhost:3000', href: 'http://localhost:3000/', assign: (u: string) => { assigned = u } },
+        // replace : la page de connexion remplace l'entrée d'historique (« Précédent » n'y ramène pas).
+        value: { ...realLocation, origin: 'http://localhost:3000', href: 'http://localhost:3000/', assign: () => { throw new Error('assign interdit') }, replace: (u: string) => { assigned = u } },
       })
     })
 

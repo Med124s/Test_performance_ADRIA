@@ -4,16 +4,11 @@
 //                                    q, actor, category, result, from, to ; tri date DESC)
 //   GET /api/audit-logs/{id}     -> AuditLogResponse
 //   GET /api/audit-logs/actors   -> utilisateurs présents dans le journal
-//   GET /api/audit-logs/export   -> CSV en français, mêmes filtres que la liste
 //   GET/PUT /api/settings/audit  -> réglages (consultations journalisées, conservation)
 // Aucune écriture d'entrée depuis le frontend : elles ne sont créées que par le backend.
-//
-// `exportCsv` ne peut pas passer par `springHttp` (qui parse toujours la réponse en JSON) :
-// un fetch() dédié réutilise le même jeton (getAccessToken) et la même gestion d'erreur.
 // ============================================================
 
-import { springHttp, ApiError, SPRING_API_URL } from './httpClient'
-import { getAccessToken } from '../auth/keycloakClient'
+import { springHttp } from './httpClient'
 import {
   BackendAuditLogResponse,
   BackendAuditCategory,
@@ -59,27 +54,4 @@ export const auditBackendApi = {
   actors: () => springHttp.get<string[]>(`${RESOURCE}/actors`),
   settings: () => springHttp.get<BackendAuditSettings>('/api/settings/audit'),
   updateSettings: (settings: BackendAuditSettings) => springHttp.put<BackendAuditSettings>('/api/settings/audit', settings),
-  /** CSV réel généré par le backend avec les filtres en cours (jamais reconstruit côté frontend). */
-  exportCsv: async (filters: AuditLogFilters): Promise<Blob> => {
-    const token = await getAccessToken()
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    let response: Response
-    try {
-      response = await fetch(`${SPRING_API_URL}${RESOURCE}/export${buildQuery(filters)}`, { headers })
-    } catch {
-      throw new ApiError('Impossible de joindre le serveur LoadPilot pour l’export.', 0)
-    }
-    if (!response.ok) {
-      let message = `Erreur ${response.status} lors de l’export`
-      try {
-        const body = await response.json()
-        if (body?.message) message = body.message
-      } catch {
-        // pas de corps JSON exploitable
-      }
-      throw new ApiError(message, response.status)
-    }
-    return response.blob()
-  },
 }

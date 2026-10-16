@@ -29,6 +29,9 @@ public interface KeycloakAdminClient {
     /** Active/desactive reellement le compte (champ "enabled" Keycloak). */
     void setUserEnabled(String userId, boolean enabled);
 
+    /** Prenom, nom et e-mail d'un compte (le reste du compte est conserve tel quel) ; ConflictException si l'e-mail est deja pris. */
+    void updateUserIdentity(String userId, String firstName, String lastName, String email);
+
     /** Retire tout role parmi les 3 AppRole actuellement assigne a
      * l'utilisateur, puis assigne reellement le nouveau (Keycloak permet
      * plusieurs roles simultanes, mais le modele applicatif LoadPilot est

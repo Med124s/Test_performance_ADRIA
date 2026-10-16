@@ -44,6 +44,8 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  # Version de l'application, recopiee au build depuis <version> du pom.xml (ne pas l'ecrire ici).
+  version: '@project.version@'
   availability:
     # Timeout (secondes) du test de disponibilite reel d'une Application
     # (voir service.http.HttpAvailabilityChecker) - configurable par

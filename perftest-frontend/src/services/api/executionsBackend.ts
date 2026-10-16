@@ -128,30 +128,41 @@ export const executionsBackendApi = {
   /** P1-A — rapport statistique complet (percentiles réels, agrégation par
    * step, erreurs) — voir GET /api/executions/{id}/report. */
   getReport: (id: string) => springHttp.get<BackendExecutionReportResponse>(`${RESOURCE}/${id}/report`),
-  /** P1-A — même politique que auditBackendApi.exportCsv : ne peut pas
-   * passer par springHttp (parse toujours en JSON) — fetch dédié réutilisant
-   * le même token Keycloak. Retourne le CSV RÉEL généré par le backend,
-   * jamais reconstruit depuis des données déjà affichées côté React. */
-  exportReportCsv: async (id: string): Promise<Blob> => {
-    const token = await getAccessToken()
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    let response: Response
+  /** Excel (.xlsx) : feuilles Résumé, Étapes, Erreurs, Analyse dans le temps (export par défaut). */
+  exportReportXlsx: (id: string) => downloadReport(id, 'report/xlsx'),
+  /** CSV « Excel en français » d'UN tableau (étapes par défaut). */
+  exportReportCsv: (id: string, table: ReportCsvTable = 'steps') =>
+    downloadReport(id, table === 'steps' ? 'report/export' : `report/export?table=${table}`),
+  /** Les quatre tableaux en CSV séparés, dans une archive .zip. */
+  exportReportCsvZip: (id: string) => downloadReport(id, 'report/export.zip'),
+  /** Rapport PDF d'une exécution terminée, généré par le serveur (journalisé). */
+  exportReportPdf: (id: string) => downloadReport(id, 'report/pdf'),
+}
+
+export type ReportCsvTable = 'steps' | 'errors' | 'timeline' | 'summary'
+
+/** Fichier d'export d'un rapport (nom donné par le serveur) ; message du serveur en cas de refus. */
+async function downloadReport(id: string, path: string): Promise<{ blob: Blob; fileName: string }> {
+  const token = await getAccessToken()
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  let response: Response
+  try {
+    response = await fetch(`${SPRING_API_URL}${RESOURCE}/${id}/${path}`, { headers })
+  } catch {
+    throw new ApiError('Impossible de joindre le serveur LoadPilot (Spring Boot) pour l\'export.', 0)
+  }
+  if (!response.ok) {
+    let message = `Erreur ${response.status} lors de l’export`
     try {
-      response = await fetch(`${SPRING_API_URL}${RESOURCE}/${id}/report/export`, { headers })
+      const body = await response.json()
+      if (body?.message) message = body.message
     } catch {
-      throw new ApiError('Impossible de joindre le serveur LoadPilot (Spring Boot) pour l\'export.', 0)
+      // pas de corps JSON exploitable
     }
-    if (!response.ok) {
-      let message = `Erreur ${response.status} sur ${RESOURCE}/${id}/report/export`
-      try {
-        const body = await response.json()
-        if (body?.message) message = body.message
-      } catch {
-        // pas de corps JSON exploitable
-      }
-      throw new ApiError(message, response.status)
-    }
-    return response.blob()
-  },
+    throw new ApiError(message, response.status)
+  }
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const fileName = /filename="([^"]+)"/.exec(disposition)?.[1] ?? `rapport-${id}`
+  return { blob: await response.blob(), fileName }
 }

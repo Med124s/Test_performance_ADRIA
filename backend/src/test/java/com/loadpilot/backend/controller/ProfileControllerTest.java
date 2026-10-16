@@ -208,18 +208,20 @@ class ProfileControllerTest {
 
     @Test
     void updateProfile_neverAllowsChangingUsernameNameOrEmail() throws Exception {
-        // Le DTO ProfileUpdateRequest n'expose meme pas ces champs - un
-        // corps JSON qui tente de les fournir est simplement ignore (aucune
-        // erreur, aucun effet), jamais silencieusement applique.
+        // Une tentative de modifier son identite par la route des preferences est REFUSEE (403),
+        // jamais ignoree en silence ; rien n'est modifie (voir aussi ProfileIdentityTest).
         Jwt jwt = jwtFor("token-tz-noop-fields", "sub-noop", "original", "Original Name", "original@example.com", List.of("ROLE_VIEWER"));
         when(jwtDecoder.decode("token-tz-noop-fields")).thenReturn(jwt);
 
         mockMvc.perform(patch("/api/profile").header("Authorization", "Bearer token-tz-noop-fields")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"timezone\":\"UTC\",\"username\":\"hacked\",\"name\":\"Hacked Name\",\"email\":\"hacked@evil.com\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/profile").header("Authorization", "Bearer token-tz-noop-fields"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("original"))
                 .andExpect(jsonPath("$.name").value("Original Name"))
-                .andExpect(jsonPath("$.email").value("original@example.com"));
+                .andExpect(jsonPath("$.email").value("original@example.com"))
+                .andExpect(jsonPath("$.timezone").value(org.hamcrest.Matchers.nullValue()));
     }
 }

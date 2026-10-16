@@ -97,6 +97,9 @@
 .st-unit input { width: 100px; text-align: right; }
 .st-error { font-size: 12.5px; color: var(--pt-danger); margin: 0; }
 [data-theme="dark"] .st-error { color: #FCA5A5; }
+/* Ajustement automatique annoncé avant l'enregistrement (ex. « par test » ramenée au total). */
+.st-field label span.st-warn { color: var(--pt-warning); font-weight: 500; }
+[data-theme="dark"] .st-field label span.st-warn { color: #FCD34D; }
 
 /* Intégrations */
 .st-status { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 12px; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; white-space: nowrap; }
@@ -128,12 +131,6 @@
 }
 
 .st-limit-note { display: block; font-size: 11.5px; font-weight: 500; color: var(--pt-text-muted); }
-
-/* Charge par défaut */
-.st-required { color: var(--pt-danger); }
-.st-optional { font-size: 11px; font-weight: 500; color: var(--pt-text-muted); margin-left: 0.2rem; }
-.st-field-help { margin-top: 0.3rem; font-size: 12px; }
-.st-load-rules { margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid var(--pt-border); }
 
 /* Limites : champ de lecture seule (délais). */
 .st-readonly-label { display: flex; flex-direction: column; gap: 0.15rem; font-size: 13.5px; color: var(--pt-text); }

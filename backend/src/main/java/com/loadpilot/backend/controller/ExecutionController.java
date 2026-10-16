@@ -84,6 +84,8 @@ public class ExecutionController {
     private final com.loadpilot.backend.service.impl.ExecutionExtremesService extremesService;
     private final com.loadpilot.backend.service.impl.ExecutionComparisonService comparisonService;
     private final com.loadpilot.backend.service.impl.ExecutionKeepService keepService;
+    private final com.loadpilot.backend.service.report.pdf.ReportPdfService reportPdfService;
+    private final com.loadpilot.backend.service.report.export.ReportExportService reportExportService;
 
     /** ?scenarioId= filtre par scenario (meme convention que Scenarios/Steps). */
     @GetMapping
@@ -329,31 +331,83 @@ public class ExecutionController {
     }
 
     /**
-     * P1-A — export CSV du meme rapport, memes autorisations exactement que
-     * sa consultation (prompt section 26 : "un utilisateur ne doit pas
-     * pouvoir télécharger le report d'une execution qu'il n'a pas le droit
-     * de consulter"). Structure en sections (voir
-     * ExecutionServiceImpl.toReportCsv) ; echappement CSV + protection
-     * anti-injection de formule (voir CsvUtils) - jamais de header
-     * Authorization/JWT/mot de passe dans le contenu (aucun de ces champs
-     * n'existe dans les donnees sources, voir ReportErrorEntry).
+     * Exports du rapport (memes droits que sa consultation : tout role authentifie), aussi pour un
+     * rapport fige, 409 si l'execution n'est pas terminee, chaque export journalise. Aucun secret :
+     * voir ReportTables.
+     *  - CSV : UN tableau par fichier (?table=steps par defaut, errors, timeline, summary), au format
+     *    « Excel en francais » (UTF-8 avec BOM, « ; », virgule decimale, dates jj/mm/aaaa hh:mm:ss) ;
+     *  - CSV .zip : les quatre tableaux, chacun dans son fichier ;
+     *  - Excel (.xlsx) : une feuille par tableau.
      */
     @GetMapping("/{id}/report/export")
-    @Operation(summary = "Exporter le rapport d'une execution en CSV", description = "Retourne un fichier CSV valide (RFC 4180), encodage UTF-8, protege contre l'injection de formule (CSV injection).")
+    @Operation(summary = "Exporter un tableau du rapport en CSV",
+            description = "table = steps (defaut), errors, timeline ou summary. UTF-8 avec BOM, separateur « ; », virgule decimale, "
+                    + "dates jj/mm/aaaa hh:mm:ss, en-tetes en francais avec unites, protege contre l'injection de formule.")
     @ApiResponse(responseCode = "200", description = "Fichier CSV", content = @Content(mediaType = "text/csv"))
     @ApiResponse(responseCode = "404", description = "Execution introuvable")
-    public ResponseEntity<byte[]> exportReport(@PathVariable UUID id) {
+    @ApiResponse(responseCode = "409", description = "Execution en attente, en cours ou en pause")
+    public ResponseEntity<byte[]> exportReport(@PathVariable UUID id, @RequestParam(required = false) String table) {
+        return export(id, AuditAction.EXPORT_CSV, "CSV", () -> reportExportService.csv(id, table));
+    }
+
+    @GetMapping("/{id}/report/export.zip")
+    @Operation(summary = "Exporter les quatre tableaux du rapport en CSV (archive .zip)",
+            description = "Resume, Etapes, Erreurs, Analyse dans le temps : un fichier CSV par tableau, au meme format que /report/export.")
+    @ApiResponse(responseCode = "200", description = "Archive ZIP", content = @Content(mediaType = "application/zip"))
+    public ResponseEntity<byte[]> exportReportZip(@PathVariable UUID id) {
+        return export(id, AuditAction.EXPORT_CSV, "CSV", () -> reportExportService.csvZip(id));
+    }
+
+    @GetMapping("/{id}/report/xlsx")
+    @Operation(summary = "Exporter le rapport en Excel (.xlsx)",
+            description = "Feuilles Résumé, Étapes, Erreurs, Analyse dans le temps : en-tetes en gras et figes, filtres automatiques, "
+                    + "nombres stockes comme nombres, dates jj/mm/aaaa hh:mm:ss.")
+    @ApiResponse(responseCode = "200", description = "Classeur Excel",
+            content = @Content(mediaType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+    public ResponseEntity<byte[]> exportReportXlsx(@PathVariable UUID id) {
+        return export(id, AuditAction.EXPORT_REPORT, "Excel", () -> reportExportService.xlsx(id));
+    }
+
+    private ResponseEntity<byte[]> export(UUID id, AuditAction action, String format,
+                                          java.util.function.Supplier<com.loadpilot.backend.service.report.export.ReportExportService.ExportFile> producer) {
         try {
-            byte[] csvBytes = executionService.exportReportCsv(id).getBytes(StandardCharsets.UTF_8);
-            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.EXPORT_CSV, AuditModule.EXECUTION), id)
-                    .description("Rapport exporté au format CSV"));
+            com.loadpilot.backend.service.report.export.ReportExportService.ExportFile file = producer.get();
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(action, AuditModule.EXECUTION), id)
+                    .description("Rapport exporté au format " + file.label()));
             return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_TYPE, "text/csv; charset=UTF-8")
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"execution-report-" + id + ".csv\"")
-                    .body(csvBytes);
+                    .header(HttpHeaders.CONTENT_TYPE, file.contentType())
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.fileName() + "\"")
+                    .body(file.content());
         } catch (RuntimeException e) {
-            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.EXPORT_CSV, AuditModule.EXECUTION), id)
-                    .description("Export CSV du rapport impossible").failed(e));
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(action, AuditModule.EXECUTION), id)
+                    .description("Export " + format + " du rapport impossible").failed(e));
+            throw e;
+        }
+    }
+
+    /**
+     * Rapport PDF (page Rapports) : memes droits que la consultation du rapport (tout role
+     * authentifie). Genere cote serveur, fonctionne aussi pour un rapport fige. Journalise.
+     */
+    @GetMapping("/{id}/report/pdf")
+    @Operation(summary = "Exporter le rapport d'une execution terminee en PDF",
+            description = "Document en francais : en-tete, resultat et seuils, temps de reponse, analyse dans le temps, evolution des "
+                    + "etapes, erreurs, CPU / RAM, points cles et conclusion. 409 si l'execution n'est pas terminee. Aucun secret.")
+    @ApiResponse(responseCode = "200", description = "Fichier PDF", content = @Content(mediaType = "application/pdf"))
+    @ApiResponse(responseCode = "404", description = "Execution introuvable")
+    @ApiResponse(responseCode = "409", description = "Execution en attente, en cours ou en pause")
+    public ResponseEntity<byte[]> exportReportPdf(@PathVariable UUID id) {
+        try {
+            com.loadpilot.backend.service.report.pdf.ReportPdfService.PdfFile file = reportPdfService.export(id);
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.EXPORT_REPORT, AuditModule.EXECUTION), id)
+                    .description("Rapport exporté au format PDF"));
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, "application/pdf")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.fileName() + "\"")
+                    .body(file.content());
+        } catch (RuntimeException e) {
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.EXPORT_REPORT, AuditModule.EXECUTION), id)
+                    .description("Export PDF du rapport impossible").failed(e));
             throw e;
         }
     }

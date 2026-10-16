@@ -13,6 +13,7 @@ import ExecutionReport from './pages/ExecutionReport'
 import ExecutionDetail from './pages/ExecutionDetail'
 import ExecutionLive from './pages/ExecutionLive'
 import ExecutionCompare from './pages/ExecutionCompare'
+import Reports from './pages/Reports'
 import NotificationsPage from './pages/NotificationsPage'
 import NotificationsPreferences from './pages/NotificationsPreferences'
 import UtilisateursRoles from './pages/UtilisateursRoles'
@@ -74,8 +75,9 @@ const router = createBrowserRouter(
       <Route path="settings" element={<Navigate to="/parametres?tab=profil" replace />} />
       <Route path="settings/integrations" element={<Navigate to="/parametres?tab=integrations" replace />} />
       <Route path="configurations" element={<Navigate to="/parametres?tab=systeme" replace />} />
-      {/* « Rapports » ne faisait que lister les exécutions terminées (déjà dans Exécutions) : adresse redirigée. */}
-      <Route path="rapports" element={<Navigate to="/executions" replace />} />
+      {/* Rapports : résultats des tests terminés (consulter, exporter en PDF, comparer). Ancienne adresse anglaise redirigée. */}
+      <Route path="rapports" element={<Reports />} />
+      <Route path="reports" element={<Navigate to="/rapports" replace />} />
       <Route path="planification" element={<ScheduledExecutions />} />
       <Route path="planification/:id" element={<ScheduleHistory />} />
       {/* Adresse inconnue : page « introuvable » (même page d'erreur). */}

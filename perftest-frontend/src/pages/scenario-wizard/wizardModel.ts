@@ -322,7 +322,7 @@ export const vuTooHighMessage = (max: number) => `Le nombre d’utilisateurs ne 
 export const RAMP_UP_TOO_LONG = 'Le ramp-up doit être plus court que la durée.'
 
 /**
- * Règles de « Charge & résumé », identiques à Paramètres > Système > Charge par défaut et au serveur
+ * Règles de « Charge & résumé », identiques au serveur
  * (LoadRules.validate), avec les limites en vigueur : entiers, minimums, maximums (limites du serveur,
  * think time 0 à 60 000 ms), ramp-up jamais au-delà de la durée maximale et plus court que la durée
  * quand elle est fixée, facultatifs vides acceptés.
@@ -374,19 +374,6 @@ export const LOAD_FIELDS: { key: Exclude<keyof LoadConfig, 'presetId'>; label: s
   { key: 'targetRps', label: 'Débit cible (req/s)', required: false, placeholder: 'Illimité',
     hint: (l) => `Requêtes par seconde, tous utilisateurs confondus${l?.maxTargetRps != null ? ` : jusqu’à ${formatInt(l.maxTargetRps)} req/s` : ''}.` },
 ]
-
-/** Charge par défaut (Paramètres > Système) -> étape « Charge & résumé », preset « Personnalisé ». */
-export function loadFromDefaults(d: { virtualUsers: number; thinkTimeMs: number; rampUpSeconds: number; durationSeconds: number | null;
-  iterations: number | null; targetRps: number | null }): LoadConfig {
-  const s = (v: number | null) => (v == null ? '' : String(v))
-  return { presetId: 'custom', virtualUsers: s(d.virtualUsers), rampUpSeconds: s(d.rampUpSeconds), durationSeconds: s(d.durationSeconds),
-    iterations: s(d.iterations), thinkTimeMs: s(d.thinkTimeMs), targetRps: s(d.targetRps) }
-}
-
-/** Limites contenues dans la réponse « charge par défaut » du serveur. */
-export function limitsOf(d: LoadLimits): LoadLimits {
-  return { maxVirtualUsers: d.maxVirtualUsers, maxDurationSeconds: d.maxDurationSeconds, maxIterations: d.maxIterations, maxTargetRps: d.maxTargetRps }
-}
 
 /** Temps de réponse supposé par requête quand le test de validation n'a rien mesuré (estimation). */
 export const ASSUMED_REQUEST_MS = 300

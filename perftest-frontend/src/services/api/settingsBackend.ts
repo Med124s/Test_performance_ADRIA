@@ -10,7 +10,7 @@
 
 import { springHttp } from './httpClient'
 import type {
-  BackendExecutionLimits, BackendIntegrations, BackendLimitKey, BackendLoadDefaults, BackendResultsRetentionSettings, BackendStorageInfo, BackendThresholdSettings,
+  BackendExecutionLimits, BackendIntegrations, BackendLimitKey, BackendLoadLimits, BackendResultsRetentionSettings, BackendStorageInfo, BackendThresholdSettings,
 } from '../../types/backendContracts'
 
 export const settingsBackendApi = {
@@ -21,9 +21,8 @@ export const settingsBackendApi = {
   updateThresholds: (settings: BackendThresholdSettings) => springHttp.put<BackendThresholdSettings>('/api/settings/thresholds', settings),
   limits: () => springHttp.get<BackendExecutionLimits>('/api/settings/limits'),
   updateLimits: (values: Record<BackendLimitKey, number>) => springHttp.put<BackendExecutionLimits>('/api/settings/limits', values),
-  loadDefaults: () => springHttp.get<BackendLoadDefaults>('/api/settings/load-defaults'),
-  updateLoadDefaults: (values: Omit<BackendLoadDefaults, 'maxVirtualUsers' | 'maxDurationSeconds' | 'maxIterations' | 'maxTargetRps' | 'problems'>) =>
-    springHttp.put<BackendLoadDefaults>('/api/settings/load-defaults', values),
+  /** Limites d'un test lues par l'assistant (tout utilisateur connecté). */
+  loadLimits: () => springHttp.get<BackendLoadLimits>('/api/settings/load-limits'),
   storage: () => springHttp.get<BackendStorageInfo>('/api/settings/storage'),
   integrations: () => springHttp.get<BackendIntegrations>('/api/settings/integrations'),
   sendTestEmail: () => springHttp.post<{ sentTo: string }>('/api/settings/integrations/mail-test'),

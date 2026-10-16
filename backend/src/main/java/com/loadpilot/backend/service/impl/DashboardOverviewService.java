@@ -3,7 +3,9 @@ package com.loadpilot.backend.service.impl;
 import com.loadpilot.backend.dto.response.DashboardOverviewResponse;
 import com.loadpilot.backend.dto.response.DashboardOverviewResponse.ExecutionBrief;
 import com.loadpilot.backend.dto.response.DashboardOverviewResponse.Kpis;
+import com.loadpilot.backend.dto.response.DashboardOverviewResponse.ScenarioOption;
 import com.loadpilot.backend.dto.response.DashboardOverviewResponse.ScenarioRow;
+import com.loadpilot.backend.dto.response.PagedResponse;
 import com.loadpilot.backend.dto.response.DashboardOverviewResponse.ScheduledBrief;
 import com.loadpilot.backend.dto.response.DashboardOverviewResponse.SlowStep;
 import com.loadpilot.backend.dto.response.DashboardOverviewResponse.StatusCounts;
@@ -55,6 +57,8 @@ public class DashboardOverviewService {
     static final int UPCOMING_LIMIT = 3;
     static final int SLOWEST_STEPS_LIMIT = 5;
     static final int TREND_LIMIT = 200;
+    /** Tableau « Derniere execution par scenario » : 10 lignes par page par defaut (interface), 100 au plus. */
+    static final int MAX_PAGE_SIZE = 100;
     private static final List<ExecutionStatus> COMPARABLE = List.of(ExecutionStatus.SUCCESS, ExecutionStatus.THRESHOLDS_EXCEEDED, ExecutionStatus.FAILED);
     private static final List<ExecutionStatus> ACTIVE = List.of(ExecutionStatus.QUEUED, ExecutionStatus.RUNNING, ExecutionStatus.PAUSED);
 
@@ -109,27 +113,58 @@ public class DashboardOverviewService {
                 count(byStatus, ExecutionStatus.CANCELLED), running, count(byStatus, ExecutionStatus.THRESHOLDS_EXCEEDED));
         Kpis kpis = new Kpis(periodP95(f, executions), rate(failedRequests, requests), requests, executions, running);
 
-        // ---- derniere execution par scenario (resume calcule si besoin) et comparaison
-        List<Execution> latest = f.bind(entityManager.createQuery("select e from Execution e join fetch e.scenario s "
-                + "join fetch s.application where " + f.where("e") + " and e.startedAt = (select max(e2.startedAt) from Execution e2 "
-                + "where e2.scenario = e.scenario and e2.startedAt >= :from and e2.startedAt <= :to) order by e.startedAt desc",
-                Execution.class)).getResultList();
+        // ---- derniere execution par scenario (resume calcule si besoin) et comparaison : pour les points a
+        // surveiller et les etapes les plus lentes (tous les scenarios). Le tableau, lui, est pagine
+        // (latestByScenario ci-dessous) ; ici seulement la liste des scenarios pour « Evolution ».
+        List<Execution> latest = latestExecutions(f, null, null);
         List<ScenarioRow> rows = new ArrayList<>();
         Map<String, Execution> latestById = new LinkedHashMap<>();
         for (Execution e : latest) {
-            ensureStats(e);
-            Execution previous = previousComparable(e);
-            Long prevP95 = previous == null ? null : previous.getP95Ms();
-            Double change = e.getStatus().isActive() ? null : DashboardRules.changePercent(e.getP95Ms(), prevP95);
-            rows.add(new ScenarioRow(e.getId().toString(), e.getScenario().getId().toString(), e.getScenario().getName(),
-                    e.getScenario().getApplication().getId().toString(), e.getScenario().getApplication().getName(), e.getStartedAt(),
-                    e.getStatus(), e.getVirtualUsers(), e.getP95Ms(), errorRate(e), e.getThroughputRps(), e.getCpuMaxPercent(),
-                    previous == null ? null : previous.getId().toString(), prevP95, change, DashboardRules.trend(change, settings.regressionPercent())));
+            rows.add(toRow(e));
             latestById.put(e.getId().toString(), e);
         }
+        List<ScenarioOption> scenarios = rows.stream().map(r -> new ScenarioOption(r.scenarioId(), r.scenarioName())).toList();
 
         return new DashboardOverviewResponse(applicationId == null ? null : applicationId.toString(), from, to, kpis, statusCounts,
-                watchItems(f, rows, latest), rows, slowestSteps(latestById, rows), active(f), recent(f), upcoming(applicationId));
+                watchItems(f, rows, latest), scenarios, slowestSteps(latestById, rows), active(f), recent(f), upcoming(applicationId));
+    }
+
+    /**
+     * Tableau « Derniere execution par scenario », pagine cote serveur : une ligne par scenario execute
+     * dans la periode (sa derniere execution), de la plus recente a la plus ancienne. Seules les lignes de
+     * la page sont calculees (comparaison avec l'execution precedente, resume).
+     */
+    @Transactional(readOnly = true)
+    public PagedResponse<ScenarioRow> latestByScenario(UUID applicationId, Instant from, Instant to, int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(MAX_PAGE_SIZE, Math.max(1, size));
+        Filter f = new Filter(applicationId, from != null ? from : Instant.EPOCH, to != null ? to : Instant.now());
+        long total = f.bind(entityManager.createQuery("select count(distinct e.scenario.id) from Execution e where " + f.where("e"),
+                Long.class)).getSingleResult();
+        List<ScenarioRow> rows = latestExecutions(f, safePage * safeSize, safeSize).stream().map(this::toRow).toList();
+        return new PagedResponse<>(rows, safePage, safeSize, total, (int) Math.ceil(total / (double) safeSize));
+    }
+
+    /** Derniere execution de chaque scenario dans la periode, la plus recente d'abord (id : ordre stable). */
+    private List<Execution> latestExecutions(Filter f, Integer first, Integer max) {
+        TypedQuery<Execution> q = f.bind(entityManager.createQuery("select e from Execution e join fetch e.scenario s "
+                + "join fetch s.application where " + f.where("e") + " and e.startedAt = (select max(e2.startedAt) from Execution e2 "
+                + "where e2.scenario = e.scenario and e2.startedAt >= :from and e2.startedAt <= :to) order by e.startedAt desc, e.id desc",
+                Execution.class));
+        if (first != null) q.setFirstResult(first).setMaxResults(max);
+        return q.getResultList();
+    }
+
+    /** Ligne du tableau : derniere execution comparee a l'execution precedente du meme scenario. */
+    private ScenarioRow toRow(Execution e) {
+        ensureStats(e);
+        Execution previous = previousComparable(e);
+        Long prevP95 = previous == null ? null : previous.getP95Ms();
+        Double change = e.getStatus().isActive() ? null : DashboardRules.changePercent(e.getP95Ms(), prevP95);
+        return new ScenarioRow(e.getId().toString(), e.getScenario().getId().toString(), e.getScenario().getName(),
+                e.getScenario().getApplication().getId().toString(), e.getScenario().getApplication().getName(), e.getStartedAt(),
+                e.getStatus(), e.getVirtualUsers(), e.getP95Ms(), errorRate(e), e.getThroughputRps(), e.getCpuMaxPercent(),
+                previous == null ? null : previous.getId().toString(), prevP95, change, DashboardRules.trend(change, settings.regressionPercent()));
     }
 
     @Transactional(readOnly = true)

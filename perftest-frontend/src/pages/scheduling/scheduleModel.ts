@@ -7,6 +7,7 @@
 // quoi construire la saisie et l'afficher.
 // ============================================================
 
+import { getUserTimezone } from '../../utils/userTimezone'
 import {
   BackendScheduleState, BackendScheduledExecutionResponse, BackendScheduledRunOutcome,
 } from '../../types/backendContracts'
@@ -189,21 +190,17 @@ export function describeCron(cron: string): string | null {
 
 // ------------------------------------------------------------------ fuseaux horaires et dates
 
-export const browserTimezone = (() => {
-  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
-})()
-
 const FALLBACK_TIMEZONES = ['UTC', 'Africa/Casablanca', 'Europe/Paris', 'Europe/London', 'Europe/Madrid', 'America/New_York',
   'America/Montreal', 'Asia/Dubai', 'Asia/Tokyo']
 
-/** Fuseaux IANA proposés (celui du navigateur en tête). */
-export function timezoneOptions(): string[] {
+/** Fuseaux IANA proposés (celui de l'utilisateur en tête). */
+export function timezoneOptions(first: string = getUserTimezone()): string[] {
   let all: string[] = FALLBACK_TIMEZONES
   try {
     const supported = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone')
     if (supported && supported.length > 0) all = supported.includes('UTC') ? supported : ['UTC', ...supported]
   } catch { /* liste de repli */ }
-  return [browserTimezone, ...all.filter((z) => z !== browserTimezone)]
+  return [first, ...all.filter((z) => z !== first)]
 }
 
 /** Composantes date / heure d'un instant dans un fuseau. */

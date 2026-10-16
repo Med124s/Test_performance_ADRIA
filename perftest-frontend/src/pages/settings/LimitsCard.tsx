@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react'
 import { useToast } from '../../context/ToastContext'
 import { settingsBackendApi } from '../../services/api/settingsBackend'
 import type { BackendExecutionLimits, BackendLimitKey } from '../../types/backendContracts'
-import { resetLoadDefaultsCache } from '../../utils/loadDefaults'
+import { resetLoadLimitsCache } from '../../utils/loadLimits'
 import { formatInt } from '../scenario-wizard/wizardModel'
 import { formatDuration } from './formatDuration'
 import { describeSettingsError } from './settingsErrors'
@@ -33,6 +33,21 @@ export function limitProblem(label: string, raw: string, ceiling: number): strin
   return null
 }
 
+/**
+ * « Par test » jamais au-dessus de « au total » (même règle que le serveur, ExecutionLimitsService.update) :
+ *  - « par test » modifié et au-dessus du total : refus (error) ;
+ *  - « par test » laissé tel quel, total baissé en dessous : ramené au total à l'enregistrement (notice).
+ * Rien si l'un des deux champs n'est pas un nombre valide (son propre message s'affiche déjà).
+ */
+export function perTestRule(perTestRaw: string, totalRaw: string, shownPerTest: number): { error?: string; notice?: string } {
+  if (!/^\d+$/.test(perTestRaw.trim()) || !/^\d+$/.test(totalRaw.trim())) return {}
+  const perTest = Number(perTestRaw)
+  const total = Number(totalRaw)
+  if (perTest <= total) return {}
+  if (perTest !== shownPerTest) return { error: `La limite par test ne peut pas dépasser la limite au total (${formatInt(total)}).` }
+  return { notice: `Sera ramenée à ${formatInt(total)} à l’enregistrement : la limite par test ne peut pas dépasser la limite au total.` }
+}
+
 function HelpTip({ text, label }: { text: string; label: string }) {
   return (
     <button type="button" className="st-help" aria-label={`À propos : ${label}`}>
@@ -59,11 +74,14 @@ export default function LimitsCard({ onSaved }: { onSaved?: () => void }) {
     settingsBackendApi.limits().then(fill).catch((err) => setError(describeSettingsError(err, 'Impossible de charger les limites.')))
   }, [])
 
-  const problems = data ? data.limits.map((l) => ({ key: l.key, problem: limitProblem(l.label, values[l.key] ?? '', l.ceiling) })) : []
+  const shownPerTest = data?.limits.find((l) => l.key === 'virtualUsersPerTest')?.value ?? 0
+  const rule = perTestRule(values.virtualUsersPerTest ?? '', values.virtualUsersTotal ?? '', shownPerTest)
+  const problems = data ? data.limits.map((l) => ({
+    key: l.key,
+    problem: limitProblem(l.label, values[l.key] ?? '', l.ceiling) ?? (l.key === 'virtualUsersPerTest' ? rule.error ?? null : null),
+  })) : []
   const valid = problems.every((p) => !p.problem)
   const dirty = !!data && data.limits.some((l) => (values[l.key] ?? '').trim() !== String(l.value))
-  const perTest = Number(values.virtualUsersPerTest)
-  const total = Number(values.virtualUsersTotal)
 
   const save = async () => {
     if (!data || !valid) return
@@ -71,10 +89,13 @@ export default function LimitsCard({ onSaved }: { onSaved?: () => void }) {
     setError(null)
     try {
       const body = Object.fromEntries(data.limits.map((l) => [l.key, Number(values[l.key])])) as Record<BackendLimitKey, number>
-      fill(await settingsBackendApi.updateLimits(body))
-      resetLoadDefaultsCache()
+      const saved = await settingsBackendApi.updateLimits(body)
+      fill(saved)
+      resetLoadLimitsCache()
       onSaved?.()
       showToast('Limites enregistrées : elles s’appliquent aux prochains enregistrements, lancements et planifications.', 'success')
+      // Ajustement fait par le serveur (ex. « par test » ramenée au total) : expliqué à l'administrateur.
+      for (const notice of saved.notices ?? []) showToast(notice, 'info')
     } catch (err) {
       setError(describeSettingsError(err, 'Impossible d’enregistrer les limites.'))
     } finally {
@@ -97,13 +118,13 @@ export default function LimitsCard({ onSaved }: { onSaved?: () => void }) {
           <div className="st-fields">
             {data.limits.map((l) => {
               const problem = problems.find((p) => p.key === l.key)?.problem
-              const note = l.key === 'virtualUsersPerTest' && Number.isFinite(perTest) && Number.isFinite(total) && total < perTest
-                ? ` Limite réellement applicable : ${formatInt(total)} (le total est plus bas).` : ''
+              const notice = l.key === 'virtualUsersPerTest' && !problem ? rule.notice : undefined
               return (
                 <div className="st-field" key={l.key}>
                   <label htmlFor={`${id}-${l.key}`}>
                     <strong>{l.label}<HelpTip text={LIMIT_HELP[l.key]} label={l.label} /></strong>
-                    <span className={problem ? 'st-error' : undefined}>{problem ?? `Maximum ${formatInt(l.ceiling)} (plafond du serveur).${note}`}</span>
+                    <span className={problem ? 'st-error' : undefined}>{problem ?? `Maximum ${formatInt(l.ceiling)} (plafond du serveur).`}</span>
+                    {notice && <span className="st-warn" role="status"><i className="bi bi-arrow-down-circle" aria-hidden="true"></i> {notice}</span>}
                   </label>
                   <div className="st-unit">
                     <input id={`${id}-${l.key}`} className={`pt-form-control${problem ? ' is-invalid' : ''}`} inputMode="numeric"

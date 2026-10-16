@@ -1,3 +1,4 @@
+import { inUserZone } from '../utils/userTimezone'
 import { useRegressionThreshold } from '../utils/thresholds'
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -72,7 +73,7 @@ function isActive(status: BackendExecutionStatus): boolean {
 function formatDate(iso: string) {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString('fr-FR', inUserZone()) + ' ' + d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))
 }
 
 // ============================================================

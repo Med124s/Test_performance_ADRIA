@@ -31,14 +31,14 @@ public class OpenApiConfig {
     private static final String BEARER_SCHEME_NAME = "bearerAuth";
 
     @Bean
-    public OpenAPI loadPilotOpenApi() {
+    public OpenAPI loadPilotOpenApi(@org.springframework.beans.factory.annotation.Value("${app.version}") String version) {
         return new OpenAPI()
                 .info(new Info()
                         .title("LoadPilot API")
                         .description("API REST de LoadPilot, plateforme de test de performance/charge : "
                                 + "gestion des Applications cibles, Scenarios, Steps HTTP, Executions reelles, "
                                 + "Metrics, Dashboard et Audit. Authentification via JWT Keycloak (OAuth2 Resource Server).")
-                        .version("1.0.0"))
+                        .version(version))
                 // Seul serveur reellement confirme par la configuration du
                 // projet (aucun server.port ne surcharge le port par defaut
                 // de Spring Boot, voir application.yml/application-dev.yml) -

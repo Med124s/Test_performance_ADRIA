@@ -1,3 +1,4 @@
+import { inUserZone } from '../../utils/userTimezone'
 import { useEffect, useState } from 'react'
 import { BackendExecutionRequestDetail } from '../../types/backendContracts'
 import { executionsBackendApi } from '../../services/api/executionsBackend'
@@ -115,7 +116,7 @@ export default function RequestDetailPanel({ executionId, resultId, onClose }: {
                   <span className={`pt-pill ${s.success ? 'success' : 'danger'}`}>{s.success ? 'Réussie' : 'Échec'}</span>
                   <span className="pt-pill neutral">HTTP {s.httpStatus ?? '—'}</span>
                   <span className="pt-pill neutral">{s.responseTime ?? '—'} ms</span>
-                  <span className="pt-pill neutral">{new Date(s.timestamp).toLocaleTimeString('fr-FR')}</span>
+                  <span className="pt-pill neutral">{new Date(s.timestamp).toLocaleTimeString('fr-FR', inUserZone())}</span>
                   <span className="pt-pill info">{detail.kind === 'FAILURE' ? 'Détail conservé : échec' : 'Détail conservé : échantillon'}</span>
                 </div>
                 {s.error && <div className="pt-alert-banner danger mb-3"><i className="bi bi-exclamation-octagon"></i>{s.error}</div>}

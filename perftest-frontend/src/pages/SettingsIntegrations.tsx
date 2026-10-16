@@ -115,9 +115,6 @@ function SettingsIntegrations({ embedded = false }: { embedded?: boolean } = {})
                 </dl>
               )}
               {mail?.message && <p className="st-note" role="status">{mail.message}</p>}
-              {mail?.kind === 'MAILPIT' && (
-                <p className="st-note">En développement, les e-mails ne partent pas réellement : ils s’affichent dans Mailpit (http://localhost:8025).</p>
-              )}
               <div className="st-actions">
                 <button type="button" className="pt-btn-outline" onClick={sendTest} disabled={sending || !mail?.enabled}>
                   <i className="bi bi-send" aria-hidden="true"></i> {sending ? 'Envoi…' : 'Envoyer un e-mail de test'}
@@ -142,7 +139,6 @@ function SettingsIntegrations({ embedded = false }: { embedded?: boolean } = {})
                   <dd>{data.authenticationMail.authenticated ? 'Oui' : 'Non'}</dd>
                 </dl>
               ) : <p className="st-note">Non configuré, ou illisible pour le moment.</p>}
-              <p className="st-note">Connexion unique (OIDC) : la double authentification et la durée de session se règlent sur le service de connexion.</p>
             </section>
           </div>
 

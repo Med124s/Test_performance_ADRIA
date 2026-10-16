@@ -3,6 +3,7 @@ package com.loadpilot.backend.controller;
 import com.loadpilot.backend.dto.response.ApplicationDashboardResponse;
 import com.loadpilot.backend.dto.response.DashboardOverviewResponse;
 import com.loadpilot.backend.dto.response.DashboardResponse;
+import com.loadpilot.backend.dto.response.PagedResponse;
 import com.loadpilot.backend.dto.response.ScenarioTrendResponse;
 import com.loadpilot.backend.service.DashboardService;
 import com.loadpilot.backend.service.impl.DashboardOverviewService;
@@ -57,6 +58,19 @@ public class DashboardController {
             @Parameter(description = "Borne de debut (incluse)") @RequestParam(required = false) Instant from,
             @Parameter(description = "Borne de fin (incluse)") @RequestParam(required = false) Instant to) {
         return overviewService.overview(applicationId, from, to);
+    }
+
+    @GetMapping("/latest-by-scenario")
+    @Operation(summary = "Derniere execution par scenario (paginee)",
+            description = "Une ligne par scenario execute dans la periode : sa derniere execution comparee a la precedente, "
+                    + "de la plus recente a la plus ancienne. Memes filtres que /overview ; page (0..), size (10 par defaut, 100 au plus).")
+    public PagedResponse<DashboardOverviewResponse.ScenarioRow> latestByScenario(
+            @Parameter(description = "Application (optionnelle)") @RequestParam(required = false) UUID applicationId,
+            @Parameter(description = "Borne de debut (incluse)") @RequestParam(required = false) Instant from,
+            @Parameter(description = "Borne de fin (incluse)") @RequestParam(required = false) Instant to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return overviewService.latestByScenario(applicationId, from, to, page, size);
     }
 
     @GetMapping("/scenario-trend")

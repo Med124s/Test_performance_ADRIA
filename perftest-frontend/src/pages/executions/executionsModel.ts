@@ -1,3 +1,5 @@
+import { getUserTimezone, inUserZone } from '../../utils/userTimezone'
+import { zonedToIso } from '../scheduling/scheduleModel'
 import { BackendExecutionHistoryResponse } from '../../types/backendContracts'
 import { formatNumber } from '../../utils/numberFormat'
 
@@ -6,7 +8,7 @@ import { formatNumber } from '../../utils/numberFormat'
 // taux d'erreur) et statuts. Fonctions pures, testées.
 // ============================================================
 
-export type Period = '' | '24h' | '7d' | '30d' | 'custom'
+export type Period = '' | '24h' | '7d' | '30d' | '90d' | 'custom'
 
 export const PERIOD_OPTIONS: { value: Period; label: string }[] = [
   { value: '', label: 'Toutes' },
@@ -16,19 +18,28 @@ export const PERIOD_OPTIONS: { value: Period; label: string }[] = [
   { value: 'custom', label: 'Personnalisée' },
 ]
 
-const PERIOD_HOURS: Record<string, number> = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24 }
+const PERIOD_HOURS: Record<string, number> = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24 }
 
 /**
- * Bornes envoyées au serveur. Périodes glissantes : depuis maintenant moins 24 h / 7 j / 30 j.
+ * Bornes envoyées au serveur. Périodes glissantes : depuis maintenant moins 24 h / 7 j / 30 j / 90 j (3 mois).
  * Personnalisée : journées entières (AAAA-MM-JJ, heure locale), bornes incluses.
  */
+/** Début (00:00) et fin (23:59:59.999) d'un jour aaaa-mm-jj dans le fuseau de l'utilisateur. */
+export function dayStartIso(isoDay: string): string | null {
+  return zonedToIso(isoDay, '00:00', getUserTimezone())
+}
+export function dayEndIso(isoDay: string): string | null {
+  const start = zonedToIso(isoDay, '23:59', getUserTimezone())
+  return start ? new Date(new Date(start).getTime() + 59_999).toISOString() : null
+}
+
 export function periodBounds(period: Period, from: string, to: string, now = new Date()): { dateFrom?: string; dateTo?: string } {
   const hours = PERIOD_HOURS[period]
   if (hours) return { dateFrom: new Date(now.getTime() - hours * 3600 * 1000).toISOString() }
   if (period !== 'custom') return {}
   return {
-    ...(from ? { dateFrom: new Date(`${from}T00:00:00`).toISOString() } : {}),
-    ...(to ? { dateTo: new Date(`${to}T23:59:59.999`).toISOString() } : {}),
+    ...(from ? { dateFrom: dayStartIso(from) ?? undefined } : {}),
+    ...(to ? { dateTo: dayEndIso(to) ?? undefined } : {}),
   }
 }
 
@@ -85,7 +96,7 @@ export function relativeTime(iso: string, now = new Date()): string {
 /** « lundi 5 octobre 2026 à 14:32 ». */
 export function fullDate(iso: string): string {
   const d = new Date(iso)
-  return `${d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+  return `${d.toLocaleDateString('fr-FR', inUserZone({ weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))} à ${d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit' }))}`
 }
 
 /** Requêtes envoyées et taux d'erreur (%) d'une ligne (compteurs en direct si fournis). */

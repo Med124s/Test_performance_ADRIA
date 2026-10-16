@@ -20,7 +20,7 @@ const exec = vi.hoisted(() => ({
   getPage: vi.fn(), getSummary: vi.fn(), getReport: vi.fn(), getStatus: vi.fn(), getTimeline: vi.fn(), getExtremes: vi.fn(),
   compare: vi.fn(), cancel: vi.fn(), pause: vi.fn(), resume: vi.fn(), retry: vi.fn(), deletionImpact: vi.fn(), remove: vi.fn(), bulkDelete: vi.fn(),
 }))
-const dash = vi.hoisted(() => ({ getOverview: vi.fn(), getScenarioTrend: vi.fn() }))
+const dash = vi.hoisted(() => ({ getOverview: vi.fn(), getScenarioTrend: vi.fn(), getLatestByScenario: vi.fn() }))
 const sched = vi.hoisted(() => ({ list: vi.fn(), getById: vi.fn(), history: vi.fn(), preview: vi.fn() }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: exec }))
 vi.mock('../services/api/dashboardBackend', () => ({ dashboardBackendApi: dash }))
@@ -142,12 +142,14 @@ describe.each(ALL)('statut %s : chaque page s’affiche sans erreur', (status) =
   })
 
   it('Dashboard', async () => {
+    dash.getLatestByScenario.mockResolvedValue({ page: 0, size: 10, totalElements: 1, totalPages: 1, content: [{
+      executionId: 'ex-1', scenarioId: 'sc-1', scenarioName: 'Parcours bancaire', applicationId: 'app-1', applicationName: 'Banking',
+      startedAt: '2026-10-04T10:00:00Z', status, virtualUsers: 10, p95Ms: 355, errorRate: 2.9, throughputRps: 33, cpuMaxPercent: 42,
+      previousExecutionId: null, previousP95Ms: null, p95ChangePercent: null, trend: 'NONE' }] })
     dash.getOverview.mockResolvedValue({
       applicationId: null, from: null, to: null, kpis: { p95Ms: 355, errorRate: 2.9, requests: 2060, executions: 1, running: 0 },
       statusCounts: { success: 0, failed: 0, cancelled: 0, running: 0, thresholdsExceeded: 0 }, watchItems: [],
-      latestByScenario: [{ executionId: 'ex-1', scenarioId: 'sc-1', scenarioName: 'Parcours bancaire', applicationId: 'app-1', applicationName: 'Banking',
-        startedAt: '2026-10-04T10:00:00Z', status, virtualUsers: 10, p95Ms: 355, errorRate: 2.9, throughputRps: 33, cpuMaxPercent: 42,
-        previousExecutionId: null, previousP95Ms: null, p95ChangePercent: null, trend: 'NONE' }],
+      scenarios: [{ scenarioId: 'sc-1', scenarioName: 'Parcours bancaire' }],
       slowestSteps: [], running: [], upcoming: [],
       recent: [{ id: 'ex-1', scenarioName: 'Parcours bancaire', applicationName: 'Banking', status, startedAt: '2026-10-04T10:00:00Z', duration: 60000 }],
     })

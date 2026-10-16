@@ -113,6 +113,29 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
     }
 
     @Override
+    public void updateUserIdentity(String userId, String firstName, String lastName, String email) {
+        // Meme principe que setUserEnabled : representation reelle relue, seuls ces trois champs changent.
+        String path = "/admin/realms/" + properties.getRealm() + "/users/" + encode(userId);
+        JsonNode current = getOrThrowNotFound(path, "Utilisateur introuvable : " + userId);
+        ObjectNode updated = current.deepCopy();
+        updated.put("firstName", firstName);
+        updated.put("lastName", lastName);
+        if (!email.equalsIgnoreCase(current.path("email").asText(""))) {
+            updated.put("email", email);
+            // Nouvelle adresse : elle n'a pas encore ete verifiee.
+            updated.put("emailVerified", false);
+        }
+        HttpResponse<String> response = send(newRequest(path, "PUT")
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(writeJson(updated)))
+                .build());
+        if (response.statusCode() == 409) {
+            throw new ConflictException("Cet e-mail est déjà utilisé par un autre compte.");
+        }
+        requireSuccess(response, path);
+    }
+
+    @Override
     public void replaceUserAppRole(String userId, AppRole newRole) {
         // NB (Phase 25) : lire la representation d'un role via
         // GET /roles/{name} exige le role Keycloak "view-realm", plus large

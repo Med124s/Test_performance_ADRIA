@@ -29,7 +29,7 @@ export const APP_ROLES: AppRoleMeta[] = [
     icon: 'bi-shield-fill-check',
     tone: 'admin',
     summary: 'Tous les droits, y compris la gestion des utilisateurs et les suppressions définitives.',
-    description: "Tout ce que fait l'ingénieur performance, plus la gestion des utilisateurs et des rôles, la suppression définitive des applications et scénarios, le journal d’audit et la configuration système.",
+    description: 'Gère les utilisateurs, les rôles, la suppression définitive des données et la configuration système, en plus des droits de l’ingénieur performance.',
   },
   {
     role: 'PERFORMANCE_ENGINEER',
@@ -37,7 +37,7 @@ export const APP_ROLES: AppRoleMeta[] = [
     icon: 'bi-speedometer2',
     tone: 'engineer',
     summary: 'Crée les scénarios, lance, planifie et analyse les tests.',
-    description: 'Crée et modifie les applications, scénarios et étapes, lance, met en pause, annule et planifie les tests, archive et supprime des exécutions.',
+    description: 'Crée, configure et exécute les tests de performance, et gère les exécutions.',
   },
   {
     role: 'VIEWER',
@@ -45,7 +45,7 @@ export const APP_ROLES: AppRoleMeta[] = [
     icon: 'bi-eye',
     tone: 'viewer',
     summary: 'Consulte les tableaux de bord, exécutions et rapports, sans rien modifier.',
-    description: 'Accès en lecture seule : tableau de bord, applications, scénarios, exécutions, rapports et planifications. Peut gérer son profil et ses notifications.',
+    description: 'Accès en lecture seule à l’ensemble de l’application. Peut gérer son profil et ses notifications.',
   },
 ]
 

@@ -1,3 +1,4 @@
+import { inUserZone } from '../utils/userTimezone'
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Line, Doughnut, Bar } from 'react-chartjs-2'
@@ -73,7 +74,7 @@ function describeApiError(err: unknown, fallback: string): string {
 function formatDate(iso: string) {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return d.toLocaleDateString('fr-FR', inUserZone()) + ' ' + d.toLocaleTimeString('fr-FR', inUserZone({ hour: '2-digit', minute: '2-digit', second: '2-digit' }))
 }
 
 function formatDurationMs(ms: number | null): string {

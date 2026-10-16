@@ -1,0 +1,82 @@
+/* Panneau « Mon compte » (barre du haut) et formulaire « Modifier » (aussi dans Mon profil).
+   Couleurs du thème (--pt-*) : clair et sombre sans règle supplémentaire. */
+
+.acc-panel {
+  /* Sous la carte utilisateur de la barre du haut, aligné à droite. */
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 1060;
+  width: min(320px, calc(100vw - 24px)); max-height: calc(100vh - 96px); overflow-y: auto;
+  padding: 14px; border-radius: 12px; background: var(--pt-card-bg); color: var(--pt-text);
+  border: 1px solid var(--pt-border); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  display: flex; flex-direction: column; gap: 12px; text-align: left; cursor: default;
+}
+
+/* Carte utilisateur de la barre du haut (bouton) */
+.tb-account { position: relative; }
+.topbar-icon.tb-account-btn { width: auto; gap: 0.5rem; padding: 0 0.5rem; cursor: pointer; background: var(--pt-card-bg); color: var(--pt-text); font: inherit; }
+.tb-account-btn[aria-expanded="true"] { border-color: var(--pt-primary); }
+.tb-account-btn:focus-visible { outline: 2px solid var(--pt-primary); outline-offset: 2px; }
+.tb-account-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--pt-primary); color: #fff; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+.tb-account-text { display: flex; flex-direction: column; line-height: 1.2; text-align: left; min-width: 0; }
+.tb-account-name { font-size: 12.5px; font-weight: 600; color: var(--pt-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.tb-account-role { font-size: 11px; color: var(--pt-text-muted); white-space: nowrap; }
+.tb-account-chevron { font-size: 10px; color: var(--pt-text-muted); }
+@media (max-width: 575.98px) {
+  /* Téléphone : initiales seules dans la barre du haut ; tout le détail est dans le panneau. */
+  .tb-account-text, .tb-account-chevron { display: none; }
+  .topbar-icon.tb-account-btn { padding: 0 4px; }
+  .acc-panel { position: fixed; top: 64px; right: 12px; left: 12px; width: auto; }
+}
+
+.acc-head { display: flex; align-items: center; gap: 12px; }
+.acc-avatar {
+  width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; background: var(--pt-primary); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px;
+}
+.acc-identity { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.acc-name { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-username, .acc-email { font-size: 12.5px; color: var(--pt-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.acc-facts { margin: 0; display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--pt-bg); border: 1px solid var(--pt-border); }
+.acc-facts > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.acc-facts dt { font-size: 12px; font-weight: 500; color: var(--pt-text-muted); }
+.acc-facts dd { margin: 0; font-size: 12.5px; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.acc-role { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  background: var(--pt-primary-light); color: var(--pt-primary); }
+.acc-status { color: var(--pt-success); font-weight: 600; }
+.acc-status i { font-size: 7px; vertical-align: middle; position: relative; top: -1px; }
+.acc-muted { color: var(--pt-text-muted); }
+.acc-note { margin: 0; font-size: 12px; }
+
+.acc-edit-btn {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 8px;
+  border: 1px solid var(--pt-border); background: var(--pt-card-bg); color: var(--pt-text); font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.acc-edit-btn:hover { background: var(--pt-sidebar-item-hover); }
+
+.acc-actions { display: flex; flex-direction: column; border-top: 1px solid var(--pt-border); padding-top: 8px; margin: 0 -4px; }
+.acc-action {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: none; background: none; border-radius: 8px;
+  font-size: 13px; color: var(--pt-text); text-align: left; cursor: pointer;
+}
+.acc-action:hover { background: var(--pt-sidebar-item-hover); }
+.acc-action:disabled { opacity: 0.6; cursor: progress; }
+.acc-action.danger { color: var(--pt-danger); }
+[data-theme="dark"] .acc-action.danger { color: #FCA5A5; }
+.acc-panel :is(button, input):focus-visible { outline: 2px solid var(--pt-primary); outline-offset: 2px; }
+
+/* Formulaire « Modifier » */
+.acc-form { display: flex; flex-direction: column; gap: 10px; }
+.acc-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acc-form.compact .acc-form-row { grid-template-columns: 1fr; }
+.acc-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.acc-field label { font-size: 12px; font-weight: 600; color: var(--pt-text); }
+.acc-field .pt-form-control { font-size: 13px; }
+.acc-field-error { margin: 0; font-size: 12px; color: var(--pt-danger); }
+[data-theme="dark"] .acc-field-error { color: #FCA5A5; }
+.acc-form-note { margin: 0; font-size: 12px; color: var(--pt-text-muted); }
+.acc-form-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 575.98px) {
+  .acc-form-row { grid-template-columns: 1fr; }
+}

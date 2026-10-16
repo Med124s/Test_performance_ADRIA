@@ -13,10 +13,11 @@ import { BackendNotificationResponse, BackendPagedResponse } from '../../types/b
 const RESOURCE = '/api/notifications'
 
 export const notificationsBackendApi = {
-  /** Les plus récentes en premier. `read` optionnel filtre par statut de lecture. */
-  list: (params: { read?: boolean; page?: number; size?: number } = {}) => {
+  /** Les plus récentes en premier, par pages. `read` et `types` optionnels filtrent la liste. */
+  list: (params: { read?: boolean; types?: string[]; page?: number; size?: number } = {}) => {
     const qs = new URLSearchParams()
     if (params.read != null) qs.set('read', String(params.read))
+    for (const t of params.types ?? []) qs.append('type', t)
     if (params.page != null) qs.set('page', String(params.page))
     if (params.size != null) qs.set('size', String(params.size))
     const query = qs.toString()

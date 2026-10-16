@@ -1,5 +1,8 @@
+import { browserTimezone as browserZone, setUserTimezone } from '../utils/userTimezone'
 import { useEffect, useRef, useState } from 'react'
 import TopBar from '../components/TopBar'
+import IdentityForm from '../components/account/IdentityForm'
+import '../components/account/account.css'
 import { profileBackendApi } from '../services/api/profileBackend'
 import { consumeAccountActionResult, redirectToAccountAction } from '../services/auth/keycloakClient'
 import { BackendProfileResponse } from '../types/backendContracts'
@@ -12,9 +15,10 @@ import './settings/settings.css'
 
 // ============================================================
 // Paramètres > « Mon profil » (tout utilisateur connecté) :
-//  - Profil : identité en lecture seule (propriété du système d'authentification), rôle
-//    applicatif en français, « Changer mon mot de passe » (page du système d'authentification,
-//    thème LoadPilot : le mot de passe n'est jamais saisi dans React) ;
+//  - Profil : identité en lecture seule pour l'Ingénieur performance et l'Observateur ;
+//    « Modifier » (prénom, nom, e-mail) pour le Super administrateur seulement — même règle
+//    sur le serveur (403). Rôle en français, « Changer mon mot de passe » (page du système
+//    d'authentification, thème LoadPilot : le mot de passe n'est jamais saisi dans React) ;
 //  - Fuseau horaire, Apparence (Clair · Sombre · Système), Notifications, Sécurité.
 // ============================================================
 
@@ -35,17 +39,16 @@ function Settings({ embedded = false }: { embedded?: boolean } = {}) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [redirecting, setRedirecting] = useState(false)
+  const [editingIdentity, setEditingIdentity] = useState(false)
   const actionHandled = useRef(false)
 
-  const browserTimezone = (() => {
-    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
-  })()
+  const browserTimezone = browserZone()
 
   const load = () => {
     setLoading(true)
     setError(null)
     profileBackendApi.get()
-      .then((p) => { setProfile(p); setTimezone(p.timezone ?? browserTimezone) })
+      .then((p) => { setProfile(p); setTimezone(p.timezone ?? browserTimezone); setUserTimezone(p.timezone) })
       .catch((err) => setError(describeSettingsError(err, 'Impossible de charger votre profil.')))
       .finally(() => setLoading(false))
   }
@@ -87,6 +90,8 @@ function Settings({ embedded = false }: { embedded?: boolean } = {}) {
     try {
       const updated = await profileBackendApi.updateTimezone(timezone)
       setProfile(updated)
+      // Pris en compte tout de suite partout (dates, nouvelle planification), sans recharger la page.
+      setUserTimezone(updated.timezone)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err) {
@@ -126,19 +131,31 @@ function Settings({ embedded = false }: { embedded?: boolean } = {}) {
           <div className="col-12 col-xl-6">
             <section className="pt-card h-100 st-card" aria-labelledby="st-profile-title">
               <h2 className="st-card-title" id="st-profile-title"><i className="bi bi-person-badge" aria-hidden="true"></i>Profil</h2>
-              <dl className="st-facts">
-                <dt>Nom</dt><dd>{profile.name ?? '—'}</dd>
-                <dt>Nom d’utilisateur</dt><dd>{profile.username ?? '—'}</dd>
-                <dt>E-mail</dt><dd>{profile.email ?? '—'}</dd>
-                <dt>Rôle</dt>
-                <dd><span className="pt-pill info st-role">{profile.appRoleLabel ?? 'Aucun rôle'}</span></dd>
-              </dl>
-              <p className="st-note">Identité gérée par le service de connexion : pour la modifier, contactez un administrateur.</p>
-              <div className="st-actions">
-                <button type="button" className="pt-btn-outline" onClick={changePassword} disabled={redirecting}>
-                  <i className="bi bi-key" aria-hidden="true"></i> {redirecting ? 'Ouverture…' : 'Changer mon mot de passe'}
-                </button>
-              </div>
+              {editingIdentity && profile.canEditIdentity ? (
+                <IdentityForm profile={profile} onCancel={() => setEditingIdentity(false)}
+                  onSaved={(p) => { setProfile(p); setEditingIdentity(false) }} />
+              ) : (
+                <>
+                  <dl className="st-facts">
+                    <dt>Nom</dt><dd>{profile.name ?? '—'}</dd>
+                    <dt>Nom d’utilisateur</dt><dd>{profile.username ?? '—'}</dd>
+                    <dt>E-mail</dt><dd>{profile.email ?? '—'}</dd>
+                    <dt>Rôle</dt>
+                    <dd><span className="pt-pill info st-role">{profile.appRoleLabel ?? 'Aucun rôle'}</span></dd>
+                    <dt>Statut</dt><dd><span className="pt-pill success">Actif</span></dd>
+                  </dl>
+                  <div className="st-actions">
+                    {profile.canEditIdentity && (
+                      <button type="button" className="pt-btn-outline" onClick={() => setEditingIdentity(true)}>
+                        <i className="bi bi-pencil" aria-hidden="true"></i> Modifier
+                      </button>
+                    )}
+                    <button type="button" className="pt-btn-outline" onClick={changePassword} disabled={redirecting}>
+                      <i className="bi bi-key" aria-hidden="true"></i> {redirecting ? 'Ouverture…' : 'Changer mon mot de passe'}
+                    </button>
+                  </div>
+                </>
+              )}
             </section>
           </div>
 
