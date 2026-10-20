@@ -6,7 +6,6 @@ import com.loadpilot.backend.enums.ExecutionStatus;
 import com.loadpilot.backend.service.auth.ApplicationAuthSpec;
 import com.sun.net.httpserver.HttpServer;
 import jakarta.annotation.PostConstruct;
-import com.loadpilot.backend.service.http.HttpClients;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -56,6 +55,14 @@ import org.springframework.stereotype.Component;
  * Metric.errorRate (jamais binaire, jamais invente).
  *
  * FORMAT DES HEADERS / EVALUATION DE SUCCES : inchanges (voir Phase 9).
+ *
+ * DECOUPAGE : cette classe orchestre l'execution (authentification, lancement et attente des VU,
+ * collecte des resultats, statut) et envoie chaque etape (executeStep : requete, controles, detail ;
+ * executeStepWithRenewal : jeton renouvele sur un 401). Le reste est delegue :
+ *   - VirtualUserLoop : boucle d'un VU (ramp-up, iterations, debit cible, pauses, think time) ;
+ *   - VirtualUserClients : clients HTTP d'un VU ; ActiveDeadline : duree en temps actif ;
+ *   - RetryAfterHandler : 429 Too Many Requests (Retry-After, rejeux) ;
+ *   - ResponseCaptures : captures de valeurs (JSON, en-tete, HTML).
  */
 @Component
 public class HttpClientExecutionEngine implements ExecutionEngine {
@@ -220,6 +227,12 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         // Ecriture au fil du test (ResultStream) : chaque resultat part vers le tampon d'ecriture au lieu
         // de rester dans la liste du VU. Sans flux (tests du moteur), comportement d'avant.
         ResultStream stream = handle.resultStream();
+        // Boucle de chaque VU (voir VirtualUserLoop) ; l'envoi d'une etape reste ici (executeStepWithRenewal).
+        VirtualUserLoop.Shared shared = new VirtualUserLoop.Shared(steps, loadSpec, handle, deadline, pacingGate, sources, network,
+                timeoutSeconds, this::newCookieJar,
+                (clients, step, stepNumber, variables, virtualUser, iteration, retryAfter) -> executeStepWithRenewal(clients, step,
+                        stepNumber, applicationBaseUrl, sharedAuth, variables, sources, virtualUser, iteration, handle.detailRecorder(),
+                        retryAfter));
         for (int vu = 0; vu < virtualUsers; vu++) {
             long startDelayMs = vu * staggerMs;
             // Contexte de variables PROPRE a ce VU (jamais partage entre threads) : captures
@@ -231,11 +244,11 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             VirtualUserRun run = new VirtualUserRun();
             runs.add(run);
             java.util.function.Consumer<StepOutcome> sink = stream != null ? stream::accept : run.results::add;
+            VirtualUserLoop loop = new VirtualUserLoop(shared, virtualUser, startDelayMs, variables, sink);
             Future<?> future = vuExecutor.submit(() -> {
                 run.started.set(true);
                 try {
-                    runVirtualUser(steps, applicationBaseUrl, sharedAuth, startDelayMs, deadline, loadSpec, handle,
-                            variables, sources, virtualUser, pacingGate, sink, network);
+                    loop.run();
                 } finally {
                     run.finished.countDown();
                 }
@@ -290,191 +303,6 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         return new ScenarioExecutionOutcome(allOutcomes, status, errorMessage, summary);
     }
 
-    /**
-     * Boucle reelle d'UN utilisateur virtuel : demarre apres son delai de
-     * ramp-up, puis enchaine des iterations jusqu'a la premiere condition
-     * d'arret atteinte (dans cet ordre de verification, avant chaque
-     * iteration) : annulation demandee > date limite de duree atteinte >
-     * nombre d'iterations demande atteint > (par defaut, sans duree ni
-     * iterations configurees) exactement UNE iteration - reproduit alors
-     * exactement le comportement historique a une seule passe.
-     */
-    private void runVirtualUser(List<StepExecutionSpec> steps, String applicationBaseUrl,
-            RenewableApplicationAuth sharedAuth, long startDelayMs, ActiveDeadline deadline, LoadTestSpec loadSpec, RunningExecutionHandle handle,
-            VariableContext variables, VariableSources sources, int virtualUser, PacingGate pacingGate,
-            java.util.function.Consumer<StepOutcome> results, com.loadpilot.backend.service.http.NetworkProfile network) {
-        if (!handle.sleepActive(startDelayMs) || handle.isCancelled()) {
-            return;
-        }
-
-        // HTTP_1_1 fixe explicitement (P0-A, section 21 - performance du
-        // moteur) : sans cette ligne, java.net.http.HttpClient tente par
-        // defaut une negociation HTTP/2 sur CHAQUE nouvelle connexion. Contre
-        // une cible qui ne maintient pas la connexion ouverte entre deux
-        // requetes (keep-alive absent ou desactive - constat REEL mesure
-        // pendant cette phase avec le serveur JDK de test), cette tentative
-        // ajoute jusqu'a ~1s de latence PAR REQUETE, ce qui fausserait
-        // gravement tout test de charge reel. La plupart des cibles HTTP
-        // reelles (dont banking-test-api) parlent HTTP/1.1.
-        //
-        // P1-Q Etape B - DEUX clients possibles (NORMAL et NEVER) :
-        // HttpClient fixe sa politique de redirection a la CONSTRUCTION,
-        // jamais par requete - un Step avec followRedirects=false utilise le
-        // second client, tous les autres (null ou true) le premier
-        // (comportement global historique inchange par defaut). Le second
-        // n'est construit qu'a la premiere etape qui en a besoin : chaque
-        // client demarre un thread systeme (selecteur) et ses descripteurs.
-        //
-        // Cookies de session : UN pot par VU (jamais partage, sinon les sessions des VUs se
-        // melangeraient), commun a ses deux clients pour qu'une redirection suivie ou non ne
-        // perde pas la session. Vide au debut de chaque iteration (voir runIterations).
-        VirtualUserCookieJar cookies = newCookieJar();
-        VirtualUserClients clients = new VirtualUserClients(cookies, network);
-
-        // Suivi en direct (compteurs en memoire, aucune ecriture en base) : VU actif jusqu'a sa sortie.
-        LiveStats live = handle.liveStats();
-        if (live != null) live.virtualUserStarted();
-        handle.virtualUserStarted(virtualUser);
-        try {
-            runIterations(steps, applicationBaseUrl, sharedAuth, deadline, loadSpec, handle, variables, sources,
-                    virtualUser, pacingGate, clients, cookies, results, live);
-        } finally {
-            if (live != null) live.virtualUserFinished();
-            handle.virtualUserFinished(virtualUser);
-            // Apres le dernier results.accept (fait par CE thread, dans la boucle), avant le signal de fin
-            // du VU (run.finished, dans execute) : aucune requete de ce VU n'est plus en cours d'envoi.
-            clients.shutdownNow();
-        }
-    }
-
-    /**
-     * Clients HTTP d'UN utilisateur virtuel, utilises par son seul thread (jamais partages) : le
-     * client qui suit les redirections, cree tout de suite, et celui qui ne les suit pas, cree a la
-     * demande. Fermes par shutdownNow() a la fin du VU : sinon leur thread de selecteur, leurs
-     * descripteurs et leurs connexions restent ouverts jusqu'au passage du GC.
-     */
-    private final class VirtualUserClients {
-        private final VirtualUserCookieJar cookies;
-        /** Proxy de l'application testee (voir NetworkProfile), commun aux deux clients. */
-        private final com.loadpilot.backend.service.http.NetworkProfile network;
-        private final HttpClient following;
-        private HttpClient notFollowing;
-
-        VirtualUserClients(VirtualUserCookieJar cookies, com.loadpilot.backend.service.http.NetworkProfile network) {
-            this.network = network;
-            this.cookies = cookies;
-            this.following = build(HttpClient.Redirect.NORMAL);
-        }
-
-        HttpClient forStep(StepExecutionSpec step) {
-            if (!Boolean.FALSE.equals(step.followRedirects())) return following;
-            if (notFollowing == null) notFollowing = build(HttpClient.Redirect.NEVER);
-            return notFollowing;
-        }
-
-        private HttpClient build(HttpClient.Redirect redirect) {
-            return network.configure(HttpClient.newBuilder()
-                    .version(HttpClient.Version.HTTP_1_1)
-                    .connectTimeout(Duration.ofSeconds(timeoutSeconds))
-                    .followRedirects(redirect)
-                    .cookieHandler(cookies))
-                    .build();
-        }
-
-        /**
-         * shutdownNow, pas close() : close() attend la fin des echanges encore actifs - apres une
-         * annulation en plein appel, jusqu'au delai d'attente de la requete. Ici, plus aucune reponse
-         * n'est attendue. Jamais d'exception : la fin du VU et ses resultats passent avant.
-         */
-        void shutdownNow() {
-            HttpClients.shutdownQuietly(following);
-            HttpClients.shutdownQuietly(notFollowing);
-        }
-    }
-
-    private void runIterations(List<StepExecutionSpec> steps, String applicationBaseUrl, RenewableApplicationAuth sharedAuth,
-            ActiveDeadline deadline, LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableContext variables,
-            VariableSources sources, int virtualUser, PacingGate pacingGate, VirtualUserClients clients,
-            VirtualUserCookieJar cookies, java.util.function.Consumer<StepOutcome> results, LiveStats live) {
-        int iteration = 0;
-        ThrottlePolicy throttle = loadSpec.throttle();
-        RetryAfterSlot retryAfter = new RetryAfterSlot();
-        while (true) {
-            if (handle.isCancelled()) break;
-            // Une pause en cours bloque ici avant toute nouvelle iteration.
-            if (!handle.awaitIfPaused()) break;
-            if (deadline != null && deadline.reached()) break;
-            if (loadSpec.iterations() != null && iteration >= loadSpec.iterations()) break;
-            if (deadline == null && loadSpec.iterations() == null && iteration >= 1) break;
-
-            // Une iteration en echec n'arrete PAS les iterations suivantes de
-            // CE VU (seule l'iteration courante s'arrete au premier echec,
-            // via ce break) - voir politique de statut global en tete de
-            // classe. La garde de sortie de boucle du haut se charge deja du
-            // mode "1 passe" par defaut au tour suivant.
-            // Nouvelle iteration : captures de l'iteration precedente oubliees, ligne CSV de
-            // cette iteration (meme ligne a chaque iteration en distribution "par VU").
-            variables.startIteration(sources.rowFor(virtualUser));
-            // Meme regle pour les cookies automatiques : chaque iteration repart d'une session vierge.
-            cookies.clear();
-            int throttleRetries = 0;
-            for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
-                StepExecutionSpec step = steps.get(stepIndex);
-                if (handle.isCancelled()) break;
-                // Master prompt final (Lot A) - un seul debit cible pour
-                // TOUTE l'Execution (voir execute()) : chaque requete HTTP,
-                // de n'importe quel VU, reserve son slot ici avant d'etre
-                // envoyee. Sortie immediate si l'attente est interrompue par
-                // une annulation reelle (jamais un blocage infini : la duree
-                // d'attente est toujours finie, voir PacingGate).
-                if (pacingGate != null && !pacingGate.acquire()) break;
-                // Pause : aucune nouvelle requete n'est envoyee tant qu'elle dure (les requetes
-                // deja en vol recoivent leur reponse normalement).
-                if (!handle.awaitIfPaused()) break;
-
-                StepOutcome outcome = executeStepWithRenewal(clients, step, stepIndex + 1, applicationBaseUrl, sharedAuth, variables,
-                        sources, virtualUser, iteration, handle.detailRecorder(), retryAfter);
-                // Requete coupee par l'annulation (aucune reponse recue) : ni resultat ni echec - c'est
-                // l'arret demande, pas une erreur de l'application testee.
-                if (handle.isCancelled() && outcome.httpStatus() == null) break;
-                results.accept(outcome);
-                boolean throttled = throttle.applies(outcome);
-                if (live != null) live.record(stepIndex, outcome, throttled);
-                // 429 respecte : CE VU attend le delai demande (Retry-After, ou delai par defaut), puis
-                // rejoue la meme etape, session et captures conservees. Attente en temps actif (pause
-                // non decomptee), interrompue par une annulation, jamais au-dela de la fin du test.
-                if (throttled && throttleRetries < throttle.maxRetries()) {
-                    throttleRetries++;
-                    long waitMs = throttle.delayMs(retryAfter.value, Instant.now());
-                    if (deadline != null) waitMs = Math.min(waitMs, deadline.remainingMs());
-                    if (!handle.sleepActive(waitMs) || handle.isCancelled()) break;
-                    if (deadline != null && deadline.reached()) break;
-                    stepIndex--;
-                    continue;
-                }
-                throttleRetries = 0;
-                // P1-Q Etape B - pause specifique a CETTE etape, en plus du
-                // think time de Scenario ci-dessous (jamais a la place) -
-                // jamais appliquee apres une annulation ni si non configuree.
-                if (!handle.isCancelled() && step.thinkTimeMs() != null && step.thinkTimeMs() > 0
-                        && !handle.sleepActive(ThinkTime.pick(step.thinkTimeMs(), loadSpec.thinkTimeVariationPercent()))) {
-                    break;
-                }
-                if (!outcome.success()) {
-                    break;
-                }
-            }
-            iteration++;
-            if (live != null) live.iterationCompleted();
-            // Think time uniquement APRES une iteration, jamais apres une
-            // annulation, jamais applique si nul.
-            if (!handle.isCancelled() && loadSpec.thinkTimeMs() > 0
-                    && !handle.sleepActive(ThinkTime.pick(loadSpec.thinkTimeMs(), loadSpec.thinkTimeVariationPercent()))) {
-                break;
-            }
-        }
-    }
-
     /** Attente maximale de l'arret reel des VU apres une annulation (secondes). */
     static final long STOP_WAIT_SECONDS = 5;
 
@@ -488,28 +316,11 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         final java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
     }
 
-    /** En-tete Retry-After du dernier 429 recu par CE VU (jamais partage entre VU). */
-    private static final class RetryAfterSlot {
-        String value;
-    }
-
     /** Pot de cookies d'un nouveau VU (package-private et redefinissable : tests de non-retention memoire). */
     VirtualUserCookieJar newCookieJar() {
         return new VirtualUserCookieJar();
     }
 
-    /** Fin de la duree configuree, mesuree en temps actif (pauses exclues). */
-    private record ActiveDeadline(long startNanos, long durationNanos, RunningExecutionHandle handle) {
-        boolean reached() {
-            return System.nanoTime() - startNanos - handle.pausedNanos() >= durationNanos;
-        }
-
-        /** Arrondi vers le HAUT : une attente de cette duree se termine a la fin du test, jamais juste avant. */
-        long remainingMs() {
-            long nanos = durationNanos - (System.nanoTime() - startNanos - handle.pausedNanos());
-            return nanos <= 0 ? 0L : (nanos + 999_999L) / 1_000_000L;
-        }
-    }
 
     /**
      * Correction L5 - envoie l'etape avec le jeton en vigueur. En « Connexion automatique », une
@@ -520,7 +331,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
      */
     private StepOutcome executeStepWithRenewal(VirtualUserClients client, StepExecutionSpec step, int stepNumber, String applicationBaseUrl,
             RenewableApplicationAuth sharedAuth, VariableContext variables, VariableSources sources, int virtualUser, int iteration,
-            RequestDetailRecorder recorder, RetryAfterSlot retryAfter) {
+            RequestDetailRecorder recorder, RetryAfterHandler retryAfter) {
         RenewableApplicationAuth.Current used = sharedAuth.current();
         variables.updateAuthToken(used.resolved().token());
         StepOutcome outcome = executeStep(client, step, stepNumber, applicationBaseUrl, used.resolved(), variables, sources,
@@ -557,7 +368,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
 
     private StepOutcome executeStep(VirtualUserClients clients, StepExecutionSpec step, int stepNumber, String applicationBaseUrl,
             ResolvedAuth resolvedAuth, VariableContext variables, VariableSources sources, int virtualUser, int iteration,
-            RequestDetailRecorder recorder, RetryAfterSlot retryAfter) {
+            RequestDetailRecorder recorder, RetryAfterHandler retryAfter) {
         HttpClient client = clients.forStep(step);
         // Requete reelle construite depuis les gabarits de l'etape (voir RequestBuilder) :
         // variables de chemin / query encodees, priorite capture > CSV > scenario > authToken.
@@ -578,15 +389,14 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         String url = resolvedAuth.applyToUrl(built.url());
         long startedAt = System.nanoTime();
 
-        boolean captureConfigured = step.captureVariableName() != null && !step.captureVariableName().isBlank()
-                && step.captureJsonPath() != null && !step.captureJsonPath().isBlank();
+        boolean captureConfigured = ResponseCaptures.configured(step);
         boolean hasAssertion = step.assertionBodyContains() != null && !step.assertionBodyContains().isBlank();
 
         HttpRequest request = null;
         try {
-            request = buildRequest(step, url, built, resolvedAuth, effectiveTimeoutSeconds, clients.network);
+            request = buildRequest(step, url, built, resolvedAuth, effectiveTimeoutSeconds, clients.network());
             // Capture depuis un en-tete : le corps n'est pas necessaire pour elle.
-            boolean readBody = hasAssertion || step.hasJsonAssertion() || (captureConfigured && !step.capturesFromHeader());
+            boolean readBody = hasAssertion || step.hasJsonAssertion() || ResponseCaptures.needsBody(step);
             int statusCode;
             java.net.http.HttpHeaders responseHeaders;
             String body = null;
@@ -612,10 +422,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             }
             long elapsed = elapsedMs(startedAt);
             // 429 : delai demande par la cible, lu ici (seul endroit ou les en-tetes sont disponibles).
-            if (retryAfter != null) {
-                retryAfter.value = statusCode == ThrottlePolicy.TOO_MANY_REQUESTS
-                        ? responseHeaders.firstValue("Retry-After").orElse(null) : null;
-            }
+            if (retryAfter != null) retryAfter.recordResponse(statusCode, responseHeaders);
             boolean statusOk = evaluateSuccess(step, statusCode);
             boolean assertionOk = !hasAssertion || body.contains(step.assertionBodyContains());
             // Controles optionnels (temps de reponse maximal, assertion JSON) : en plus des precedents.
@@ -631,23 +438,11 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                     : timeProblem;
             // Capture apres evaluation, quel que soit le resultat de l'assertion ; propre a ce VU
             // et a l'iteration en cours (VariableContext, videe au debut de chaque iteration).
-            String captured = null;
             // Capture HTML d'un element dont le nom ressemble a un jeton (csrf, token...) : valeur masquee dans le detail.
-            boolean sensitiveHtmlCapture = false;
-            if (captureConfigured) {
-                if (step.capturesFromHtml()) {
-                    HtmlExtractor.Match match = HtmlExtractor.find(body, step.captureJsonPath());
-                    captured = match.value();
-                    sensitiveHtmlCapture = TestRunMasking.isSensitiveHtmlCapture(step.captureJsonPath(), match.elementName());
-                } else {
-                    captured = step.capturesFromHeader()
-                            ? ResponseHeaderExtractor.extract(responseHeaders, step.captureJsonPath())
-                            : JsonPathExtractor.extract(objectMapper, body, step.captureJsonPath());
-                }
-                if (captured != null) {
-                    variables.capture(step.captureVariableName().trim(), captured);
-                }
-            }
+            ResponseCaptures.Captured capture = ResponseCaptures.extract(step, body, responseHeaders, objectMapper);
+            ResponseCaptures.store(step, capture, variables);
+            String captured = capture.value();
+            boolean sensitiveHtmlCapture = capture.sensitive();
             StepOutcome outcome = new StepOutcome(step.stepId(), statusCode, elapsed, success, error, Instant.now(),
                     virtualUser, iteration, requestUrl);
             if (!detailOn) return outcome;
