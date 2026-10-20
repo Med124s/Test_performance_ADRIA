@@ -36,6 +36,8 @@ public class ReportPdfService {
     private final ExecutionRepository executionRepository;
     private final ExecutionService executionService;
     private final ExecutionTimelineService timelineService;
+    private final com.loadpilot.backend.repository.ExecutionStepResultRepository resultRepository;
+    private final com.loadpilot.backend.service.impl.ResultLoadGuard resultLoadGuard;
     private Clock clock = Clock.systemDefaultZone();
 
     public record PdfFile(String fileName, byte[] content) {
@@ -48,17 +50,21 @@ public class ReportPdfService {
         if (execution.getStatus().isActive()) {
             throw new ConflictException("Le rapport PDF est disponible une fois l’exécution terminée.");
         }
-        ExecutionReportResponse report = executionService.getReport(executionId);
-        ExecutionTimelineResponse timeline = null;
-        try {
-            timeline = timelineService.timeline(executionId);
-        } catch (RuntimeException e) {
-            // Le PDF reste utile sans les graphiques (section « indisponible »).
-            log.warn("Analyse dans le temps indisponible pour le PDF de l'execution {} : {}", executionId, e.getMessage());
+        // Memoire du PDF entier reservee (rapport, analyse dans le temps et document), voir ResultLoadGuard.
+        try (var reservation = resultLoadGuard.reserve(com.loadpilot.backend.service.impl.ResultLoadGuard.Load.EXPORT,
+                resultRepository.countAllByExecutionId(executionId))) {
+            ExecutionReportResponse report = executionService.getReport(executionId);
+            ExecutionTimelineResponse timeline = null;
+            try {
+                timeline = timelineService.timeline(executionId);
+            } catch (RuntimeException e) {
+                // Le PDF reste utile sans les graphiques (section « indisponible »).
+                log.warn("Analyse dans le temps indisponible pour le PDF de l'execution {} : {}", executionId, e.getMessage());
+            }
+            ZoneId zone = clock.getZone();
+            byte[] pdf = new ReportPdfWriter().write(new ReportPdfWriter.Data(report, timeline, ExecutionStatusReason.of(execution), zone, Instant.now(clock)));
+            return new PdfFile(fileName(report, zone), pdf);
         }
-        ZoneId zone = clock.getZone();
-        byte[] pdf = new ReportPdfWriter().write(new ReportPdfWriter.Data(report, timeline, ExecutionStatusReason.of(execution), zone, Instant.now(clock)));
-        return new PdfFile(fileName(report, zone), pdf);
     }
 
     /** « Rapport_Parcours-bancaire_2026-10-10_18h13.pdf » (meme convention que les exports Excel et CSV). */

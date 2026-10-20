@@ -45,6 +45,12 @@ import {
   validateLoad,
   validateThresholds,
   thresholdsToRequest,
+  validateErrorBrake,
+  errorBrakeToRequest,
+  validateThrottle,
+  throttleToRequest,
+  validateThinkVariation,
+  thinkVariationToRequest,
   validateStep,
 } from './wizardModel'
 import './scenarioWizard.css'
@@ -83,7 +89,10 @@ function sectionSnapshots(info: ScenarioInfo, steps: DraftStep[], load: LoadConf
     '',
     // Étape « Charge & résumé » : charge, mais aussi détail des requêtes et seuils de réussite (sinon un seuil
     // modifié ne compterait pas comme modification et « Enregistrer » resterait désactivé).
-    JSON.stringify([loadValues, info.requestDetailMode ?? null, info.maxErrorRatePercent ?? null, info.maxP95Ms ?? null]),
+    JSON.stringify([loadValues, info.requestDetailMode ?? null, info.maxErrorRatePercent ?? null, info.maxP95Ms ?? null,
+      info.errorBrakeRatePercent ?? null, info.errorBrakeRatePercent ? info.errorBrakeWindowSeconds ?? null : null,
+      info.throttleOn429 ?? null, info.throttleDefaultDelaySeconds ?? null, info.throttleMaxRetries ?? null,
+      info.thinkTimeVariationPercent ?? null]),
   ]
 }
 
@@ -154,8 +163,8 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
   const scenarioVariableErrors = useMemo(() => validateScenarioVariables(info.variables, csvColumns).errors, [info.variables, csvColumns])
   const scenarioVariableNames = info.variables.map((v) => v.key.trim()).filter(Boolean)
   const stepErrors = useMemo(() => Object.fromEntries(steps.map((s) => [s.uid, validateStep(s)])), [steps])
-  const loadErrors = useMemo(() => ({ ...validateLoad(load, loadLimits), ...validateThresholds(info) }),
-    [load, loadLimits, info.maxErrorRatePercent, info.maxP95Ms]) // eslint-disable-line react-hooks/exhaustive-deps
+  const loadErrors = useMemo(() => ({ ...validateLoad(load, loadLimits), ...validateThresholds(info), ...validateErrorBrake(info), ...validateThrottle(info), ...validateThinkVariation(info) }),
+    [load, loadLimits, info.maxErrorRatePercent, info.maxP95Ms, info.errorBrakeRatePercent, info.errorBrakeWindowSeconds, info.throttleOn429, info.throttleDefaultDelaySeconds, info.throttleMaxRetries, info.thinkTimeVariationPercent]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const signature = draftSignature(info, steps)
   const testStale = testedSignature !== null && testedSignature !== signature
@@ -411,6 +420,9 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
       ...thresholdsToRequest(info),
+      ...errorBrakeToRequest(info),
+      ...throttleToRequest(info),
+      ...thinkVariationToRequest(info),
     }
     let id = scenarioId
     if (id) {
@@ -468,6 +480,9 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
       ...thresholdsToRequest(info),
+      ...errorBrakeToRequest(info),
+      ...throttleToRequest(info),
+      ...thinkVariationToRequest(info),
       wizardStep: current,
       draftState: serializeDraft({ info: savedInfo, steps, load, maxReached: Math.max(maxReached, current), csvFileName, testedSignature: testPassed ? signature : null }),
     }

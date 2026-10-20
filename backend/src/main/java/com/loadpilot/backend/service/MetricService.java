@@ -5,10 +5,9 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Lecture SEULE - aucune creation/modification/suppression manuelle de
- * Metric (voir Phase 10 : la seule source de Metric est la generation
- * automatique apres une Execution reelle, voir
- * service.impl.MetricGenerationService).
+ * Lecture SEULE. Une « metric » = une requete d'une execution terminee, lue directement dans
+ * execution_step_result (plus de copie dans une table metric, voir MetricServiceImpl) : son temps de
+ * reponse, son code HTTP, et le debit et le taux d'erreurs de son execution.
  */
 public interface MetricService {
 

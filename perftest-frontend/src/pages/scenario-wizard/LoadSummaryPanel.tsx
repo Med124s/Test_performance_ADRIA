@@ -1,8 +1,13 @@
+import { useState } from 'react'
 import { BackendApplicationResponse, BackendRequestDetailMode } from '../../types/backendContracts'
 import { TestRunState } from './TestRunPanel'
 import {
   DraftStep,
+  ERROR_BRAKE_DEFAULT_RATE,
+  ERROR_BRAKE_MIN_REQUESTS,
+  ERROR_BRAKE_WINDOW,
   FieldErrors,
+  THROTTLE_429,
   LOAD_FIELDS,
   LOAD_PRESETS,
   LoadConfig,
@@ -35,7 +40,8 @@ interface LoadSummaryPanelProps {
   /** Réglage « Détail des requêtes » (enregistré avec les informations du scénario). */
   onRequestDetailModeChange?: (mode: BackendRequestDetailMode) => void
   /** Seuils de réussite (enregistrés avec les informations du scénario). */
-  onThresholdsChange?: (patch: { maxErrorRatePercent?: string; maxP95Ms?: string }) => void
+  onThresholdsChange?: (patch: Partial<Pick<ScenarioInfo, 'maxErrorRatePercent' | 'maxP95Ms' | 'errorBrakeRatePercent' | 'errorBrakeWindowSeconds'
+    | 'throttleOn429' | 'throttleDefaultDelaySeconds' | 'throttleMaxRetries' | 'thinkTimeVariationPercent'>>) => void
   /** Limites de charge en vigueur, lues depuis le serveur (null : inconnues). */
   limits?: LoadLimits | null
 }
@@ -63,7 +69,7 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
   // Estimation (durée totale, requêtes) : temps de réponse du test de validation s'il a été fait.
   const measured = measuredRequestMs(steps.map((s) => testRun.resultsByUid[s.uid]).filter(Boolean))
   const estimate = estimateLoad(load, steps.length, measured)
-  const warnings = loadWarnings(load, estimate)
+  const warnings = loadWarnings(load, estimate, limits)
   const blockedPresets = LOAD_PRESETS.filter((p) => presetBlockedReason(p, limits))
   const stopLabel = duration && iterations
     ? `${formatApproxSeconds(duration)} ou ${iterations} itération(s)`
@@ -82,6 +88,10 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
   )
 
   const testedOk = testPassed
+  // Interrupteur actif = taux renseigné ; reste ouvert si on vide le champ pour le ressaisir (vide = désactivé).
+  const [brakeSwitch, setBrakeSwitch] = useState<boolean | null>(null)
+  const brakeOn = brakeSwitch ?? !!info.errorBrakeRatePercent?.trim()
+  const throttleOn = info.throttleOn429 !== false
 
   return (
     <div className="sw-load-grid">
@@ -123,6 +133,19 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                 ? `${f.hint(limits)} Un nouvel utilisateur toutes les ${staggerSeconds.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} s.`
                 : f.hint(limits),
               { required: f.required, placeholder: f.key === 'iterations' ? (duration ? 'Sans limite' : '1') : f.placeholder }))}
+            {onThresholdsChange && (
+              <div className="col-12 col-sm-6">
+                <label className="pt-form-label" htmlFor="load-think-variation">
+                  Variation du think time (± %) <span className="sw-optional">optionnel</span>
+                  <InfoTip text="Chaque pause est tirée au hasard autour du think time (ex. 20 % : de 0,8 à 1,2 fois), pour des utilisateurs moins synchronisés. La moyenne ne change pas." />
+                </label>
+                <input id="load-think-variation" className={`pt-form-control ${errors.thinkTimeVariationPercent ? 'is-invalid' : ''}`} inputMode="numeric"
+                  placeholder="Fixe" value={info.thinkTimeVariationPercent ?? ''} onChange={(e) => onThresholdsChange({ thinkTimeVariationPercent: e.target.value })} />
+                {errors.thinkTimeVariationPercent
+                  ? <div className="sw-field-error">{errors.thinkTimeVariationPercent}</div>
+                  : <div className="sw-field-hint">0 à 100 ; vide = think time fixe. S’applique aussi aux pauses des étapes.</div>}
+              </div>
+            )}
             <div className="col-12">
               <div className="sw-field-hint">
                 <i className="bi bi-info-circle"></i> Durée et itérations renseignées : le test s’arrête à la première limite atteinte.
@@ -168,6 +191,90 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                       : <div className="sw-field-hint">95 % des requêtes doivent répondre en moins de ce temps (toutes étapes confondues).</div>}
                   </div>
                 </div>
+                <div className="sw-section-label mt-3">Frein automatique</div>
+                <div className="form-check form-switch">
+                  <input className="form-check-input" type="checkbox" role="switch" id="load-error-brake"
+                    checked={brakeOn}
+                    onChange={(e) => {
+                      setBrakeSwitch(e.target.checked)
+                      onThresholdsChange(e.target.checked
+                        ? { errorBrakeRatePercent: ERROR_BRAKE_DEFAULT_RATE, errorBrakeWindowSeconds: info.errorBrakeWindowSeconds || String(ERROR_BRAKE_WINDOW.default) }
+                        : { errorBrakeRatePercent: '' })
+                    }} />
+                  <label className="form-check-label" htmlFor="load-error-brake">
+                    Arrêter le test si trop d’erreurs{' '}
+                    <InfoTip text="Protège l’application testée : le test est arrêté comme une annulation, avec un message distinct. Désactivé par défaut." />
+                  </label>
+                </div>
+                {brakeOn && (
+                  <div className="row g-3 mt-0">
+                    <div className="col-12 col-sm-6">
+                      <label className="pt-form-label" htmlFor="load-error-brake-rate">
+                        Taux d’erreurs au-delà duquel arrêter (%) <span className="sw-required" aria-hidden="true">*</span>
+                      </label>
+                      <input id="load-error-brake-rate" className={`pt-form-control ${errors.errorBrakeRatePercent ? 'is-invalid' : ''}`} inputMode="decimal"
+                        value={info.errorBrakeRatePercent ?? ''} onChange={(e) => onThresholdsChange({ errorBrakeRatePercent: e.target.value })} aria-required />
+                      {errors.errorBrakeRatePercent
+                        ? <div className="sw-field-error">{errors.errorBrakeRatePercent}</div>
+                        : <div className="sw-field-hint">{info.errorBrakeRatePercent?.trim()
+                          ? `Vérifié en continu pendant le test, à partir de ${ERROR_BRAKE_MIN_REQUESTS} requêtes dans la fenêtre.`
+                          : 'Vide : frein désactivé.'}</div>}
+                    </div>
+                    <div className="col-12 col-sm-6">
+                      <label className="pt-form-label" htmlFor="load-error-brake-window">
+                        Sur les dernières (secondes) <span className="sw-required" aria-hidden="true">*</span>
+                      </label>
+                      <input id="load-error-brake-window" className={`pt-form-control ${errors.errorBrakeWindowSeconds ? 'is-invalid' : ''}`} inputMode="numeric"
+                        value={info.errorBrakeWindowSeconds ?? ''} onChange={(e) => onThresholdsChange({ errorBrakeWindowSeconds: e.target.value })} aria-required />
+                      {errors.errorBrakeWindowSeconds
+                        ? <div className="sw-field-error">{errors.errorBrakeWindowSeconds}</div>
+                        : <div className="sw-field-hint">Fenêtre glissante, de {ERROR_BRAKE_WINDOW.min} à {ERROR_BRAKE_WINDOW.max} s. Par défaut {ERROR_BRAKE_WINDOW.default} s.</div>}
+                    </div>
+                  </div>
+                )}
+                <div className="sw-section-label mt-3">Réponses 429 (Too Many Requests)</div>
+                <div className="form-check form-switch">
+                  <input className="form-check-input" type="checkbox" role="switch" id="load-throttle-429"
+                    checked={throttleOn}
+                    onChange={(e) => onThresholdsChange({ throttleOn429: e.target.checked })} />
+                  <label className="form-check-label" htmlFor="load-throttle-429">
+                    Ralentir quand l’application demande d’attendre{' '}
+                    <InfoTip text="Sur un 429, l’utilisateur virtuel attend le délai demandé (en-tête Retry-After) puis rejoue l’étape. Les autres utilisateurs ne sont pas ralentis. Activé par défaut." />
+                  </label>
+                </div>
+                {throttleOn ? (
+                  <div className="row g-3 mt-0">
+                    <div className="col-12 col-sm-6">
+                      <label className="pt-form-label" htmlFor="load-throttle-delay">
+                        Attente sans Retry-After (secondes) <span className="sw-required" aria-hidden="true">*</span>
+                      </label>
+                      <input id="load-throttle-delay" className={`pt-form-control ${errors.throttleDefaultDelaySeconds ? 'is-invalid' : ''}`} inputMode="numeric"
+                        value={info.throttleDefaultDelaySeconds ?? ''} onChange={(e) => onThresholdsChange({ throttleDefaultDelaySeconds: e.target.value })} aria-required />
+                      {errors.throttleDefaultDelaySeconds
+                        ? <div className="sw-field-error">{errors.throttleDefaultDelaySeconds}</div>
+                        : <div className="sw-field-hint">Si la réponse n’indique pas de délai. De 1 à {THROTTLE_429.maxDelaySeconds} s, par défaut {THROTTLE_429.defaultDelaySeconds} s.</div>}
+                    </div>
+                    <div className="col-12 col-sm-6">
+                      <label className="pt-form-label" htmlFor="load-throttle-retries">
+                        Rejeux de l’étape au plus <span className="sw-required" aria-hidden="true">*</span>
+                      </label>
+                      <input id="load-throttle-retries" className={`pt-form-control ${errors.throttleMaxRetries ? 'is-invalid' : ''}`} inputMode="numeric"
+                        value={info.throttleMaxRetries ?? ''} onChange={(e) => onThresholdsChange({ throttleMaxRetries: e.target.value })} aria-required />
+                      {errors.throttleMaxRetries
+                        ? <div className="sw-field-error">{errors.throttleMaxRetries}</div>
+                        : <div className="sw-field-hint">De 0 à {THROTTLE_429.maxRetries}, par défaut {THROTTLE_429.defaultMaxRetries}. Ensuite, l’étape échoue comme d’habitude.</div>}
+                    </div>
+                    <div className="col-12">
+                      <div className="sw-field-hint">
+                        <i className="bi bi-info-circle"></i> Un 429 reste compté comme une erreur dans le résultat final, mais pas dans le frein automatique : LoadPilot ralentit déjà.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="sw-field-hint">
+                    <i className="bi bi-exclamation-triangle"></i> Désactivé : les 429 sont ignorés et la charge continue au même débit (test de résilience). Ils comptent alors comme des erreurs, y compris pour le frein automatique.
+                  </div>
+                )}
               </div>
             )}
             {onRequestDetailModeChange && (

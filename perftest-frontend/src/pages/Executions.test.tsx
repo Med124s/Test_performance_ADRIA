@@ -238,6 +238,18 @@ describe('Page Exécutions', () => {
     expect(await screen.findByText(/1 exécution supprimée, 1 non supprimée/)).toBeTruthy()
   })
 
+  it('suppression : sans anciennes métriques (plus de copie des résultats), la ligne « métriques » n’est pas affichée', async () => {
+    api.getPage.mockResolvedValue(page([row({ id: 'ex-1' })], { success: 1 }))
+    api.deletionImpact.mockResolvedValue({ executions: 1, results: 40, metrics: 0, active: 0 })
+    renderAt()
+    const rows = await screen.findAllByTestId('execution-row')
+    openMenu(rows[0])
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /Supprimer/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText('40')).toBeTruthy()
+    expect(within(dialog).getByRole('list', { name: 'Impact' }).textContent).not.toMatch(/métrique/)
+  })
+
   it('relance refusée : message clair du serveur', async () => {
     const { ApiError } = await import('../services/api/httpClient')
     api.getPage.mockResolvedValue(page([row({})], { success: 1 }))

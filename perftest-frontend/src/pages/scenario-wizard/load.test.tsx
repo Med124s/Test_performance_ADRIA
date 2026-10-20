@@ -5,7 +5,7 @@ import { EMPTY_INFO } from './draftModel'
 import { INITIAL_TEST_RUN } from './TestRunPanel'
 import {
   DEFAULT_LOAD, LOAD_PRESETS, LoadConfig, estimateLoad, loadToRequest, loadWarnings, measuredRequestMs, newStep, presetBlockedReason,
-  thresholdsFromScenario, thresholdsToRequest, validateLoad, validateThresholds,
+  thresholdsFromScenario, thresholdsToRequest, validateLoad, validateThresholds, validateErrorBrake, errorBrakeToRequest, errorBrakeFromScenario, validateThrottle, throttleToRequest, throttleFromScenario, validateThinkVariation, thinkVariationToRequest, thinkVariationFromScenario,
 } from './wizardModel'
 
 const load = (patch: Partial<LoadConfig> = {}): LoadConfig => ({ ...DEFAULT_LOAD, presetId: 'custom', ...patch })
@@ -182,5 +182,129 @@ describe('Seuils de réussite du scénario', () => {
     expect(screen.getByText('Le P95 maximal doit être au moins 1.')).toBeTruthy()
     expect(screen.queryByText(/« Échouée » \(rouge\) est réservé/)).toBeNull()
     expect(screen.getByRole('img', { name: '« Échouée » est réservé à un test qui n’a pas pu se dérouler.' })).toBeTruthy()
+  })
+})
+describe('Frein automatique sur taux d’erreurs', () => {
+  it('désactivé par défaut ; validation, envoi au serveur et lecture d’un scénario enregistré', () => {
+    expect(EMPTY_INFO.errorBrakeRatePercent).toBe('')
+    expect(validateErrorBrake(EMPTY_INFO)).toEqual({})
+    expect(errorBrakeToRequest(EMPTY_INFO)).toEqual({ errorBrakeRatePercent: 0 })
+    // Ancien brouillon (champs absents) : rien d'envoyé, réglage du serveur conservé.
+    expect(errorBrakeToRequest({})).toEqual({})
+    expect(validateErrorBrake({})).toEqual({})
+
+    expect(validateErrorBrake({ errorBrakeRatePercent: '20', errorBrakeWindowSeconds: '30' })).toEqual({})
+    expect(validateErrorBrake({ errorBrakeRatePercent: '0', errorBrakeWindowSeconds: '30' }).errorBrakeRatePercent).toMatch(/supérieur à 0/)
+    expect(validateErrorBrake({ errorBrakeRatePercent: '150', errorBrakeWindowSeconds: '30' }).errorBrakeRatePercent).toMatch(/au plus 100/)
+    expect(validateErrorBrake({ errorBrakeRatePercent: '20', errorBrakeWindowSeconds: '2' }).errorBrakeWindowSeconds).toMatch(/au moins 5/)
+    expect(validateErrorBrake({ errorBrakeRatePercent: '20', errorBrakeWindowSeconds: '301' }).errorBrakeWindowSeconds).toMatch(/ne doit pas dépasser 300/)
+    expect(validateErrorBrake({ errorBrakeRatePercent: '20', errorBrakeWindowSeconds: '' }).errorBrakeWindowSeconds).toMatch(/obligatoire/)
+
+    expect(errorBrakeToRequest({ errorBrakeRatePercent: '12,5', errorBrakeWindowSeconds: '60' })).toEqual({ errorBrakeRatePercent: 12.5, errorBrakeWindowSeconds: 60 })
+    expect(errorBrakeFromScenario({ errorBrakeRatePercent: 12.5, errorBrakeWindowSeconds: 60 })).toEqual({ errorBrakeRatePercent: '12,5', errorBrakeWindowSeconds: '60' })
+    expect(errorBrakeFromScenario({})).toEqual({ errorBrakeRatePercent: '', errorBrakeWindowSeconds: '30' })
+  })
+
+  it('étape « Charge & résumé » : interrupteur éteint par défaut, valeurs proposées à l’activation', () => {
+    const onThresholds = vi.fn()
+    const props = { application: undefined, steps: [newStep()], errors: {}, showErrors: true, load: load({ virtualUsers: '5' }),
+      testRun: INITIAL_TEST_RUN, testStale: false, testPassed: false, csvRows: null, onChange: () => {}, onGoTo: () => {}, onThresholdsChange: onThresholds }
+    const { unmount } = render(<LoadSummaryPanel info={EMPTY_INFO} {...props} />)
+    const toggle = screen.getByRole('switch', { name: /Arrêter le test si trop d’erreurs/ }) as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    expect(screen.queryByLabelText(/Taux d’erreurs au-delà duquel arrêter/)).toBeNull()
+    fireEvent.click(toggle)
+    expect(onThresholds).toHaveBeenLastCalledWith({ errorBrakeRatePercent: '20', errorBrakeWindowSeconds: '30' })
+    unmount()
+
+    render(<LoadSummaryPanel info={{ ...EMPTY_INFO, errorBrakeRatePercent: '20', errorBrakeWindowSeconds: '30' }} {...props} />)
+    expect((screen.getByRole('switch', { name: /Arrêter le test si trop d’erreurs/ }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.change(screen.getByLabelText(/Sur les dernières/), { target: { value: '60' } })
+    expect(onThresholds).toHaveBeenLastCalledWith({ errorBrakeWindowSeconds: '60' })
+    fireEvent.click(screen.getByRole('switch', { name: /Arrêter le test si trop d’erreurs/ }))
+    expect(onThresholds).toHaveBeenLastCalledWith({ errorBrakeRatePercent: '' })
+  })
+})
+
+describe('Ralentissement sur 429', () => {
+  it('actif par défaut ; validation, envoi au serveur et lecture d’un scénario enregistré', () => {
+    expect(EMPTY_INFO).toMatchObject({ throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3' })
+    expect(validateThrottle(EMPTY_INFO)).toEqual({})
+    expect(throttleToRequest(EMPTY_INFO)).toEqual({ throttleOn429: true, throttleDefaultDelaySeconds: 5, throttleMaxRetries: 3 })
+    // Ancien brouillon : rien d'envoyé.
+    expect(throttleToRequest({})).toEqual({})
+
+    expect(validateThrottle({ throttleOn429: true, throttleDefaultDelaySeconds: '0', throttleMaxRetries: '3' }).throttleDefaultDelaySeconds).toMatch(/au moins 1/)
+    expect(validateThrottle({ throttleOn429: true, throttleDefaultDelaySeconds: '301', throttleMaxRetries: '3' }).throttleDefaultDelaySeconds).toMatch(/ne doit pas dépasser 300/)
+    expect(validateThrottle({ throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '11' }).throttleMaxRetries).toMatch(/ne doit pas dépasser 10/)
+    expect(validateThrottle({ throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '0' })).toEqual({})
+    // Désactivé : les autres champs ne sont pas jugés.
+    expect(validateThrottle({ throttleOn429: false, throttleDefaultDelaySeconds: 'x', throttleMaxRetries: '' })).toEqual({})
+    expect(throttleToRequest({ throttleOn429: false, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3' })).toMatchObject({ throttleOn429: false })
+
+    expect(throttleFromScenario({})).toEqual({ throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3' })
+    expect(throttleFromScenario({ throttleOn429: false, throttleDefaultDelaySeconds: 10, throttleMaxRetries: 0 }))
+      .toEqual({ throttleOn429: false, throttleDefaultDelaySeconds: '10', throttleMaxRetries: '0' })
+  })
+
+  it('étape « Charge & résumé » : interrupteur activé par défaut, désactivation expliquée', () => {
+    const onThresholds = vi.fn()
+    const props = { application: undefined, steps: [newStep()], errors: {}, showErrors: true, load: load({ virtualUsers: '5' }),
+      testRun: INITIAL_TEST_RUN, testStale: false, testPassed: false, csvRows: null, onChange: () => {}, onGoTo: () => {}, onThresholdsChange: onThresholds }
+    const { unmount } = render(<LoadSummaryPanel info={EMPTY_INFO} {...props} />)
+    const toggle = screen.getByRole('switch', { name: /Ralentir quand l’application demande d’attendre/ }) as HTMLInputElement
+    expect(toggle.checked).toBe(true)
+    expect((screen.getByLabelText(/Attente sans Retry-After/) as HTMLInputElement).value).toBe('5')
+    fireEvent.change(screen.getByLabelText(/Rejeux de l’étape au plus/), { target: { value: '1' } })
+    expect(onThresholds).toHaveBeenLastCalledWith({ throttleMaxRetries: '1' })
+    fireEvent.click(toggle)
+    expect(onThresholds).toHaveBeenLastCalledWith({ throttleOn429: false })
+    unmount()
+
+    render(<LoadSummaryPanel info={{ ...EMPTY_INFO, throttleOn429: false }} {...props} />)
+    expect(screen.queryByLabelText(/Attente sans Retry-After/)).toBeNull()
+    expect(screen.getByText(/les 429 sont ignorés et la charge continue au même débit/)).toBeTruthy()
+  })
+})
+
+describe('Débit cible conseillé au-delà d’un seuil d’utilisateurs', () => {
+  const WITH_THRESHOLD = { ...LIMITS, targetRpsAdvisedAboveVirtualUsers: 50 }
+  const warning = 'Plus de 50 utilisateurs sans débit cible : le débit n’est pas borné. '
+    + 'Fixez un débit cible pour maîtriser la charge envoyée et la mémoire de LoadPilot.'
+
+  it('sous le seuil sans débit cible : rien ; au-dessus sans débit cible : avertissement ; avec débit cible : rien', () => {
+    expect(loadWarnings(load({ virtualUsers: '50', targetRps: '', durationSeconds: '60' }), null, WITH_THRESHOLD)).toEqual([])
+    expect(loadWarnings(load({ virtualUsers: '51', targetRps: '', durationSeconds: '60' }), null, WITH_THRESHOLD)).toEqual([warning])
+    expect(loadWarnings(load({ virtualUsers: '120', targetRps: '80', durationSeconds: '60' }), null, WITH_THRESHOLD)).toEqual([])
+    // Jamais bloquant : aucune erreur de validation pour autant.
+    expect(validateLoad(load({ virtualUsers: '51', targetRps: '', durationSeconds: '60' }), WITH_THRESHOLD)).toEqual({})
+    // Seuil 0 ou inconnu (serveur antérieur) : jamais d'avertissement.
+    expect(loadWarnings(load({ virtualUsers: '150', targetRps: '', durationSeconds: '60' }), null, { ...LIMITS, targetRpsAdvisedAboveVirtualUsers: 0 })).toEqual([])
+    expect(loadWarnings(load({ virtualUsers: '150', targetRps: '', durationSeconds: '60' }), null, LIMITS)).toEqual([])
+  })
+})
+
+describe('Variation aléatoire du think time', () => {
+  it('fixe par défaut ; validation, envoi au serveur et lecture d’un scénario enregistré', () => {
+    expect(EMPTY_INFO.thinkTimeVariationPercent).toBe('')
+    expect(validateThinkVariation(EMPTY_INFO)).toEqual({})
+    expect(thinkVariationToRequest(EMPTY_INFO)).toEqual({ thinkTimeVariationPercent: 0 })
+    expect(thinkVariationToRequest({})).toEqual({})
+    expect(thinkVariationToRequest({ thinkTimeVariationPercent: '20' })).toEqual({ thinkTimeVariationPercent: 20 })
+    expect(validateThinkVariation({ thinkTimeVariationPercent: '101' }).thinkTimeVariationPercent).toMatch(/ne doit pas dépasser 100/)
+    expect(validateThinkVariation({ thinkTimeVariationPercent: '-1' }).thinkTimeVariationPercent).toBeDefined()
+    expect(thinkVariationFromScenario({ thinkTimeVariationPercent: 20 })).toEqual({ thinkTimeVariationPercent: '20' })
+    expect(thinkVariationFromScenario({})).toEqual({ thinkTimeVariationPercent: '' })
+  })
+
+  it('étape « Charge & résumé » : champ optionnel, « Fixe » par défaut', () => {
+    const onThresholds = vi.fn()
+    render(<LoadSummaryPanel info={EMPTY_INFO} application={undefined} steps={[newStep()]} errors={{}} showErrors
+      load={load({ virtualUsers: '5' })} testRun={INITIAL_TEST_RUN} testStale={false} testPassed={false} csvRows={null}
+      onChange={() => {}} onGoTo={() => {}} onThresholdsChange={onThresholds} />)
+    const input = screen.getByLabelText(/Variation du think time/) as HTMLInputElement
+    expect(input.placeholder).toBe('Fixe')
+    fireEvent.change(input, { target: { value: '20' } })
+    expect(onThresholds).toHaveBeenLastCalledWith({ thinkTimeVariationPercent: '20' })
   })
 })

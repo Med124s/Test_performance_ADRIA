@@ -118,8 +118,58 @@ class ApplicationAuthSupportTest {
     void loginToken_rejectsInvalidJsonBody_andUnsupportedTokenPath() {
         assertThatThrownBy(() -> support.apply(loginToken("/login", "{username: x}", "$.token"), app(), true))
                 .isInstanceOf(LoadConfigurationException.class).hasMessage("Le corps doit être un JSON valide.");
-        assertThatThrownBy(() -> support.apply(loginToken("/login", "{}", "$.items[0].token"), app(), true))
+        assertThatThrownBy(() -> support.apply(loginToken("/login", "{}", "$.items[-1].token"), app(), true))
                 .isInstanceOf(LoadConfigurationException.class).hasMessageContaining("Chemin invalide");
+        assertThatThrownBy(() -> support.apply(loginToken("/login", "{}", "$.items[a].token"), app(), true))
+                .isInstanceOf(LoadConfigurationException.class).hasMessageContaining("Chemin invalide");
+    }
+
+    private static ApplicationAuthRequest loginTokenInHeader(String header) {
+        return new ApplicationAuthRequest(ApplicationAuthType.LOGIN_TOKEN, null, null, null, null, null, null, "/login", "{}",
+                header, null, null, null, com.loadpilot.backend.enums.CaptureSource.HEADER);
+    }
+
+    @Test
+    void loginToken_tokenInResponseHeader_isValidatedAsAHeaderName_notAJsonPath() {
+        Application app = app();
+        support.apply(loginTokenInHeader("X-Auth-Token"), app, true);
+        assertThat(support.toSpec(app).config().tokenFromHeader()).isTrue();
+        assertThat(support.toResponse(app).tokenSource()).isEqualTo(com.loadpilot.backend.enums.CaptureSource.HEADER);
+        support.apply(loginTokenInHeader("Set-Cookie:ACCESS"), app, true);
+        assertThat(support.toSpec(app).config().tokenJsonPath()).isEqualTo("Set-Cookie:ACCESS");
+
+        assertThatThrownBy(() -> support.apply(loginTokenInHeader("X Auth Token"), app(), true))
+                .isInstanceOf(LoadConfigurationException.class)
+                .hasMessage("Jeton : nom d'en-tête invalide (pas d'espace ni de caractère spécial, ex. X-CSRF-Token).");
+        assertThatThrownBy(() -> support.apply(loginTokenInHeader(" "), app(), true))
+                .isInstanceOf(LoadConfigurationException.class)
+                .hasMessage("Indiquez l'en-tête qui contient le jeton (ex : X-Auth-Token).");
+    }
+
+    @Test
+    void loginToken_fromHtmlPage_isRejectedWithAnExplanation() {
+        ApplicationAuthRequest request = new ApplicationAuthRequest(ApplicationAuthType.LOGIN_TOKEN, null, null, null, null, null, null,
+                "/login", "{}", "input[name=token]::attr(value)", null, null, null, com.loadpilot.backend.enums.CaptureSource.HTML);
+        assertThatThrownBy(() -> support.apply(request, app(), true))
+                .isInstanceOf(LoadConfigurationException.class)
+                .hasMessageContaining("faites de la connexion une étape du scénario");
+    }
+
+    @Test
+    void loginToken_withoutSource_staysJson() {
+        Application app = app();
+        support.apply(loginToken("/login", "{}", "$.data.token"), app, true);
+        assertThat(support.toSpec(app).config().tokenFromHeader()).isFalse();
+        assertThat(support.toResponse(app).tokenSource()).isNull();
+    }
+
+    @Test
+    void loginToken_acceptsArrayIndexesInTokenPath() {
+        Application app = app();
+        support.apply(loginToken("/login", "{}", "$.data.sessions[0].token"), app, true);
+        assertThat(support.toSpec(app).config().tokenJsonPath()).isEqualTo("$.data.sessions[0].token");
+        support.apply(loginToken("/login", "{}", "$[0][1].token"), app, true);
+        assertThat(support.toSpec(app).config().tokenJsonPath()).isEqualTo("$[0][1].token");
     }
 
     @Test

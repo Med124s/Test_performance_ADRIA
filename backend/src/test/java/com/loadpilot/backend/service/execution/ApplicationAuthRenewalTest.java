@@ -185,6 +185,27 @@ class ApplicationAuthRenewalTest {
         assertThat(logins.get()).as("apres la pause : nouvelle tentative").isEqualTo(3);
     }
 
+    @Test
+    void renewal_reconnectsThroughTheSameApplicationProxy() throws IOException {
+        String base = startServer(ex -> respond(ex, 200, "{\"data\":{\"token\":\"t-2\"}}"));
+        java.util.List<com.loadpilot.backend.service.http.NetworkProfile> used = new java.util.concurrent.CopyOnWriteArrayList<>();
+        ApplicationAuthenticator authenticator = new ApplicationAuthenticator(new ObjectMapper()) {
+            @Override
+            public ResolvedAuth authenticate(com.loadpilot.backend.service.auth.ApplicationAuthSpec spec, String url, long timeout,
+                    com.loadpilot.backend.service.http.NetworkProfile network) {
+                used.add(network);
+                return super.authenticate(spec, url, timeout, com.loadpilot.backend.service.http.NetworkProfile.direct());
+            }
+        };
+        com.loadpilot.backend.service.http.NetworkProfile appProxy =
+                com.loadpilot.backend.service.http.NetworkProfile.custom("proxy.banque.local", 3128, null, null);
+        RenewableApplicationAuth shared = new RenewableApplicationAuth(loginToken(), ResolvedAuth.none(), base, 2, authenticator, null,
+                appProxy);
+
+        assertThat(shared.renewAfter(shared.current())).isNotNull();
+        assertThat(used).containsExactly(appProxy);
+    }
+
     // ------------------------------------------------------------------ concurrence
 
     @Test

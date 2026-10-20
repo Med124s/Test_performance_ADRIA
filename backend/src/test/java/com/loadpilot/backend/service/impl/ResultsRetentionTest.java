@@ -162,6 +162,11 @@ class ResultsRetentionTest {
         UUID old = runToEnd(scenarioId);
         UUID recent = runToEnd(scenarioId);
         assertThat(count("execution_step_result", old)).isEqualTo(12);
+        // Plus aucune copie dans metric (moyennes calculees sur les resultats) ; des lignes ANCIENNES peuvent y rester :
+        // elles doivent partir avec la purge. 12 lignes « anciennes » recopiees ici des resultats.
+        assertThat(count("metric", old)).isZero();
+        jdbc.update("INSERT INTO metric (id, execution_id, response_time, status_code, timestamp) "
+                + "SELECT RANDOM_UUID(), execution_id, response_time_ms, http_status, captured_at FROM execution_step_result WHERE execution_id = ?", old);
         assertThat(count("metric", old)).isEqualTo(12);
 
         JsonNode reportBefore = call(get("/api/executions/" + old + "/report"), null);

@@ -29,8 +29,18 @@ public record ApplicationRequest(
 
         /** Optionnel : absent = aucun monitoring a la creation, monitoring inchange a la mise a jour. */
         @Valid
-        ApplicationMonitoringRequest monitoring
+        ApplicationMonitoringRequest monitoring,
+
+        /** Optionnel : absent = proxy global a la creation, reseau inchange a la mise a jour. */
+        @Valid
+        ApplicationNetworkRequest network
 ) {
+
+    /** Compatibilite : Application sans reglage reseau explicite. */
+    public ApplicationRequest(String name, String description, String url, ApplicationAuthRequest auth,
+            ApplicationMonitoringRequest monitoring) {
+        this(name, description, url, auth, monitoring, null);
+    }
 
     /** Compatibilite : Application sans authentification explicite. */
     public ApplicationRequest(String name, String description, String url) {

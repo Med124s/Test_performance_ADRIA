@@ -28,6 +28,10 @@ public record ExecutionDetailResponse(
         long detailedFailures,
         long detailedSamples,
         /** Conservation : detail des requetes ou en-tetes / corps supprimes, option « Conserver ». */
-        ResultsRetentionResponse retention
+        ResultsRetentionResponse retention,
+        /** Debit (req/s, temps de pause exclu) et taux d'erreurs (%) : memes formules que les Metric
+         * (PerformanceAggregates), sans les recharger ; null si rien a mesurer. */
+        Double throughputRps,
+        Double errorRatePercent
 ) {
 }

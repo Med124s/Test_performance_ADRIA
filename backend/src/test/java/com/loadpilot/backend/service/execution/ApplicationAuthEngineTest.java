@@ -117,6 +117,59 @@ class ApplicationAuthEngineTest {
         assertThat(stepCalls.get()).isZero();
     }
 
+    /** Connexion automatique dont le jeton est lu dans un en-tete de la reponse de login. */
+    private static ApplicationAuthSpec loginWithTokenInHeader(String headerSpec) {
+        return new ApplicationAuthSpec(ApplicationAuthType.LOGIN_TOKEN, new ApplicationAuthConfig(null, null, null, null, null,
+                null, "/auth/login", "{}", headerSpec, null, null, null, com.loadpilot.backend.enums.CaptureSource.HEADER));
+    }
+
+    @Test
+    void loginToken_readFromResponseHeader_caseInsensitive_evenWithoutJsonBody() throws IOException {
+        String base = startServer(ex -> {
+            if (ex.getRequestURI().getPath().equals("/auth/login")) {
+                ex.getResponseHeaders().add("X-Auth-Token", "hdr-token-1");
+                ex.sendResponseHeaders(204, -1);
+                ex.close();
+            } else {
+                boolean ok = "Bearer hdr-token-1".equals(ex.getRequestHeaders().getFirst("Authorization"));
+                respond(ex, ok ? 200 : 401, "");
+            }
+        });
+
+        ScenarioExecutionOutcome outcome = run(List.of(get("/secure", null)), base, loginWithTokenInHeader("x-auth-token"), 2);
+
+        assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.SUCCESS);
+        assertThat(outcome.stepOutcomes()).hasSize(2).allMatch(StepOutcome::success);
+    }
+
+    @Test
+    void loginToken_readFromNamedCookie() throws IOException {
+        String base = startServer(ex -> {
+            if (ex.getRequestURI().getPath().equals("/auth/login")) {
+                ex.getResponseHeaders().add("Set-Cookie", "lang=fr; Path=/");
+                ex.getResponseHeaders().add("Set-Cookie", "ACCESS=cookie-token-9; HttpOnly");
+                respond(ex, 200, "{\"ok\":true}");
+            } else {
+                boolean ok = "Bearer cookie-token-9".equals(ex.getRequestHeaders().getFirst("Authorization"));
+                respond(ex, ok ? 200 : 401, "");
+            }
+        });
+
+        ScenarioExecutionOutcome outcome = run(List.of(get("/secure", null)), base, loginWithTokenInHeader("Set-Cookie:ACCESS"), 1);
+
+        assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.SUCCESS);
+    }
+
+    @Test
+    void loginToken_headerAbsent_failsWithExplicitMessage() throws IOException {
+        String base = startServer(ex -> respond(ex, 200, "{\"token\":\"in-the-body-only\"}"));
+
+        ScenarioExecutionOutcome outcome = run(List.of(get("/secure", null)), base, loginWithTokenInHeader("X-Auth-Token"), 1);
+
+        assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.FAILED);
+        assertThat(outcome.errorMessage()).isEqualTo("Authentification : token introuvable : en-tête « X-Auth-Token » absent de la réponse");
+    }
+
     @Test
     void loginToken_tokenMissingFromResponse_failsWithExplicitMessage() throws IOException {
         String base = startServer(ex -> respond(ex, 200, "{\"ok\":true}"));
@@ -124,7 +177,7 @@ class ApplicationAuthEngineTest {
         ScenarioExecutionOutcome outcome = run(List.of(get("/secure", null)), base, login("/auth/login", "{}"), 1);
 
         assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.FAILED);
-        assertThat(outcome.errorMessage()).isEqualTo("Authentification : token introuvable à $.data.token");
+        assertThat(outcome.errorMessage()).isEqualTo("Authentification : token introuvable à $.data.token : aucun champ « data » à la racine");
     }
 
     @Test

@@ -9,10 +9,12 @@
 // ============================================================
 
 import { ApiError } from '../../services/api/httpClient'
+import { headerCaptureProblem } from '../../utils/headerCapture'
+import { htmlCaptureProblem } from '../../utils/htmlCapture'
 import { analyzeCsv, validateCsv as validateCsvData } from './csvModel'
 import { QueryParamRow, VARIABLE_NAME, VariableRow, detectPathVariables, splitUrl } from './variablesModel'
 import {
-  BackendCsvDistribution, BackendRequestDetailMode,
+  BackendCaptureSource, BackendCsvDistribution, BackendRequestDetailMode, BackendJsonAssertionOperator,
   BackendHttpMethod,
   BackendScenarioRequest,
   BackendStepRequest,
@@ -38,7 +40,10 @@ export interface DraftStep {
   expectedStatus: string
   assertionBodyContains: string
   captureVariableName: string
+  /** Chemin JSON (source JSON) ou nom de l'en-tête, « Set-Cookie:NOM » pour un cookie (source HEADER). */
   captureJsonPath: string
+  /** Où lire la valeur capturée : absent ou 'JSON' = corps JSON, 'HEADER' = en-tête de réponse. */
+  captureSource?: BackendCaptureSource
   thinkTimeMs: string
   timeoutSeconds: string
   followRedirects: '' | 'true' | 'false'
@@ -46,6 +51,12 @@ export interface DraftStep {
   pathParams: Record<string, string>
   /** Paramètres de requête (synchronisés avec l'URL ; les désactivés n'y figurent pas). */
   queryParams: QueryParamRow[]
+  /** Temps de réponse maximal (ms) ; vide = aucun contrôle. */
+  maxResponseTimeMs?: string
+  /** Assertion JSON : champ (ex. $.status), comparaison, valeur attendue ; champ vide = aucune. */
+  assertionJsonPath?: string
+  assertionJsonOperator?: BackendJsonAssertionOperator
+  assertionJsonValue?: string
 }
 
 export interface ScenarioInfo {
@@ -65,6 +76,17 @@ export interface ScenarioInfo {
    * Absents des anciens brouillons : valeurs du serveur conservées. */
   maxErrorRatePercent?: string
   maxP95Ms?: string
+  /** Frein automatique (saisie texte) : taux d'erreurs en % sur la fenêtre (vide = désactivé), fenêtre en secondes.
+   * Absents des anciens brouillons : valeurs du serveur conservées. */
+  errorBrakeRatePercent?: string
+  errorBrakeWindowSeconds?: string
+  /** Ralentissement sur 429 (actif par défaut) : attente sans Retry-After (s) et rejeux par étape (saisie texte).
+   * Absents des anciens brouillons : valeurs du serveur conservées. */
+  throttleOn429?: boolean
+  throttleDefaultDelaySeconds?: string
+  throttleMaxRetries?: string
+  /** Variation aléatoire du think time (± %, saisie texte) : vide = fixe. Absente des anciens brouillons : inchangée. */
+  thinkTimeVariationPercent?: string
 }
 
 /**
@@ -146,8 +168,9 @@ export function expectedStatusAfterMethodChange(step: Pick<DraftStep, 'method' |
   return current === '' || current === DEFAULT_EXPECTED_STATUS[step.method] ? DEFAULT_EXPECTED_STATUS[method] : step.expectedStatus
 }
 
-/** Vrai si l'étape vérifie le contenu de la réponse (« La réponse doit contenir »). */
-export const hasContentCheck = (step: Pick<DraftStep, 'assertionBodyContains'>) => step.assertionBodyContains.trim() !== ''
+/** Vrai si l'étape vérifie le contenu de la réponse (« La réponse doit contenir » ou assertion JSON). */
+export const hasContentCheck = (step: Pick<DraftStep, 'assertionBodyContains' | 'assertionJsonPath'>) =>
+  step.assertionBodyContains.trim() !== '' || !!step.assertionJsonPath?.trim()
 
 export function newStep(partial: Partial<DraftStep> = {}): DraftStep {
   return {
@@ -247,6 +270,32 @@ function intField(value: string, { min, max, required, label }: { min: number; m
   return undefined
 }
 
+/** Même syntaxe que la capture (JsonPathExtractor) : segments séparés par des points, index [n] entiers positifs. */
+export function isValidJsonPath(path: string): boolean {
+  const clean = path.trim().replace(/^\$\.?/, '')
+  if (!path.trim()) return false
+  return clean.split('.').every((segment) => /^[^[\]]*(\[\d{1,9}\])*$/.test(segment))
+}
+
+/** Assertion JSON d'une étape : mêmes règles que StepChecks.configurationProblem (backend). */
+export function jsonAssertionProblem(step: Pick<DraftStep, 'assertionJsonPath' | 'assertionJsonOperator' | 'assertionJsonValue'>):
+  { field: 'assertionJsonPath' | 'assertionJsonValue'; message: string } | null {
+  const path = (step.assertionJsonPath ?? '').trim()
+  const value = step.assertionJsonValue ?? ''
+  if (!path) return value ? { field: 'assertionJsonPath', message: 'Indiquez le champ à vérifier (ex : $.status).' } : null
+  if (path.length > 500) return { field: 'assertionJsonPath', message: 'Le champ ne doit pas dépasser 500 caractères.' }
+  if (!isValidJsonPath(path)) return { field: 'assertionJsonPath', message: 'Champ invalide (ex : $.status ou data.items[0].id).' }
+  if (step.assertionJsonOperator === 'CONTAINS' && !value) {
+    return { field: 'assertionJsonValue', message: 'Indiquez le texte que le champ doit contenir.' }
+  }
+  if (value.length > 1000) return { field: 'assertionJsonValue', message: 'La valeur ne doit pas dépasser 1000 caractères.' }
+  return null
+}
+
+/** Vrai si l'étape a un contrôle optionnel (temps de réponse maximal ou assertion JSON). */
+export const hasExtraChecks = (step: Pick<DraftStep, 'maxResponseTimeMs' | 'assertionJsonPath'>) =>
+  !!step.maxResponseTimeMs?.trim() || !!step.assertionJsonPath?.trim()
+
 export function validateInfo(info: ScenarioInfo): FieldErrors {
   const errors: FieldErrors = {}
   if (!info.applicationId) errors.applicationId = 'Choisissez l’application à tester.'
@@ -280,13 +329,27 @@ export function validateStep(step: DraftStep): FieldErrors {
   const expected = intField(step.expectedStatus, { min: 100, max: 599, label: 'Le code attendu' })
   if (expected) errors.expectedStatus = expected
   if (step.assertionBodyContains.length > 500) errors.assertionBodyContains = 'L’assertion ne doit pas dépasser 500 caractères.'
+  const maxTime = intField(step.maxResponseTimeMs ?? '', { min: 1, max: 600000, label: 'Le temps de réponse maximal' })
+  if (maxTime) errors.maxResponseTimeMs = maxTime
+  const jsonProblem = jsonAssertionProblem(step)
+  if (jsonProblem) errors[jsonProblem.field] = jsonProblem.message
   const capName = step.captureVariableName.trim()
   const capPath = step.captureJsonPath.trim()
-  if (capName && !capPath) errors.captureJsonPath = 'Indiquez où lire la valeur (ex : $.token).'
+  const fromHeader = step.captureSource === 'HEADER'
+  const fromHtml = step.captureSource === 'HTML'
+  if (capName && !capPath) {
+    errors.captureJsonPath = fromHeader ? 'Indiquez le nom de l’en-tête (ex : X-CSRF-Token).'
+      : fromHtml ? 'Indiquez le sélecteur CSS de l’élément (ex : input[name=csrf_token]).'
+      : 'Indiquez où lire la valeur (ex : $.token).'
+  }
   if (capPath && !capName) errors.captureVariableName = 'Donnez un nom à la variable (ex : token).'
   if (capName && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(capName)) errors.captureVariableName = 'Lettres, chiffres et _ uniquement (ex : token).'
   if (capName.length > 255) errors.captureVariableName = 'Le nom de variable ne doit pas dépasser 255 caractères.'
   if (capPath.length > 500) errors.captureJsonPath = 'Le chemin ne doit pas dépasser 500 caractères.'
+  else if ((fromHeader || fromHtml) && capPath) {
+    const problem = fromHeader ? headerCaptureProblem(capPath) : htmlCaptureProblem(capPath)
+    if (problem) errors.captureJsonPath = `${problem.charAt(0).toUpperCase()}${problem.slice(1)}.`
+  }
   const badPath = detectPathVariables(step.url).find((n) => !VARIABLE_NAME.test(n))
   if (badPath) errors.url = `Variable de chemin « ${badPath} » invalide.`
   if (step.queryParams.some((q) => !q.key.trim() && q.value.trim())) errors.queryParams = 'Chaque paramètre de requête doit avoir un nom.'
@@ -304,6 +367,14 @@ export interface LoadLimits {
   maxDurationSeconds: number
   maxIterations: number
   maxTargetRps: number
+  /** Au-delà, un débit cible est fortement conseillé (avertissement) ; 0 ou absent = jamais. */
+  targetRpsAdvisedAboveVirtualUsers?: number
+}
+
+/** Message identique au serveur (LoadRules.noTargetRpsWarning). */
+export function noTargetRpsWarning(threshold: number): string {
+  return `Plus de ${formatInt(threshold)} utilisateurs sans débit cible : le débit n’est pas borné. `
+    + 'Fixez un débit cible pour maîtriser la charge envoyée et la mémoire de LoadPilot.'
 }
 
 /** Plage fixe du think time (ms), identique au serveur (LoadRules.MAX_THINK_TIME_MS). */
@@ -458,8 +529,11 @@ export function formatApproxSeconds(seconds: number): string {
 }
 
 /** Avertissements non bloquants sur une configuration de charge valide. */
-export function loadWarnings(load: LoadConfig, estimate?: LoadEstimate | null): string[] {
+export function loadWarnings(load: LoadConfig, estimate?: LoadEstimate | null, limits?: Partial<LoadLimits> | null): string[] {
   const warnings: string[] = []
+  // Même règle que le serveur (LoadRules.warnings) : jamais bloquante.
+  const threshold = limits?.targetRpsAdvisedAboveVirtualUsers ?? 0
+  if (threshold > 0 && Number(load.virtualUsers) > threshold && !load.targetRps.trim()) warnings.push(noTargetRpsWarning(threshold))
   if (!load.durationSeconds.trim() && !load.iterations.trim()) warnings.push('Ni durée ni itérations : chaque utilisateur jouera le scénario une seule fois.')
   if (estimate && !load.durationSeconds.trim() && estimate.lastStartSeconds >= 1 && estimate.lastStartSeconds > estimate.perUserSeconds) {
     warnings.push(`Le dernier utilisateur démarrera après ${formatApproxSeconds(estimate.lastStartSeconds)}, alors qu’un utilisateur termine en ≈ ${formatApproxSeconds(estimate.perUserSeconds)} : `
@@ -517,6 +591,99 @@ export function thresholdsFromScenario(s: { maxErrorRatePercent?: number | null;
   return { maxErrorRatePercent: String(s.maxErrorRatePercent ?? 1).replace('.', ','), maxP95Ms: s.maxP95Ms == null ? '' : String(s.maxP95Ms) }
 }
 
+/** Fenêtre du frein automatique : mêmes bornes que le serveur (ErrorRateBrake, ScenarioRequest). */
+export const ERROR_BRAKE_WINDOW = { min: 5, max: 300, default: 30 }
+/** Taux proposé quand on active le frein. */
+export const ERROR_BRAKE_DEFAULT_RATE = '20'
+/** Requêtes minimales dans la fenêtre avant que le frein juge (ErrorRateBrake.MIN_REQUESTS). */
+export const ERROR_BRAKE_MIN_REQUESTS = 20
+
+type ErrorBrakeFields = Pick<ScenarioInfo, 'errorBrakeRatePercent' | 'errorBrakeWindowSeconds'>
+
+/** Frein automatique : désactivé si le taux est vide ; sinon taux de 0 (exclu) à 100 % et fenêtre de 5 à 300 s. */
+export function validateErrorBrake(info: ErrorBrakeFields): FieldErrors {
+  const errors: FieldErrors = {}
+  const raw = (info.errorBrakeRatePercent ?? '').trim().replace(',', '.')
+  if (!raw) return errors
+  const n = Number(raw)
+  if (!/^\d+(\.\d+)?$/.test(raw) || n <= 0 || n > 100) errors.errorBrakeRatePercent = 'Le taux d’erreurs du frein doit être un nombre supérieur à 0 et au plus 100.'
+  const w = intField(info.errorBrakeWindowSeconds ?? '', { min: ERROR_BRAKE_WINDOW.min, max: ERROR_BRAKE_WINDOW.max, required: true, label: 'La fenêtre' })
+  if (w) errors.errorBrakeWindowSeconds = w
+  return errors
+}
+
+/** Frein pour le serveur : taux vide = 0 (« désactivé ») ; champ absent (ancien brouillon) = inchangé. */
+export function errorBrakeToRequest(info: ErrorBrakeFields): { errorBrakeRatePercent?: number; errorBrakeWindowSeconds?: number } {
+  if (info.errorBrakeRatePercent === undefined) return {}
+  const raw = info.errorBrakeRatePercent.trim().replace(',', '.')
+  if (!raw) return { errorBrakeRatePercent: 0 }
+  const window = (info.errorBrakeWindowSeconds ?? '').trim()
+  return { errorBrakeRatePercent: Number(raw), ...(window ? { errorBrakeWindowSeconds: Number(window) } : {}) }
+}
+
+/** Valeurs texte du frein d'un scénario enregistré (désactivé par défaut, fenêtre 30 s). */
+export function errorBrakeFromScenario(s: { errorBrakeRatePercent?: number | null; errorBrakeWindowSeconds?: number | null }): ErrorBrakeFields {
+  return {
+    errorBrakeRatePercent: s.errorBrakeRatePercent == null ? '' : String(s.errorBrakeRatePercent).replace('.', ','),
+    errorBrakeWindowSeconds: String(s.errorBrakeWindowSeconds ?? ERROR_BRAKE_WINDOW.default),
+  }
+}
+
+/** Ralentissement sur 429 : mêmes valeurs par défaut et bornes que le serveur (ThrottlePolicy, ScenarioRequest). */
+export const THROTTLE_429 = { defaultDelaySeconds: 5, maxDelaySeconds: 300, defaultMaxRetries: 3, maxRetries: 10 }
+
+type ThrottleFields = Pick<ScenarioInfo, 'throttleOn429' | 'throttleDefaultDelaySeconds' | 'throttleMaxRetries'>
+
+/** Ralentissement sur 429 : désactivé, rien à valider ; actif, attente de 1 à 300 s et 0 à 10 rejeux. */
+export function validateThrottle(info: ThrottleFields): FieldErrors {
+  const errors: FieldErrors = {}
+  if (info.throttleOn429 === false) return errors
+  const d = intField(info.throttleDefaultDelaySeconds ?? '', { min: 1, max: THROTTLE_429.maxDelaySeconds, label: 'L’attente par défaut' })
+  if (d) errors.throttleDefaultDelaySeconds = d
+  const r = intField(info.throttleMaxRetries ?? '', { min: 0, max: THROTTLE_429.maxRetries, label: 'Le nombre de rejeux' })
+  if (r) errors.throttleMaxRetries = r
+  return errors
+}
+
+/** Ralentissement pour le serveur : champs absents (ancien brouillon) = inchangés ; champ texte vide = inchangé. */
+export function throttleToRequest(info: ThrottleFields): { throttleOn429?: boolean; throttleDefaultDelaySeconds?: number; throttleMaxRetries?: number } {
+  const out: { throttleOn429?: boolean; throttleDefaultDelaySeconds?: number; throttleMaxRetries?: number } = {}
+  if (info.throttleOn429 !== undefined) out.throttleOn429 = info.throttleOn429
+  if (info.throttleDefaultDelaySeconds?.trim()) out.throttleDefaultDelaySeconds = Number(info.throttleDefaultDelaySeconds.trim())
+  if (info.throttleMaxRetries?.trim()) out.throttleMaxRetries = Number(info.throttleMaxRetries.trim())
+  return out
+}
+
+/** Valeurs du ralentissement d'un scénario enregistré (null = défaut : actif, 5 s, 3 rejeux). */
+export function throttleFromScenario(s: { throttleOn429?: boolean | null; throttleDefaultDelaySeconds?: number | null; throttleMaxRetries?: number | null }): ThrottleFields {
+  return {
+    throttleOn429: s.throttleOn429 !== false,
+    throttleDefaultDelaySeconds: String(s.throttleDefaultDelaySeconds ?? THROTTLE_429.defaultDelaySeconds),
+    throttleMaxRetries: String(s.throttleMaxRetries ?? THROTTLE_429.defaultMaxRetries),
+  }
+}
+
+type ThinkVariationField = Pick<ScenarioInfo, 'thinkTimeVariationPercent'>
+
+/** Variation du think time : vide = fixe ; sinon entier de 0 à 100 (mêmes bornes que le serveur). */
+export function validateThinkVariation(info: ThinkVariationField): FieldErrors {
+  const raw = (info.thinkTimeVariationPercent ?? '').trim()
+  if (!raw) return {}
+  const e = intField(raw, { min: 0, max: 100, label: 'La variation du think time' })
+  return e ? { thinkTimeVariationPercent: e } : {}
+}
+
+/** Pour le serveur : vide = 0 (« fixe ») ; champ absent (ancien brouillon) = inchangé. */
+export function thinkVariationToRequest(info: ThinkVariationField): { thinkTimeVariationPercent?: number } {
+  if (info.thinkTimeVariationPercent === undefined) return {}
+  const raw = info.thinkTimeVariationPercent.trim()
+  return { thinkTimeVariationPercent: raw ? Number(raw) : 0 }
+}
+
+export function thinkVariationFromScenario(s: { thinkTimeVariationPercent?: number | null }): ThinkVariationField {
+  return { thinkTimeVariationPercent: s.thinkTimeVariationPercent ? String(s.thinkTimeVariationPercent) : '' }
+}
+
 export const hasErrors = (errors: FieldErrors) => Object.values(errors).some(Boolean)
 
 // ---------------------------------------------------------------- payloads
@@ -540,8 +707,19 @@ export function stepToRequest(step: DraftStep, scenarioId: string, order: number
     assertionBodyContains: step.assertionBodyContains.trim() || null,
     captureVariableName: step.captureVariableName.trim() || null,
     captureJsonPath: step.captureJsonPath.trim() || null,
+    // Absent = JSON (comportement historique) ; le serveur remet la source à JSON si elle n'est pas envoyée.
+    ...(step.captureSource === 'HEADER' || step.captureSource === 'HTML' ? { captureSource: step.captureSource } : {}),
     pathParams: pathParamsToJson(step),
     queryParams: step.queryParams.some((q) => q.key.trim()) ? JSON.stringify(step.queryParams.filter((q) => q.key.trim())) : null,
+    // Contrôles optionnels : absents = aucun (le serveur les efface s'ils ne sont pas envoyés).
+    ...(step.maxResponseTimeMs?.trim() ? { maxResponseTimeMs: Number(step.maxResponseTimeMs) } : {}),
+    ...(step.assertionJsonPath?.trim()
+      ? {
+          assertionJsonPath: step.assertionJsonPath.trim(),
+          assertionJsonOperator: step.assertionJsonOperator ?? 'EQUALS',
+          assertionJsonValue: step.assertionJsonValue ?? '',
+        }
+      : {}),
   }
 }
 

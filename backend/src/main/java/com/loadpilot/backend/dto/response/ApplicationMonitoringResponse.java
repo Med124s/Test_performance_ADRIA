@@ -10,6 +10,8 @@ public record ApplicationMonitoringResponse(
         MonitoringAuthType authType,
         String headerName,
         boolean secretConfigured,
-        int intervalSeconds
+        int intervalSeconds,
+        /** Lecture en direct, sans le proxy de l'application. */
+        boolean withoutProxy
 ) {
 }

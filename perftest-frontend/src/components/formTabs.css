@@ -1,0 +1,40 @@
+/* Onglets de formulaire (FormTabs) — mêmes codes visuels que les onglets de page (.ex-tab). */
+
+.ft-root { display: flex; flex-direction: column; }
+.ft-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--pt-border);
+  margin-bottom: 1rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.ft-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: none;
+  background: none;
+  padding: 0.55rem 0.8rem 0.6rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pt-text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  border-radius: var(--pt-radius-sm) var(--pt-radius-sm) 0 0;
+}
+.ft-tab:hover { color: var(--pt-text); background: var(--pt-sidebar-item-hover); }
+.ft-tab.active { color: var(--pt-primary); border-bottom-color: var(--pt-primary); }
+.ft-tab:focus-visible { outline: 2px solid var(--pt-primary); outline-offset: -2px; }
+
+/* Point : réglage configuré (couleur principale) ou champ à corriger (danger). */
+.ft-marker { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.ft-marker.configured { background: var(--pt-primary); }
+.ft-marker.error { background: var(--pt-danger); }
+
+.ft-panel { min-height: 180px; }
+
+/* Infobulle « i » courte, au survol et au clavier. */
+.ft-info { color: var(--pt-text-muted); font-size: 12px; margin-left: 0.3rem; cursor: help; }
+.ft-info:focus-visible { outline: 2px solid var(--pt-primary); outline-offset: 2px; border-radius: 50%; }

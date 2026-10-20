@@ -69,6 +69,28 @@ public final class LoadRules {
         return errors;
     }
 
+    /**
+     * Avertissements (jamais bloquants) : au-dela de limits.targetRpsAdvisedAboveVirtualUsers
+     * utilisateurs virtuels sans debit cible, le debit n'est pas borne - la charge envoyee depend
+     * alors de la vitesse de la cible, et la memoire de LoadPilot peut atteindre sa limite de
+     * securite (le test s'arrete alors). Pas un refus : un scenario ou une planification existants ne
+     * cessent jamais de fonctionner a cause de cette regle. Meme regle dans l'interface
+     * (wizardModel.loadWarnings, message identique).
+     */
+    public static List<String> warnings(Integer virtualUsers, Integer targetRps, LoadLimits limits) {
+        List<String> warnings = new ArrayList<>();
+        int threshold = limits.targetRpsAdvisedAboveVirtualUsers();
+        if (threshold > 0 && virtualUsers != null && virtualUsers > threshold && targetRps == null) {
+            warnings.add(noTargetRpsWarning(threshold));
+        }
+        return warnings;
+    }
+
+    public static String noTargetRpsWarning(int threshold) {
+        return "Plus de " + number(threshold) + " utilisateurs sans débit cible : le débit n’est pas borné. "
+                + "Fixez un débit cible pour maîtriser la charge envoyée et la mémoire de LoadPilot.";
+    }
+
     /** Ramp-up superieur ou egal a la duree fixee (null si correct ou non applicable). */
     public static String rampUpProblem(Integer rampUpSeconds, Integer durationSeconds) {
         return durationSeconds != null && durationSeconds >= 1 && rampUpSeconds != null && rampUpSeconds >= 0

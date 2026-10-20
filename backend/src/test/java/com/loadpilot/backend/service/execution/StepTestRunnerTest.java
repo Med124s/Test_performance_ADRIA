@@ -77,6 +77,32 @@ class StepTestRunnerTest {
             json(ex, 201, "{\"transferId\":\"TRF42\",\"status\":\"completed\",\"echo\":" + body + "}");
         } else if (method.equals("PATCH") && path.equals("/transfers/TRF42")) {
             json(ex, 200, "{\"success\":true,\"transferId\":\"TRF42\"}");
+        } else if (path.equals("/session/open")) {
+            ex.getResponseHeaders().add("Set-Cookie", "SID=secret-session-777; Path=/; HttpOnly");
+            json(ex, 200, "{\"ok\":true}");
+        } else if (path.equals("/session/page")) {
+            String cookie = ex.getRequestHeaders().getFirst("Cookie");
+            json(ex, cookie != null && cookie.contains("SID=secret-session-777") ? 200 : 401, "{}");
+        } else if (path.equals("/html/login")) {
+            byte[] html = ("<html><body><form><input type=\"hidden\" name=\"csrf_token\" value=\"csrf-html-555\">"
+                    + "<input type=\"hidden\" name=\"step\" value=\"1\"><input type=\"hidden\" name=\"lang\" value=\"fr\"></form>"
+                    + "<div id=\"compte\" data-account-id=\"ACC007\"></div></body></html>").getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+            ex.sendResponseHeaders(200, html.length);
+            ex.getResponseBody().write(html);
+            ex.close();
+        } else if (method.equals("POST") && path.equals("/html/submit")) {
+            json(ex, body.contains("csrf=csrf-html-555") ? 200 : 403, "{}");
+        } else if (path.equals("/form")) {
+            // Page HTML (corps non JSON) : valeurs uniquement dans les en-tetes.
+            ex.getResponseHeaders().add("X-Request-Id", "req-777");
+            ex.getResponseHeaders().add("X-CSRF-Token", "csrf-xyz");
+            ex.getResponseHeaders().add("Set-Cookie", "SESSIONID=sess-42; Path=/; HttpOnly");
+            byte[] html = "<html>formulaire</html>".getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "text/html");
+            ex.sendResponseHeaders(200, html.length);
+            ex.getResponseBody().write(html);
+            ex.close();
         } else if (path.equals("/big")) {
             byte[] big = "a".repeat(200 * 1024).getBytes(StandardCharsets.UTF_8);
             ex.getResponseHeaders().add("Content-Type", "text/plain");
@@ -236,6 +262,104 @@ class StepTestRunnerTest {
         assertThat(hits).isEmpty();
     }
 
+    private static StepExecutionSpec headerCapture(String name, String url, String captureName, String headerSpec) {
+        return new StepExecutionSpec(UUID.randomUUID(), name, HttpMethod.GET, url, null, null, 200, null, null, null, null,
+                captureName, headerSpec, null, null, com.loadpilot.backend.enums.CaptureSource.HEADER);
+    }
+
+    @Test
+    void sessionCookie_isSentAutomaticallyToTheNextStep_andNeverShownInClear() throws Exception {
+        TestRunResponse result = runner(60).run(plan(ApplicationAuthSpec.none(), Map.of(),
+                step("Ouvrir la session", HttpMethod.GET, "/session/open", null, null, 200, null, null, null, null),
+                step("Page protégée", HttpMethod.GET, "/session/page", "{\"Cookie\":\"lang=fr\"}", null, 200, null, null, null, null)),
+                StepTestRunner.Listener.NONE);
+
+        assertThat(result.success()).isTrue();
+        // Set-Cookie de la reponse et en-tete Cookie de l'etape masques ; la valeur de session n'apparait nulle part.
+        assertThat(result.steps().get(0).response().headers().get("set-cookie")).isEqualTo(TestRunMasking.MASK);
+        assertThat(result.steps().get(1).request().headers().get("Cookie")).isEqualTo(TestRunMasking.MASK);
+        assertThat(MAPPER.writeValueAsString(result)).doesNotContain("secret-session-777");
+    }
+
+    private static StepExecutionSpec htmlCapture(String name, String url, String captureName, String spec) {
+        return new StepExecutionSpec(UUID.randomUUID(), name, HttpMethod.GET, url, null, null, 200, null, null, null, null,
+                captureName, spec, null, null, com.loadpilot.backend.enums.CaptureSource.HTML);
+    }
+
+    @Test
+    void htmlCapture_csrfToken_isReusedByTheNextStep_andMaskedInTheResult() throws Exception {
+        TestRunResponse result = runner(60).run(plan(ApplicationAuthSpec.none(), Map.of(),
+                htmlCapture("Formulaire", "/html/login", "csrf", "input[name=csrf_token]::attr(value)"),
+                step("Envoyer", HttpMethod.POST, "/html/submit", "{\"Content-Type\":\"application/x-www-form-urlencoded\"}",
+                        "csrf=${csrf}&user=agent", 200, null, null, null, null)), StepTestRunner.Listener.NONE);
+
+        assertThat(result.success()).isTrue();
+        var capture = result.steps().get(0).checks().capture();
+        assertThat(capture.found()).isTrue();
+        assertThat(capture.masked()).isTrue();
+        assertThat(capture.value()).isEqualTo(TestRunMasking.MASK);
+        // Jeton reutilise dans le corps de l'etape suivante, jamais affiche en clair.
+        assertThat(MAPPER.writeValueAsString(result.steps())).doesNotContain("csrf-html-555");
+    }
+
+    @Test
+    void htmlCapture_ambiguousSelector_usesTheFirstElement_withAWarning() {
+        TestRunResponse result = runner(60).run(plan(ApplicationAuthSpec.none(), Map.of(),
+                htmlCapture("Formulaire", "/html/login", "hidden", "input[type=hidden]::attr(value)")), StepTestRunner.Listener.NONE);
+
+        StepResult step = result.steps().get(0);
+        assertThat(step.checks().capture().found()).isTrue();
+        assertThat(step.warnings()).contains(
+                "3 éléments correspondent à « input[type=hidden] » : le premier de la page est utilisé. Précisez le sélecteur si ce n'est pas le bon.");
+    }
+
+    @Test
+    void htmlCapture_absentElement_andAbsentAttribute_areReportedClearly() {
+        TestRunResponse result = runner(60).run(plan(ApplicationAuthSpec.none(), Map.of(),
+                htmlCapture("Absent", "/html/login", "x", "input[name=xsrf]::attr(value)"),
+                htmlCapture("Sans attribut", "/html/login", "y", "#compte::attr(data-client-id)")), StepTestRunner.Listener.NONE);
+
+        assertThat(result.steps().get(0).checks().capture().message())
+                .isEqualTo("Introuvable : aucun élément ne correspond à « input[name=xsrf] » dans la réponse.");
+        assertThat(result.steps().get(1).checks().capture().message())
+                .isEqualTo("Introuvable : l'élément « div id=compte » n'a pas d'attribut « data-client-id ».");
+    }
+
+    @Test
+    void headerCapture_caseInsensitive_onANonJsonResponse() {
+        TestRunResponse result = runner(60).run(plan(ApplicationAuthSpec.none(), Map.of(),
+                headerCapture("Formulaire", "/form", "requestId", "x-request-id")), StepTestRunner.Listener.NONE);
+
+        var capture = result.steps().get(0).checks().capture();
+        assertThat(capture.found()).isTrue();
+        assertThat(capture.value()).isEqualTo("req-777");
+        assertThat(capture.message()).isEqualTo("Variable ${requestId} capturée.");
+        assertThat(result.variables()).containsEntry("requestId", "req-777");
+    }
+
+    @Test
+    void headerCapture_sessionCookieAndCsrfToken_areMaskedInTheResult() {
+        TestRunResponse result = runner(60).run(plan(ApplicationAuthSpec.none(), Map.of(),
+                headerCapture("Session", "/form", "sid", "Set-Cookie:SESSIONID"),
+                headerCapture("Jeton", "/form", "csrf", "X-CSRF-Token")), StepTestRunner.Listener.NONE);
+
+        assertThat(result.steps()).allSatisfy(s -> {
+            assertThat(s.checks().capture().found()).isTrue();
+            assertThat(s.checks().capture().masked()).isTrue();
+            assertThat(s.checks().capture().value()).isEqualTo(TestRunMasking.MASK);
+        });
+    }
+
+    @Test
+    void headerCapture_absentHeader_isReportedClearly() {
+        TestRunResponse result = runner(60).run(plan(ApplicationAuthSpec.none(), Map.of(),
+                headerCapture("Formulaire", "/form", "csrf", "X-XSRF-Token")), StepTestRunner.Listener.NONE);
+
+        var capture = result.steps().get(0).checks().capture();
+        assertThat(capture.found()).isFalse();
+        assertThat(capture.message()).isEqualTo("Introuvable : en-tête « X-XSRF-Token » absent de la réponse.");
+    }
+
     @Test
     void captureNotFound_isReportedWithPath() {
         TestRunResponse result = runner(60).run(plan(loginAuth(LOGIN_PASSWORD), Map.of(),
@@ -244,7 +368,7 @@ class StepTestRunnerTest {
 
         var capture = result.steps().get(0).checks().capture();
         assertThat(capture.found()).isFalse();
-        assertThat(capture.message()).isEqualTo("Introuvable à $.data.id.");
+        assertThat(capture.message()).isEqualTo("Introuvable à $.data.id : aucun champ « data » à la racine.");
     }
 
     @Test

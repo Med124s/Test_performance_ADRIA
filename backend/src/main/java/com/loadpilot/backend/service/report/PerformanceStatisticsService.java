@@ -124,7 +124,7 @@ public class PerformanceStatisticsService {
                 .collect(Collectors.toList());
     }
 
-    /** Meme formule que MetricGenerationService.computeErrorRate (voir sa
+    /** Meme formule que PerformanceAggregates.errorRate (voir sa
      * Javadoc) : count/total * 100, null si total == 0 (jamais de division
      * par zero, jamais un taux invente sur une execution vide). */
     private BigDecimal rate(int count, int total) {
@@ -137,7 +137,7 @@ public class PerformanceStatisticsService {
     }
 
     /** P1-C — delegue a ThroughputCalculator (voir sa Javadoc) : meme
-     * formule exacte que MetricGenerationService, desormais partagee au
+     * formule exacte que PerformanceAggregates, desormais partagee au
      * lieu de dupliquee. */
     private BigDecimal throughput(int total, Long durationMs) {
         return ThroughputCalculator.compute(total, durationMs);

@@ -35,6 +35,7 @@ public class ExecutionStatsService {
     private final PerformanceStatisticsService statisticsService;
     private final ObjectMapper objectMapper;
     private final jakarta.persistence.EntityManager entityManager;
+    private final ResultLoadGuard resultLoadGuard;
 
     /** P95 d'une etape dans le resume enregistre. */
     public record StepStat(String name, String method, Long p95, int total, Integer failed) {
@@ -46,7 +47,16 @@ public class ExecutionStatsService {
         Execution execution = executionRepository.findById(executionId).orElse(null);
         if (execution == null || execution.getStatus() == null || execution.getStatus().isActive()
                 || execution.getResultsPurgedAt() != null) return;
-        List<ExecutionStepResult> results = resultRepository.findByExecutionIdOrderByTimestampAsc(executionId);
+        // Chargement complet admis seulement s'il tient dans le budget memoire (resultats ecrits pendant
+        // le test, sans limite de taille) ; sinon ResultSetTooLargeException, journalisee par l'appelant.
+        try (ResultLoadGuard.Reservation r = resultLoadGuard.reserve(ResultLoadGuard.Load.REPORT,
+                resultRepository.countAllByExecutionId(executionId))) {
+            compute(execution, resultRepository.findByExecutionIdOrderByTimestampAsc(executionId));
+        }
+    }
+
+    private void compute(Execution execution, List<ExecutionStepResult> results) {
+        UUID executionId = execution.getId();
         long pausedMs = ExecutionServiceImpl.pausedDurationMs(execution, Instant.now());
         Long activeDurationMs = execution.getDuration() != null ? Math.max(0L, execution.getDuration() - pausedMs) : null;
         ExecutionStatistics stats = statisticsService.computeOverallStatistics(results, activeDurationMs);

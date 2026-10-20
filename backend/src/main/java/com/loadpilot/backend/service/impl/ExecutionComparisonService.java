@@ -41,6 +41,7 @@ public class ExecutionComparisonService {
     private final ExecutionStepResultRepository resultRepository;
     private final PerformanceStatisticsService statisticsService;
     private final ReportSnapshots reportSnapshots;
+    private final ResultLoadGuard resultLoadGuard;
 
     @Transactional(readOnly = true)
     public ExecutionComparisonResponse compare(List<UUID> ids) {
@@ -59,6 +60,19 @@ public class ExecutionComparisonService {
             executions.add(e);
         }
         executions.sort(Comparator.comparing(Execution::getStartedAt));
+
+        // Resultats de chaque execution comparee (sauf rapport fige) charges et gardes jusqu'a la fin :
+        // memoire reservee pour leur somme (voir ResultLoadGuard).
+        long results = 0;
+        for (Execution e : executions) {
+            if (!ReportSnapshots.purged(e)) results += resultRepository.countAllByExecutionId(e.getId());
+        }
+        try (ResultLoadGuard.Reservation r = resultLoadGuard.reserve(ResultLoadGuard.Load.COMPARE, results)) {
+            return compareLoaded(executions);
+        }
+    }
+
+    private ExecutionComparisonResponse compareLoaded(List<Execution> executions) {
 
         List<Column> columns = new ArrayList<>();
         Map<String, Long[]> stepP95 = new LinkedHashMap<>();

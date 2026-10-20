@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { BackendMonitoringResponse, BackendMonitoringTestResponse, BackendMonitoringType } from '../../types/backendContracts'
+import { BackendMonitoringResponse, BackendMonitoringTestResponse, BackendMonitoringType, BackendNetworkRequest } from '../../types/backendContracts'
 import { applicationsBackendApi } from '../../services/api/applicationsBackend'
 import { ApiError } from '../../services/api/httpClient'
 import {
   MONITORING_SCOPE_TEXT, MONITORING_TYPE_LABELS, MonitoringErrors, MonitoringForm, formatCpu, formatRam,
   monitoringFormToRequest, suggestedMonitoringUrl,
 } from './monitoringModel'
+import InfoTip from '../InfoTip'
 import '../application-auth/applicationAuth.css'
 
 // ============================================================
@@ -13,10 +14,10 @@ import '../application-auth/applicationAuth.css'
 // type, URL, authentification, intervalle, « Tester le monitoring ».
 // ============================================================
 
-const TYPES: { type: BackendMonitoringType; icon: string; hint: string }[] = [
-  { type: 'NONE', icon: 'bi-slash-circle', hint: 'Aucune mesure CPU / RAM pendant les exécutions.' },
-  { type: 'PROMETHEUS', icon: 'bi-fire', hint: 'Endpoint Prometheus (ex : /metrics) : métriques standards process_cpu_seconds_total et process_resident_memory_bytes.' },
-  { type: 'ACTUATOR', icon: 'bi-flower1', hint: 'URL de base Actuator (ex : /actuator) : process.cpu.usage et jvm.memory.used.' },
+const TYPES: { type: BackendMonitoringType; hint: string }[] = [
+  { type: 'NONE', hint: 'Aucune mesure CPU / RAM.' },
+  { type: 'PROMETHEUS', hint: 'Endpoint Prometheus, ex : /metrics.' },
+  { type: 'ACTUATOR', hint: 'URL de base Actuator, ex : /actuator.' },
 ]
 
 interface Props {
@@ -27,9 +28,11 @@ interface Props {
   existing?: BackendMonitoringResponse | null
   appUrl: string
   applicationId?: string
+  /** Proxy saisi dans le formulaire (utilisé par « Tester le monitoring », sauf « sans proxy »). */
+  network?: BackendNetworkRequest
 }
 
-export default function MonitoringFields({ value, onChange, errors, showErrors, existing, appUrl, applicationId }: Props) {
+export default function MonitoringFields({ value, onChange, errors, showErrors, existing, appUrl, applicationId, network }: Props) {
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<BackendMonitoringTestResponse | null>(null)
   const set = (patch: Partial<MonitoringForm>) => {
@@ -50,7 +53,7 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
     setTesting(true)
     setResult(null)
     try {
-      setResult(await applicationsBackendApi.testMonitoring(monitoringFormToRequest(value), applicationId))
+      setResult(await applicationsBackendApi.testMonitoring(monitoringFormToRequest(value), applicationId, network))
     } catch (e) {
       setResult({ success: false, message: e instanceof ApiError ? e.message : 'Test du monitoring impossible.', cpuPercent: null, memoryMb: null, memoryMetric: null })
     } finally {
@@ -60,12 +63,11 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
 
   return (
     <div className="aa-root">
-      <div className="aa-types" role="radiogroup" aria-label="Type de monitoring">
+      <div className="aa-segmented" role="radiogroup" aria-label="Type de monitoring">
         {TYPES.map((t) => (
           <button key={t.type} type="button" role="radio" aria-checked={value.type === t.type}
-            className={`aa-type ${value.type === t.type ? 'active' : ''}`} onClick={() => chooseType(t.type)}>
-            <i className={`bi ${t.icon}`}></i>
-            <span>{MONITORING_TYPE_LABELS[t.type]}</span>
+            className={value.type === t.type ? 'active' : ''} onClick={() => chooseType(t.type)}>
+            {MONITORING_TYPE_LABELS[t.type]}
           </button>
         ))}
       </div>
@@ -75,7 +77,10 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
         <div className="aa-fields">
           <div className="aa-row">
             <div className="aa-grow">
-              <label className="aa-label" htmlFor="mon-url">URL du monitoring *</label>
+              <label className="aa-label" htmlFor="mon-url">
+                URL du monitoring *
+                <InfoTip text={`${MONITORING_SCOPE_TEXT} Si le monitoring ne répond pas, l’exécution continue normalement.`} />
+              </label>
               <input id="mon-url" className={`pt-form-control aa-mono ${err('url') ? 'is-invalid' : ''}`} value={value.url}
                 placeholder={suggestedMonitoringUrl(value.type, appUrl || 'http://localhost:8888')} onChange={(e) => set({ url: e.target.value })} />
               {err('url') && <div className="aa-error">{err('url')}</div>}
@@ -89,6 +94,15 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
               </div>
               {err('intervalSeconds') && <div className="aa-error">{err('intervalSeconds')}</div>}
             </div>
+          </div>
+
+          <div className="form-check mb-2">
+            <input className="form-check-input" type="checkbox" id="mon-without-proxy" checked={value.withoutProxy}
+              onChange={(e) => set({ withoutProxy: e.target.checked })} />
+            <label className="form-check-label" htmlFor="mon-without-proxy" style={{ fontSize: '13px' }}>
+              Monitoring sans proxy
+            </label>
+            <InfoTip text="Lecture en direct, sans le proxy de l’application : utile si l’URL de monitoring est interne." />
           </div>
 
           <label className="aa-label">Authentification du monitoring</label>
@@ -129,7 +143,6 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
             )}
           </div>
           {result?.success && <div className="aa-hint mb-0">{result.message}</div>}
-          <div className="aa-hint mb-0"><i className="bi bi-info-circle me-1"></i>{MONITORING_SCOPE_TEXT} Si le monitoring ne répond pas, l’exécution continue normalement.</div>
         </div>
       )}
     </div>

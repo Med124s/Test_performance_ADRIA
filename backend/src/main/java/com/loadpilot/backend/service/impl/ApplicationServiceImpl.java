@@ -65,6 +65,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private final DeletionServiceImpl deletionService;
     private final com.loadpilot.backend.service.monitoring.MonitoringSupport monitoringSupport;
     private final com.loadpilot.backend.service.monitoring.ResourceMonitor resourceMonitor;
+    private final com.loadpilot.backend.service.http.NetworkSupport networkSupport;
 
     @Value("${app.availability.timeout-seconds:5}")
     private long timeoutSeconds;
@@ -79,6 +80,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             application.setCreatedBy(createdBy);
             authSupport.apply(request.auth(), application, true);
             monitoringSupport.apply(request.monitoring(), application);
+            networkSupport.apply(request.network(), application);
             // Aucun test n'a encore ete lance pour cette application : pas de
             // statut invente (voir ApplicationStatus).
 
@@ -163,6 +165,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             applicationMapper.updateEntityFromRequest(request, application);
             authSupport.apply(request.auth(), application, false);
             monitoringSupport.apply(request.monitoring(), application);
+            networkSupport.apply(request.network(), application);
             // Toute modification (URL, authentification...) invalide le
             // resultat du dernier test : il sera remplace par le prochain.
             application.setStatus(null);
@@ -201,7 +204,15 @@ public class ApplicationServiceImpl implements ApplicationService {
     public com.loadpilot.backend.dto.response.MonitoringTestResponse testMonitoring(
             com.loadpilot.backend.dto.request.MonitoringTestRequest request) {
         Application existing = request.applicationId() == null ? null : findOrThrow(request.applicationId());
-        return resourceMonitor.test(monitoringSupport.toConfig(request.monitoring(), existing));
+        // Proxy : saisie du formulaire (mot de passe conserve si vide), sinon celui de l'application
+        // enregistree, sinon le proxy global ; « Monitoring sans proxy » coche : en direct.
+        com.loadpilot.backend.service.http.NetworkProfile network = request.network() != null
+                ? networkSupport.toProfile(request.network(), existing)
+                : com.loadpilot.backend.service.http.NetworkProfile.of(existing);
+        Boolean withoutProxy = request.monitoring().withoutProxy() != null ? request.monitoring().withoutProxy()
+                : existing != null ? existing.getMonitoringWithoutProxy() : null;
+        if (Boolean.TRUE.equals(withoutProxy)) network = network.withoutProxy();
+        return resourceMonitor.test(monitoringSupport.toConfig(request.monitoring(), existing).withNetwork(network));
     }
 
     @Override
@@ -220,6 +231,12 @@ public class ApplicationServiceImpl implements ApplicationService {
             // ApplicationAuthenticator).
             ApplicationAuthSpec spec = authSupport.toSpec(application);
             Duration timeout = Duration.ofSeconds(timeoutSeconds);
+            // Proxy propre a l'application : verifie d'abord lui-meme (connexion directe sur son hote et
+            // son port), pour qu'un echec designe le proxy et non l'application.
+            String proxyUnreachable = com.loadpilot.backend.service.http.NetworkProfile.of(application).proxyUnreachable();
+            if (proxyUnreachable != null) {
+                return finishTest(application, new CheckOutcome(ApplicationStatus.ERROR, proxyUnreachable, noResponse(proxyUnreachable)));
+            }
             CheckOutcome outcome = switch (spec.type()) {
                 case LOGIN_TOKEN -> verifyLogin(application);
                 case BEARER_TOKEN, API_KEY, BASIC -> verifyCredentials(application, spec, timeout);
@@ -244,7 +261,8 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     /** Aucune : GET sur l'URL de l'application -> 2xx/3xx CONNECTED. */
     private CheckOutcome checkPublicUrl(Application application, Duration timeout) {
-        HttpAvailabilityResult result = availabilityChecker.check(application.getUrl(), timeout);
+        HttpAvailabilityResult result = availabilityChecker.check(application.getUrl(), timeout,
+                com.loadpilot.backend.service.http.NetworkProfile.of(application));
         Integer code = result.httpStatus();
         if (!result.success()) {
             return new CheckOutcome(ApplicationStatus.ERROR, "Application injoignable : " + result.errorMessage() + ".", result);
@@ -272,7 +290,6 @@ public class ApplicationServiceImpl implements ApplicationService {
             return new CheckOutcome(ApplicationStatus.CONNECTED, "Authentification réussie (token obtenu).",
                     new HttpAvailabilityResult(true, 200, elapsed, null));
         } catch (ApplicationAuthenticationException e) {
-            String path = authSupport.toSpec(application).config().tokenJsonPath();
             Integer code = e.httpStatus();
             HttpAvailabilityResult result = new HttpAvailabilityResult(code != null, code,
                     Duration.ofNanos(System.nanoTime() - startedAt).toMillis(), e.getMessage());
@@ -281,7 +298,10 @@ public class ApplicationServiceImpl implements ApplicationService {
                         ? new CheckOutcome(ApplicationStatus.FAILED, "Identifiants refusés (" + code + ").", result)
                         : new CheckOutcome(ApplicationStatus.FAILED,
                                 "L'endpoint de connexion a répondu avec une erreur (HTTP " + code + ") : vérifiez le chemin.", result);
-                case TOKEN_NOT_FOUND -> new CheckOutcome(ApplicationStatus.FAILED, "Token introuvable à " + path + ".", result);
+                // Message du moteur (« token introuvable à <chemin>[ : raison] » ou, jeton lu dans un
+                // en-tete, « token introuvable : en-tête « X » absent de la réponse »), avec une majuscule.
+                case TOKEN_NOT_FOUND -> new CheckOutcome(ApplicationStatus.FAILED,
+                        "T" + e.getMessage().substring(1) + ".", result);
                 case INVALID_RESPONSE -> new CheckOutcome(ApplicationStatus.FAILED,
                         "Réponse de connexion inexploitable : " + e.getMessage() + ".", result);
                 case UNREACHABLE -> new CheckOutcome(ApplicationStatus.ERROR,
@@ -318,7 +338,8 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
         String verifyUrl = UrlResolver.resolve(application.getUrl(), path);
 
-        HttpAvailabilityResult anonymous = availabilityChecker.check(verifyUrl, timeout);
+        com.loadpilot.backend.service.http.NetworkProfile network = com.loadpilot.backend.service.http.NetworkProfile.of(application);
+        HttpAvailabilityResult anonymous = availabilityChecker.check(verifyUrl, timeout, network);
         if (!anonymous.success()) {
             return new CheckOutcome(ApplicationStatus.ERROR,
                     "Endpoint de vérification injoignable : " + anonymous.errorMessage() + ".", anonymous);
@@ -335,7 +356,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
 
         ResolvedAuth auth = authSupport.resolve(application, timeoutSeconds);
-        HttpAvailabilityResult authenticated = availabilityChecker.check(auth.applyToUrl(verifyUrl), auth.headers(), timeout);
+        HttpAvailabilityResult authenticated = availabilityChecker.check(auth.applyToUrl(verifyUrl), auth.headers(), timeout, network);
         Integer code = authenticated.httpStatus();
         if (!authenticated.success()) {
             return new CheckOutcome(ApplicationStatus.ERROR,
@@ -365,7 +386,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .description("Test de connexion : " + switch (outcome.status()) {
                     case CONNECTED -> "application joignable";
                     case FAILED -> "authentification refusée";
-                    case ERROR -> "application injoignable";
+                    case ERROR -> message.startsWith("Proxy injoignable") ? "proxy injoignable" : "application injoignable";
                 }));
         return new ApplicationTestResponse(outcome.status(), outcome.result().httpStatus(),
                 outcome.result().responseTimeMs(), message);

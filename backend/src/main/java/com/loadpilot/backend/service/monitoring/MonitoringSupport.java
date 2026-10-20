@@ -22,6 +22,8 @@ public class MonitoringSupport {
     /** Applique la configuration (null = inchangee). Secret vide = secret deja enregistre conserve (meme authentification). */
     public void apply(ApplicationMonitoringRequest request, Application application) {
         if (request == null) return;
+        // « Monitoring sans proxy » : null = inchange (reglage garde meme si le monitoring est desactive).
+        if (request.withoutProxy() != null) application.setMonitoringWithoutProxy(request.withoutProxy());
         MonitoringType type = request.type() == null ? MonitoringType.NONE : request.type();
         if (type == MonitoringType.NONE) {
             application.setMonitoringType(MonitoringType.NONE);
@@ -76,7 +78,8 @@ public class MonitoringSupport {
     public MonitoringConfig toConfig(Application application) {
         return new MonitoringConfig(application.getMonitoringType(), application.getMonitoringUrl(), application.getMonitoringAuthType(),
                 application.getMonitoringHeaderName(), application.getMonitoringSecret(),
-                application.getMonitoringIntervalSeconds() <= 0 ? DEFAULT_INTERVAL_SECONDS : application.getMonitoringIntervalSeconds());
+                application.getMonitoringIntervalSeconds() <= 0 ? DEFAULT_INTERVAL_SECONDS : application.getMonitoringIntervalSeconds(),
+                com.loadpilot.backend.service.http.NetworkProfile.forMonitoring(application));
     }
 
     @Named("applicationMonitoringResponse")
@@ -87,7 +90,8 @@ public class MonitoringSupport {
                 application.getMonitoringAuthType() == null ? MonitoringAuthType.NONE : application.getMonitoringAuthType(),
                 application.getMonitoringHeaderName(),
                 application.getMonitoringSecret() != null && !application.getMonitoringSecret().isBlank(),
-                application.getMonitoringIntervalSeconds() <= 0 ? DEFAULT_INTERVAL_SECONDS : application.getMonitoringIntervalSeconds());
+                application.getMonitoringIntervalSeconds() <= 0 ? DEFAULT_INTERVAL_SECONDS : application.getMonitoringIntervalSeconds(),
+                Boolean.TRUE.equals(application.getMonitoringWithoutProxy()));
     }
 
     private static int interval(Integer seconds) {

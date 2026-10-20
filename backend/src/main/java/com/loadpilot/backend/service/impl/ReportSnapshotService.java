@@ -1,5 +1,9 @@
 package com.loadpilot.backend.service.impl;
 
+import com.loadpilot.backend.enums.AuditAction;
+import com.loadpilot.backend.enums.AuditModule;
+import com.loadpilot.backend.enums.AuditResult;
+import com.loadpilot.backend.service.audit.AuditEvent;
 import com.loadpilot.backend.dto.response.ExecutionExtremesResponse;
 import com.loadpilot.backend.dto.response.ExecutionReportResponse;
 import com.loadpilot.backend.dto.response.ExecutionTimelineResponse;
@@ -45,6 +49,10 @@ public class ReportSnapshotService {
     private final ExecutionExtremesService extremesService;
     private final ReportSnapshots reportSnapshots;
     private final RunningExecutionRegistry registry;
+    private final com.loadpilot.backend.repository.ExecutionStepResultRepository resultRepository;
+    private final ResultLoadGuard resultLoadGuard;
+    private final com.loadpilot.backend.service.AuditLogService auditLogService;
+    private final com.loadpilot.backend.service.audit.AuditTargets auditTargets;
 
     @Value("${app.results.snapshot-backfill.enabled:true}")
     private boolean backfillEnabled;
@@ -96,21 +104,45 @@ public class ReportSnapshotService {
         if (reportSnapshots.exists(executionId)) return true;
         try {
             return capture(executionId);
-        } catch (RuntimeException e) {
-            log.warn("Rapport fige impossible pour l'execution {} : {}", executionId, e.getClass().getSimpleName());
+        } catch (Throwable e) {
+            // Throwable : un manque de memoire (purge de nuit, rattrapage) est journalise, jamais propage.
+            ExecutionServiceImpl.logBackgroundFailure("Rapport fige", executionId, e);
             return false;
         }
     }
 
-    /** Executions terminees sans rapport fige (detail encore present) : calcule une fois. */
+    /**
+     * Executions terminees sans rapport fige (detail encore present) : calcule une fois. Une
+     * execution trop volumineuse pour la memoire de ce serveur est sautee (journal et audit) : sans
+     * cela, son chargement serait retente - et refuse ou en manque de memoire - a chaque redemarrage.
+     */
     public int backfill() {
         int done = 0;
         for (UUID id : executionRepository.findFinishedIdsWithoutSnapshot()) {
             if (registry.get(id) != null) continue; // tache asynchrone pas encore terminee
+            long results = resultRepository.countAllByExecutionId(id);
+            if (!resultLoadGuard.fitsAlone(ResultLoadGuard.Load.REPORT, results)) {
+                skipTooLarge(id, results);
+                continue;
+            }
             if (ensure(id)) done++;
         }
         if (done > 0) log.info("Rapport fige calcule pour {} execution(s) existante(s)", done);
         return done;
+    }
+
+    private void skipTooLarge(UUID id, long results) {
+        String message = "Rapport figé non calculé au démarrage : exécution trop volumineuse pour la mémoire de ce serveur ("
+                + java.text.NumberFormat.getIntegerInstance(java.util.Locale.FRANCE).format(results) + " requêtes, limite "
+                + java.text.NumberFormat.getIntegerInstance(java.util.Locale.FRANCE).format(resultLoadGuard.maxResults(ResultLoadGuard.Load.REPORT))
+                + "). Augmentez LOADPILOT_JVM_MAX_MEMORY pour le calculer.";
+        log.warn("Execution {} : {}", id, message);
+        try {
+            auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.VIEW_REPORT, AuditModule.EXECUTION), id)
+                    .system("Rapport figé").result(AuditResult.FAILURE).description(message));
+        } catch (RuntimeException e) {
+            log.warn("Audit du rapport fige non enregistre pour l'execution {} : {}", id, e.getClass().getSimpleName());
+        }
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -119,8 +151,9 @@ public class ReportSnapshotService {
         Thread thread = new Thread(() -> {
             try {
                 backfill();
-            } catch (RuntimeException e) {
-                log.warn("Rattrapage des rapports figes interrompu : {}", e.getClass().getSimpleName());
+            } catch (Throwable e) {
+                // Throwable : un manque de memoire de ce thread est journalise au lieu de disparaitre.
+                log.error("Rattrapage des rapports figes interrompu : {}", e.getClass().getSimpleName());
             }
         }, "report-snapshot-backfill");
         thread.setDaemon(true);

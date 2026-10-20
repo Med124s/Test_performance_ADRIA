@@ -74,7 +74,7 @@ class ApplicationControllerTest {
     void defaultAvailabilityStub() {
         // Comportement par defaut (reponse HTTP 200) pour les tests qui ne
         // s'interessent qu'a l'autorisation, pas au resultat du test lui-meme.
-        when(availabilityChecker.check(anyString(), any(Duration.class)))
+        when(availabilityChecker.check(anyString(), any(Duration.class), any()))
                 .thenReturn(new HttpAvailabilityResult(true, 200, 42L, null));
     }
 
@@ -268,7 +268,7 @@ class ApplicationControllerTest {
     @Test
     void testAvailability_reachableTarget_setsConnectedStatus() throws Exception {
         String id = createApplicationAndGetId("connected-app");
-        when(availabilityChecker.check(anyString(), any(Duration.class)))
+        when(availabilityChecker.check(anyString(), any(Duration.class), any()))
                 .thenReturn(new HttpAvailabilityResult(true, 200, 15L, null));
 
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
@@ -283,7 +283,7 @@ class ApplicationControllerTest {
     @Test
     void testAvailability_httpErrorResponse_setsFailedStatus() throws Exception {
         String id = createApplicationAndGetId("failed-app");
-        when(availabilityChecker.check(anyString(), any(Duration.class)))
+        when(availabilityChecker.check(anyString(), any(Duration.class), any()))
                 .thenReturn(new HttpAvailabilityResult(true, 500, 20L, null));
 
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
@@ -295,7 +295,7 @@ class ApplicationControllerTest {
     @Test
     void testAvailability_technicalFailure_setsErrorStatus() throws Exception {
         String id = createApplicationAndGetId("error-app");
-        when(availabilityChecker.check(anyString(), any(Duration.class)))
+        when(availabilityChecker.check(anyString(), any(Duration.class), any()))
                 .thenReturn(new HttpAvailabilityResult(false, null, 5000L, "Connection refused"));
 
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
@@ -339,7 +339,7 @@ class ApplicationControllerTest {
     @Test
     void testAvailability_401_setsFailedWithAuthenticationRefusedMessage() throws Exception {
         String id = createApplicationAndGetId("unauthorized-app");
-        when(availabilityChecker.check(anyString(), any(Duration.class)))
+        when(availabilityChecker.check(anyString(), any(Duration.class), any()))
                 .thenReturn(new HttpAvailabilityResult(true, 401, 10L, null));
 
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
@@ -350,7 +350,7 @@ class ApplicationControllerTest {
     @Test
     void testAvailability_networkError_setsErrorWithReadableMessage() throws Exception {
         String id = createApplicationAndGetId("dns-app");
-        when(availabilityChecker.check(anyString(), any(Duration.class)))
+        when(availabilityChecker.check(anyString(), any(Duration.class), any()))
                 .thenReturn(new HttpAvailabilityResult(false, null, 3L, "hôte introuvable (DNS)"));
 
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
@@ -361,7 +361,7 @@ class ApplicationControllerTest {
     @Test
     void update_resetsPreviousTestResult_untilRetested() throws Exception {
         String id = createApplicationAndGetId("fix-me");
-        when(availabilityChecker.check(anyString(), any(Duration.class)))
+        when(availabilityChecker.check(anyString(), any(Duration.class), any()))
                 .thenReturn(new HttpAvailabilityResult(true, 404, 5L, null));
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
                 .andExpect(jsonPath("$.status").value("FAILED"));
@@ -372,7 +372,7 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.status").value(nullValue()))
                 .andExpect(jsonPath("$.statusMessage").value(nullValue()));
 
-        when(availabilityChecker.check(anyString(), any(Duration.class)))
+        when(availabilityChecker.check(anyString(), any(Duration.class), any()))
                 .thenReturn(new HttpAvailabilityResult(true, 200, 5L, null));
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
                 .andExpect(jsonPath("$.status").value("CONNECTED"));
@@ -388,7 +388,7 @@ class ApplicationControllerTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> headers = ArgumentCaptor.forClass(Map.class);
-        Mockito.verify(availabilityChecker).check(anyString(), headers.capture(), any(Duration.class));
+        Mockito.verify(availabilityChecker).check(anyString(), headers.capture(), any(Duration.class), any());
         assertThat(headers.getValue()).containsEntry("Authorization", "Bearer s3cret");
     }
 
@@ -402,7 +402,7 @@ class ApplicationControllerTest {
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN));
 
         ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(availabilityChecker).check(url.capture(), anyMap(), any(Duration.class));
+        Mockito.verify(availabilityChecker).check(url.capture(), anyMap(), any(Duration.class), any());
         assertThat(url.getValue()).isEqualTo("http://example.com/q/me?lang=fr&api_key=k-1");
     }
 
@@ -442,8 +442,8 @@ class ApplicationControllerTest {
             Map.of("type", "BEARER_TOKEN", "token", "s3cret", "verificationPath", "/api/account/balance");
 
     private void stubVerification(HttpAvailabilityResult anonymous, HttpAvailabilityResult authenticated) {
-        when(availabilityChecker.check(anyString(), any(Duration.class))).thenReturn(anonymous);
-        when(availabilityChecker.check(anyString(), anyMap(), any(Duration.class))).thenReturn(authenticated);
+        when(availabilityChecker.check(anyString(), any(Duration.class), any())).thenReturn(anonymous);
+        when(availabilityChecker.check(anyString(), anyMap(), any(Duration.class), any())).thenReturn(authenticated);
     }
 
     @Test
@@ -456,12 +456,12 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.message").value("Identifiants valides (HTTP 200)."));
 
         ArgumentCaptor<String> anonymousUrl = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(availabilityChecker).check(anonymousUrl.capture(), any(Duration.class));
+        Mockito.verify(availabilityChecker).check(anonymousUrl.capture(), any(Duration.class), any());
         assertThat(anonymousUrl.getValue()).isEqualTo("http://example.com/api/account/balance");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> headers = ArgumentCaptor.forClass(Map.class);
         ArgumentCaptor<String> authUrl = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(availabilityChecker).check(authUrl.capture(), headers.capture(), any(Duration.class));
+        Mockito.verify(availabilityChecker).check(authUrl.capture(), headers.capture(), any(Duration.class), any());
         assertThat(authUrl.getValue()).isEqualTo("http://example.com/api/account/balance");
         assertThat(headers.getValue()).containsEntry("Authorization", "Bearer s3cret");
     }
@@ -484,7 +484,7 @@ class ApplicationControllerTest {
         mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
                 .andExpect(jsonPath("$.status").value("FAILED"))
                 .andExpect(jsonPath("$.message").value("Endpoint non protégé : choisissez un endpoint qui exige l'authentification."));
-        Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), anyMap(), any(Duration.class));
+        Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), anyMap(), any(Duration.class), any());
     }
 
     @Test
@@ -575,10 +575,32 @@ class ApplicationControllerTest {
                     "loginBody", "{\"password\":\"good\"}", "tokenJsonPath", "$.token"));
             mockMvc.perform(post("/api/applications/" + noToken + "/test").with(AS_SUPER_ADMIN))
                     .andExpect(jsonPath("$.status").value("FAILED"))
-                    .andExpect(jsonPath("$.message").value("Token introuvable à $.token."));
+                    .andExpect(jsonPath("$.message").value("Token introuvable à $.token : aucun champ « token » à la racine."));
 
-            Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), any(Duration.class));
-            Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), anyMap(), any(Duration.class));
+            Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), any(Duration.class), any());
+            Mockito.verify(availabilityChecker, Mockito.never()).check(anyString(), anyMap(), any(Duration.class), any());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void loginToken_readFromResponseHeader_isStored_andAMissingHeaderIsExplainedByTester() throws Exception {
+        com.sun.net.httpserver.HttpServer server = startLoginServer();
+        try {
+            String base = "http://localhost:" + server.getAddress().getPort();
+            String id = createWithAuth("login-header", base, Map.of("type", "LOGIN_TOKEN", "loginPath", "/auth/login",
+                    "loginBody", "{\"password\":\"good\"}", "tokenJsonPath", "X-Auth-Token", "tokenSource", "HEADER"));
+
+            // Source enregistree dans la configuration (chiffree) et renvoyee par l'API.
+            mockMvc.perform(get("/api/applications/" + id).with(AS_SUPER_ADMIN))
+                    .andExpect(jsonPath("$.auth.tokenSource").value("HEADER"))
+                    .andExpect(jsonPath("$.auth.tokenJsonPath").value("X-Auth-Token"));
+
+            // Le serveur de connexion ne renvoie le jeton que dans le corps : en-tete absent.
+            mockMvc.perform(post("/api/applications/" + id + "/test").with(AS_SUPER_ADMIN))
+                    .andExpect(jsonPath("$.status").value("FAILED"))
+                    .andExpect(jsonPath("$.message").value("Token introuvable : en-tête « X-Auth-Token » absent de la réponse."));
         } finally {
             server.stop(0);
         }

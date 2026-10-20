@@ -44,6 +44,8 @@ public record ExecutionStatusResponse(
         /** Temps de travail reel (ms) : ecoule depuis le demarrage, pauses exclues ; null tant que non demarre. */
         Long activeElapsedMs,
         /** CPU / RAM de l'application testee ; null si aucun monitoring n'est configure. */
-        ExecutionResourcesResponse resources
+        ExecutionResourcesResponse resources,
+        /** LoadPilot lui-meme pendant le test (CPU, memoire, threads, saturation) ; null hors execution en cours. */
+        InjectorStatusResponse injector
 ) {
 }

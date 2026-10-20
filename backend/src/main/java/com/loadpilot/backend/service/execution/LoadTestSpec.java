@@ -20,8 +20,29 @@ public record LoadTestSpec(
         /** Master prompt final (Lot A) — debit cible optionnel (requetes/s,
          * approximatif, partage entre tous les VUs de l'Execution). null =
          * aucun pacing, comportement historique inchange. */
-        Integer targetRps
+        Integer targetRps,
+        /** Ralentissement sur 429 (voir ThrottlePolicy) ; null = defaut (actif). */
+        ThrottlePolicy throttle,
+        /** Variation aleatoire du think time (± %, scenario et etapes, voir ThinkTime) ; 0 = fixe, comme avant. */
+        int thinkTimeVariationPercent
 ) {
+    public LoadTestSpec {
+        if (throttle == null) throttle = ThrottlePolicy.DEFAULT;
+        thinkTimeVariationPercent = Math.max(0, Math.min(100, thinkTimeVariationPercent));
+    }
+
+    /** Compatibilite : think time fixe. */
+    public LoadTestSpec(int virtualUsers, int rampUpSeconds, Integer durationSeconds, Integer iterations, int thinkTimeMs,
+            Integer targetRps, ThrottlePolicy throttle) {
+        this(virtualUsers, rampUpSeconds, durationSeconds, iterations, thinkTimeMs, targetRps, throttle, 0);
+    }
+
+    /** Compatibilite : ralentissement sur 429 par defaut (actif). */
+    public LoadTestSpec(int virtualUsers, int rampUpSeconds, Integer durationSeconds, Integer iterations, int thinkTimeMs,
+            Integer targetRps) {
+        this(virtualUsers, rampUpSeconds, durationSeconds, iterations, thinkTimeMs, targetRps, ThrottlePolicy.DEFAULT);
+    }
+
     public static LoadTestSpec singlePass() {
         return new LoadTestSpec(1, 0, null, null, 0, null);
     }

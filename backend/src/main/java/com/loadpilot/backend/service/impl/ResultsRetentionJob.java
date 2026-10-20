@@ -60,8 +60,11 @@ public class ResultsRetentionJob {
     public void scheduledPurge() {
         try {
             purge(Instant.now());
-        } catch (RuntimeException e) {
-            log.warn("Purge des resultats detailles interrompue : {}", e.getClass().getSimpleName());
+        } catch (Throwable e) {
+            // Throwable : un manque de memoire (rapport fige d'une grosse execution calcule avant sa purge)
+            // est journalise en erreur ; la purge reprend a son prochain passage.
+            if (e instanceof Error) log.error("Purge des resultats detailles interrompue : {}", e.getClass().getSimpleName());
+            else log.warn("Purge des resultats detailles interrompue : {}", e.getClass().getSimpleName());
         }
     }
 

@@ -8,3 +8,9 @@ build/
 
 
 .history/
+
+# Certificats de l'application cible (magasins de confiance, certificats clients) : jamais dans Git.
+certs/
+*.p12
+*.pfx
+*.jks

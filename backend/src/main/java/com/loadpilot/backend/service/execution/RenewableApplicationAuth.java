@@ -40,6 +40,7 @@ public final class RenewableApplicationAuth {
     private final ApplicationAuthenticator authenticator;
     private final RequestDetailRecorder recorder;
     private final LongSupplier nanoClock;
+    private final com.loadpilot.backend.service.http.NetworkProfile network;
     private final ReentrantLock lock = new ReentrantLock();
 
     private volatile Current current;
@@ -49,17 +50,33 @@ public final class RenewableApplicationAuth {
 
     public RenewableApplicationAuth(ApplicationAuthSpec spec, ResolvedAuth initial, String applicationBaseUrl, long timeoutSeconds,
                                     ApplicationAuthenticator authenticator, RequestDetailRecorder recorder) {
-        this(spec, initial, applicationBaseUrl, timeoutSeconds, authenticator, recorder, System::nanoTime);
+        this(spec, initial, applicationBaseUrl, timeoutSeconds, authenticator, recorder,
+                com.loadpilot.backend.service.http.NetworkProfile.inherit());
+    }
+
+    /** "network" : proxy de l'application, utilise aussi pour se reconnecter (voir NetworkProfile). */
+    public RenewableApplicationAuth(ApplicationAuthSpec spec, ResolvedAuth initial, String applicationBaseUrl, long timeoutSeconds,
+                                    ApplicationAuthenticator authenticator, RequestDetailRecorder recorder,
+                                    com.loadpilot.backend.service.http.NetworkProfile network) {
+        this(spec, initial, applicationBaseUrl, timeoutSeconds, authenticator, recorder, System::nanoTime, network);
     }
 
     RenewableApplicationAuth(ApplicationAuthSpec spec, ResolvedAuth initial, String applicationBaseUrl, long timeoutSeconds,
                              ApplicationAuthenticator authenticator, RequestDetailRecorder recorder, LongSupplier nanoClock) {
+        this(spec, initial, applicationBaseUrl, timeoutSeconds, authenticator, recorder, nanoClock,
+                com.loadpilot.backend.service.http.NetworkProfile.inherit());
+    }
+
+    RenewableApplicationAuth(ApplicationAuthSpec spec, ResolvedAuth initial, String applicationBaseUrl, long timeoutSeconds,
+                             ApplicationAuthenticator authenticator, RequestDetailRecorder recorder, LongSupplier nanoClock,
+                             com.loadpilot.backend.service.http.NetworkProfile network) {
         this.spec = spec;
         this.applicationBaseUrl = applicationBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
         this.authenticator = authenticator;
         this.recorder = recorder;
         this.nanoClock = nanoClock;
+        this.network = network == null ? com.loadpilot.backend.service.http.NetworkProfile.inherit() : network;
         this.current = new Current(initial, 0);
     }
 
@@ -99,7 +116,7 @@ public final class RenewableApplicationAuth {
                 return null;
             }
             try {
-                ResolvedAuth fresh = authenticator.authenticate(spec, applicationBaseUrl, timeoutSeconds);
+                ResolvedAuth fresh = authenticator.authenticate(spec, applicationBaseUrl, timeoutSeconds, network);
                 Current next = new Current(fresh, now.generation() + 1);
                 current = next;
                 renewals++;

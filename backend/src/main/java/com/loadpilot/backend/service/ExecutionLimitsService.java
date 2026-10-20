@@ -105,8 +105,13 @@ public class ExecutionLimitsService {
     }
 
     public LoadLimits loadLimits() {
-        return new LoadLimits(maxVirtualUsersPerTest(), value(Limit.MAX_DURATION_SECONDS), value(Limit.MAX_ITERATIONS), value(Limit.MAX_TARGET_RPS));
+        return new LoadLimits(maxVirtualUsersPerTest(), value(Limit.MAX_DURATION_SECONDS), value(Limit.MAX_ITERATIONS), value(Limit.MAX_TARGET_RPS),
+                targetRpsAdvisedAboveVirtualUsers);
     }
+
+    /** Au-dela, un debit cible est fortement conseille (avertissement, voir LoadRules.warnings) ; 0 = desactive. */
+    @Value("${app.execution.target-rps-advised-above-virtual-users:" + LoadLimits.DEFAULT_TARGET_RPS_ADVISED_ABOVE_VIRTUAL_USERS + "}")
+    private int targetRpsAdvisedAboveVirtualUsers;
 
     public ExecutionLimitsResponse get() {
         List<ExecutionLimitsResponse.Limit> list = new ArrayList<>();

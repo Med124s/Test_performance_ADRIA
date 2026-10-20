@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Ecriture reelle d'un AuditLog dans SA PROPRE transaction (REQUIRES_NEW),
  * toujours suspendue independamment de la transaction metier appelante -
  * bean separe (meme raison que ExecutionTransactionHelper/
- * MetricGenerationService : un appel this.methode() depuis la meme classe
+ * ExecutionStatsService : un appel this.methode() depuis la meme classe
  * ne passe pas par le proxy Spring, @Transactional serait alors ignore).
  *
  * Cette classe elle-meme NE CAPTURE AUCUNE exception : c'est

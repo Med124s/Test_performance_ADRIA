@@ -6,7 +6,7 @@ import java.math.RoundingMode;
 /**
  * P1-C — extrait la formule de throughput (requetes reellement executees /
  * duree en secondes), jusqu'ici dupliquee a l'identique dans
- * MetricGenerationService ET PerformanceStatisticsService (chacune
+ * PerformanceAggregates ET PerformanceStatisticsService (chacune
  * documentant deja explicitement "meme formule que l'autre") - UNE seule
  * implementation reelle desormais, reutilisee aussi par ExecutionMapper
  * (voir MapperSupport#throughputOf) pour renseigner

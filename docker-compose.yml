@@ -128,6 +128,23 @@ services:
       # Origine du NAVIGATEUR (cote hote, voir frontend ci-dessous) - jamais
       # un nom de service Docker interne.
       FRONTEND_ORIGIN: http://localhost:3000
+      # Application cible (voir backend/start.sh et .env.example) : toutes optionnelles, vides par
+      # defaut = ignorees. Les chemins des certificats sont ceux VUS DANS LE CONTENEUR (voir le
+      # volume a decommenter ci-dessous). Vide = valeur par defaut de application.yml (10 s).
+      EXECUTION_TIMEOUT_SECONDS: ${EXECUTION_TIMEOUT_SECONDS:-}
+      LOADPILOT_JVM_MAX_MEMORY: ${LOADPILOT_JVM_MAX_MEMORY:-}
+      LOADPILOT_TLS_TRUSTSTORE_PATH: ${LOADPILOT_TLS_TRUSTSTORE_PATH:-}
+      LOADPILOT_TLS_TRUSTSTORE_PASSWORD: ${LOADPILOT_TLS_TRUSTSTORE_PASSWORD:-}
+      LOADPILOT_TLS_KEYSTORE_PATH: ${LOADPILOT_TLS_KEYSTORE_PATH:-}
+      LOADPILOT_TLS_KEYSTORE_PASSWORD: ${LOADPILOT_TLS_KEYSTORE_PASSWORD:-}
+      LOADPILOT_HTTPS_PROXY_HOST: ${LOADPILOT_HTTPS_PROXY_HOST:-}
+      LOADPILOT_HTTPS_PROXY_PORT: ${LOADPILOT_HTTPS_PROXY_PORT:-}
+      LOADPILOT_HTTPS_PROXY_USERNAME: ${LOADPILOT_HTTPS_PROXY_USERNAME:-}
+      LOADPILOT_HTTPS_PROXY_PASSWORD: ${LOADPILOT_HTTPS_PROXY_PASSWORD:-}
+    # Certificats de l'application cible : decommenter et placer les fichiers dans ./certs (dossier
+    # ignore par Git), puis renseigner par exemple LOADPILOT_TLS_TRUSTSTORE_PATH=/opt/loadpilot/certs/truststore.p12.
+    # volumes:
+    #   - ./certs:/opt/loadpilot/certs:ro
     ports:
       - "8080:8080"
 

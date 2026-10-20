@@ -99,8 +99,70 @@ public record ScenarioRequest(
 
         /** Seuil de reussite optionnel : P95 maximal (ms) ; null = inchange, 0 = aucun seuil de P95. */
         @Min(value = 0, message = "Le P95 maximal ne peut pas être négatif.")
-        Long maxP95Ms
+        Long maxP95Ms,
+
+        /** Frein automatique : taux d'erreurs (%) qui arrete le test en direct ; null = inchange, 0 = desactive. */
+        @jakarta.validation.constraints.DecimalMin(value = "0.0", message = "Le taux d'erreurs du frein automatique ne peut pas être négatif.")
+        @jakarta.validation.constraints.DecimalMax(value = "100.0", message = "Le taux d'erreurs du frein automatique ne peut pas dépasser 100 %.")
+        Double errorBrakeRatePercent,
+
+        /** Fenetre glissante du frein automatique (secondes) ; null = inchange (30 s par defaut). */
+        @Min(value = 5, message = "La fenêtre du frein automatique doit être d'au moins 5 secondes.")
+        @jakarta.validation.constraints.Max(value = 300, message = "La fenêtre du frein automatique ne doit pas dépasser 300 secondes.")
+        Integer errorBrakeWindowSeconds,
+
+        /** Ralentissement sur 429 Too Many Requests ; null = inchange (actif par defaut), false = desactive. */
+        Boolean throttleOn429,
+
+        /** Attente apres un 429 sans en-tete Retry-After (secondes) ; null = inchange (5 s par defaut). */
+        @Min(value = 1, message = "L'attente par défaut après un 429 doit être d'au moins 1 seconde.")
+        @Max(value = 300, message = "L'attente par défaut après un 429 ne doit pas dépasser 300 secondes.")
+        Integer throttleDefaultDelaySeconds,
+
+        /** Rejeux au plus d'une etape apres un 429 ; null = inchange (3 par defaut). */
+        @Min(value = 0, message = "Le nombre de rejeux après un 429 ne peut pas être négatif.")
+        @Max(value = 10, message = "Le nombre de rejeux après un 429 ne doit pas dépasser 10.")
+        Integer throttleMaxRetries,
+
+        /** Variation aleatoire du think time (± %, uniforme) ; null = inchange, 0 = think time fixe (defaut). */
+        @Min(value = 0, message = "La variation du think time ne peut pas être négative.")
+        @Max(value = 100, message = "La variation du think time ne doit pas dépasser 100 %.")
+        Integer thinkTimeVariationPercent
 ) {
+    /** Compatibilite : requete sans variation du think time (inchange). */
+    public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
+            Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
+            String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
+            String variables, CsvDistribution csvDistribution, com.loadpilot.backend.enums.RequestDetailMode requestDetailMode,
+            Double maxErrorRatePercent, Long maxP95Ms, Double errorBrakeRatePercent, Integer errorBrakeWindowSeconds,
+            Boolean throttleOn429, Integer throttleDefaultDelaySeconds, Integer throttleMaxRetries) {
+        this(applicationId, name, description, virtualUsers, rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData,
+                targetRps, draft, wizardStep, draftState, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms,
+                errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries, null);
+    }
+
+    /** Compatibilite : requete sans reglage du ralentissement sur 429 (inchange). */
+    public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
+            Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
+            String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
+            String variables, CsvDistribution csvDistribution, com.loadpilot.backend.enums.RequestDetailMode requestDetailMode,
+            Double maxErrorRatePercent, Long maxP95Ms, Double errorBrakeRatePercent, Integer errorBrakeWindowSeconds) {
+        this(applicationId, name, description, virtualUsers, rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData,
+                targetRps, draft, wizardStep, draftState, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms,
+                errorBrakeRatePercent, errorBrakeWindowSeconds, null, null, null, null);
+    }
+
+    /** Compatibilite : requete sans frein automatique (inchange). */
+    public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
+            Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
+            String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
+            String variables, CsvDistribution csvDistribution, com.loadpilot.backend.enums.RequestDetailMode requestDetailMode,
+            Double maxErrorRatePercent, Long maxP95Ms) {
+        this(applicationId, name, description, virtualUsers, rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData,
+                targetRps, draft, wizardStep, draftState, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms,
+                null, null);
+    }
+
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,

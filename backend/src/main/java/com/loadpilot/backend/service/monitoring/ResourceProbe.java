@@ -93,6 +93,9 @@ public class ResourceProbe {
             throw new MonitoringException("URL de monitoring invalide : " + url + ".");
         }
         config.authHeaders().forEach(builder::header);
+        // Proxy d'entreprise avec identifiant : en-tete ajoute seulement si la requete passe par lui.
+        // Identifiant du proxy de l'application (ou du serveur), seulement si la requete passe par un proxy.
+        config.network().applyTo(builder, URI.create(url), com.loadpilot.backend.service.http.ProxyAuthorization.current());
         try {
             HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             int code = response.statusCode();

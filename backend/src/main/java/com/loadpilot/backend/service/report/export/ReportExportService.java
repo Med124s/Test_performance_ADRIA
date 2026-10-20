@@ -46,18 +46,31 @@ public class ReportExportService {
     private final ExecutionRepository executionRepository;
     private final ExecutionService executionService;
     private final ExecutionTimelineService timelineService;
+    private final com.loadpilot.backend.repository.ExecutionStepResultRepository resultRepository;
+    private final com.loadpilot.backend.service.impl.ResultLoadGuard resultLoadGuard;
     private Clock clock = Clock.systemDefaultZone();
 
     public record ExportFile(String fileName, String contentType, byte[] content, String label) {
     }
 
+    /**
+     * Memoire de l'export entier reservee (rapport, analyse dans le temps et fichier, gardes jusqu'a
+     * la fin de la transaction) : couvre aussi le rapport et l'analyse appeles a l'interieur.
+     */
+    private com.loadpilot.backend.service.impl.ResultLoadGuard.Reservation reserve(UUID executionId) {
+        return resultLoadGuard.reserve(com.loadpilot.backend.service.impl.ResultLoadGuard.Load.EXPORT,
+                resultRepository.countAllByExecutionId(executionId));
+    }
+
     @Transactional(readOnly = true)
     public ExportFile xlsx(UUID executionId) {
-        ReportTables.Data data = data(executionId);
-        ExecutionReportResponse r = data.report();
-        byte[] bytes = XlsxWriter.write(ReportTables.all(data), "Rapport — " + r.scenarioName(), data.zone(), Instant.now(clock));
-        return new ExportFile(ReportFileNames.of(r.scenarioName(), r.startedAt(), data.zone(), null, "xlsx"),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes, "Excel");
+        try (var reservation = reserve(executionId)) {
+            ReportTables.Data data = data(executionId);
+            ExecutionReportResponse r = data.report();
+            byte[] bytes = XlsxWriter.write(ReportTables.all(data), "Rapport — " + r.scenarioName(), data.zone(), Instant.now(clock));
+            return new ExportFile(ReportFileNames.of(r.scenarioName(), r.startedAt(), data.zone(), null, "xlsx"),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes, "Excel");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -66,22 +79,29 @@ public class ReportExportService {
         if (!CSV_TABLES.containsKey(key)) {
             throw new BadRequestException("Tableau inconnu : « " + table + " » (attendu : steps, errors, timeline ou summary).");
         }
-        ReportTables.Data data = data(executionId);
-        ExportTable t = switch (key) {
-            case "errors" -> ReportTables.errors(data);
-            case "timeline" -> ReportTables.timeline(data);
-            case "summary" -> ReportTables.summary(data);
-            default -> ReportTables.steps(data);
-        };
-        ExecutionReportResponse r = data.report();
-        return new ExportFile(ReportFileNames.of(r.scenarioName(), r.startedAt(), data.zone(), t.fileSuffix(), "csv"),
-                "text/csv; charset=UTF-8", CsvTableWriter.write(t, data.zone()), "CSV (" + CSV_TABLES.get(key) + ")");
+        try (var reservation = reserve(executionId)) {
+            ReportTables.Data data = data(executionId);
+            ExportTable t = switch (key) {
+                case "errors" -> ReportTables.errors(data);
+                case "timeline" -> ReportTables.timeline(data);
+                case "summary" -> ReportTables.summary(data);
+                default -> ReportTables.steps(data);
+            };
+            ExecutionReportResponse r = data.report();
+            return new ExportFile(ReportFileNames.of(r.scenarioName(), r.startedAt(), data.zone(), t.fileSuffix(), "csv"),
+                    "text/csv; charset=UTF-8", CsvTableWriter.write(t, data.zone()), "CSV (" + CSV_TABLES.get(key) + ")");
+        }
     }
 
     /** Les quatre tableaux en CSV separes, dans une archive .zip. */
     @Transactional(readOnly = true)
     public ExportFile csvZip(UUID executionId) {
-        ReportTables.Data data = data(executionId);
+        try (var reservation = reserve(executionId)) {
+            return csvZip(data(executionId));
+        }
+    }
+
+    private ExportFile csvZip(ReportTables.Data data) {
         ExecutionReportResponse r = data.report();
         java.io.ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(out, java.nio.charset.StandardCharsets.UTF_8)) {

@@ -21,6 +21,7 @@ import {
   BackendDeletionImpact,
   BackendMonitoringRequest,
   BackendMonitoringTestResponse,
+  BackendNetworkRequest,
   BackendPagedResponse,
 } from '../../types/backendContracts'
 
@@ -57,6 +58,8 @@ export const applicationsBackendApi = {
    * jamais un fetch() direct depuis le frontend pour cette action. */
   test: (id: string) => springHttp.post<BackendApplicationTestResponse>(`${RESOURCE}/${id}/test`),
   /** « Tester le monitoring » avec la configuration saisie (rien n'est enregistré) ; applicationId : secret enregistré réutilisé. */
-  testMonitoring: (monitoring: BackendMonitoringRequest, applicationId?: string) =>
-    springHttp.post<BackendMonitoringTestResponse>(`${RESOURCE}/monitoring/test`, { applicationId: applicationId ?? null, monitoring }),
+  /** network : proxy saisi dans le formulaire (mot de passe vide = celui de l'application enregistrée). */
+  testMonitoring: (monitoring: BackendMonitoringRequest, applicationId?: string, network?: BackendNetworkRequest) =>
+    springHttp.post<BackendMonitoringTestResponse>(`${RESOURCE}/monitoring/test`,
+      { applicationId: applicationId ?? null, monitoring, network: network ?? null }),
 }

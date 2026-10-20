@@ -7,6 +7,8 @@ import com.loadpilot.backend.dto.response.TestRunResponse.AssertionCheck;
 import com.loadpilot.backend.dto.response.TestRunResponse.AuthResult;
 import com.loadpilot.backend.dto.response.TestRunResponse.CaptureCheck;
 import com.loadpilot.backend.dto.response.TestRunResponse.Checks;
+import com.loadpilot.backend.dto.response.TestRunResponse.JsonCheck;
+import com.loadpilot.backend.dto.response.TestRunResponse.ResponseTimeCheck;
 import com.loadpilot.backend.dto.response.TestRunResponse.ReceivedResponse;
 import com.loadpilot.backend.dto.response.TestRunResponse.SentRequest;
 import com.loadpilot.backend.dto.response.TestRunResponse.StatusCheck;
@@ -16,6 +18,7 @@ import com.loadpilot.backend.enums.ApiKeyLocation;
 import com.loadpilot.backend.service.auth.ApplicationAuthConfig;
 import com.loadpilot.backend.service.auth.ApplicationAuthSpec;
 import com.loadpilot.backend.service.http.NetworkErrors;
+import com.loadpilot.backend.service.http.HttpClients;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -83,15 +86,25 @@ public class StepTestRunner {
     private final long globalTimeoutSeconds;
     private final ObjectMapper objectMapper;
     private final ApplicationAuthenticator authenticator;
+    /** Identifiant du proxy d'entreprise, ajoute aux requetes qui passent par lui (voir ProxyAuthorization). */
+    private final com.loadpilot.backend.service.http.ProxyAuthorization proxyAuthorization;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public StepTestRunner(
             @Value("${app.execution.timeout-seconds:10}") long defaultTimeoutSeconds,
             @Value("${app.test-run.global-timeout-seconds:60}") long globalTimeoutSeconds,
             ObjectMapper objectMapper) {
+        this(defaultTimeoutSeconds, globalTimeoutSeconds, objectMapper, com.loadpilot.backend.service.http.ProxyAuthorization.current());
+    }
+
+    /** Identifiants de proxy fournis (tests). */
+    StepTestRunner(long defaultTimeoutSeconds, long globalTimeoutSeconds, ObjectMapper objectMapper,
+            com.loadpilot.backend.service.http.ProxyAuthorization proxyAuthorization) {
         this.defaultTimeoutSeconds = defaultTimeoutSeconds;
         this.globalTimeoutSeconds = globalTimeoutSeconds;
         this.objectMapper = objectMapper;
-        this.authenticator = new ApplicationAuthenticator(objectMapper);
+        this.proxyAuthorization = proxyAuthorization;
+        this.authenticator = new ApplicationAuthenticator(objectMapper, proxyAuthorization);
     }
 
     public long globalTimeoutSeconds() {
@@ -114,7 +127,7 @@ public class StepTestRunner {
         AuthResult authResult;
         long authStartedAt = System.nanoTime();
         try {
-            resolvedAuth = authenticator.authenticate(authSpec, plan.applicationBaseUrl(), defaultTimeoutSeconds);
+            resolvedAuth = authenticator.authenticate(authSpec, plan.applicationBaseUrl(), defaultTimeoutSeconds, plan.network());
             secrets.addAll(resolvedSecrets(resolvedAuth));
             variables = new VariableContext(plan.scenarioVariables(), resolvedAuth.token());
             authResult = new AuthResult(authType(authSpec), true, describeAuth(authSpec), elapsedMs(authStartedAt));
@@ -130,44 +143,53 @@ public class StepTestRunner {
         VariableContext context = variables;
         plan.providedVariables().forEach(context::capture);
 
-        HttpClient following = newClient(HttpClient.Redirect.NORMAL);
-        HttpClient notFollowing = newClient(HttpClient.Redirect.NEVER);
+        // Cookies de session geres automatiquement, comme pour un utilisateur virtuel du moteur
+        // (un pot pour ce test, commun aux deux clients).
+        VirtualUserCookieJar cookies = new VirtualUserCookieJar();
+        HttpClient following = newClient(HttpClient.Redirect.NORMAL, cookies, plan.network());
+        HttpClient notFollowing = newClient(HttpClient.Redirect.NEVER, cookies, plan.network());
 
         List<StepResult> results = new ArrayList<>();
         String skipReason = resolvedAuth == null ? "Non exécutée : l'authentification de l'application a échoué." : null;
         String skipKind = resolvedAuth == null ? "AUTH_FAILED" : null;
         boolean timedOut = false;
         List<StepExecutionSpec> steps = plan.steps();
-        for (int i = 0; i < steps.size(); i++) {
-            StepExecutionSpec step = steps.get(i);
-            int index = i + 1;
-            UrlWarning urlWarning = urlWarning(plan.applicationBaseUrl(), step.url());
-            if (skipReason == null && System.nanoTime() >= deadline) {
-                timedOut = true;
-                skipReason = "Non exécutée : délai global du test dépassé (" + globalTimeoutSeconds + " s).";
-                skipKind = "GLOBAL_TIMEOUT";
-            }
-            if (skipReason == null && Thread.currentThread().isInterrupted()) {
-                skipReason = "Non exécutée : test interrompu.";
-                skipKind = "INTERRUPTED";
-            }
-            StepResult result;
-            if (skipReason != null) {
-                result = new StepResult(index, step.stepId(), step.name(), TestRunResponse.SKIPPED, false, skipReason,
-                        skipKind, null, null, null, urlWarning, List.of());
-            } else {
-                listener.stepStarted(index, step);
-                int stepNumber = i < plan.stepNumbers().size() ? plan.stepNumbers().get(i) : index;
-                result = executeStep(index, stepNumber, step, plan, resolvedAuth, context, secrets,
-                        deadline, following, notFollowing, urlWarning);
-                if (!result.success()) {
-                    timedOut |= "GLOBAL_TIMEOUT".equals(result.errorKind());
-                    skipReason = "Non exécutée : l'étape " + index + " « " + step.name() + " » a échoué.";
-                    skipKind = "PREVIOUS_FAILED";
+        try {
+            for (int i = 0; i < steps.size(); i++) {
+                StepExecutionSpec step = steps.get(i);
+                int index = i + 1;
+                UrlWarning urlWarning = urlWarning(plan.applicationBaseUrl(), step.url());
+                if (skipReason == null && System.nanoTime() >= deadline) {
+                    timedOut = true;
+                    skipReason = "Non exécutée : délai global du test dépassé (" + globalTimeoutSeconds + " s).";
+                    skipKind = "GLOBAL_TIMEOUT";
                 }
+                if (skipReason == null && Thread.currentThread().isInterrupted()) {
+                    skipReason = "Non exécutée : test interrompu.";
+                    skipKind = "INTERRUPTED";
+                }
+                StepResult result;
+                if (skipReason != null) {
+                    result = new StepResult(index, step.stepId(), step.name(), TestRunResponse.SKIPPED, false, skipReason,
+                            skipKind, null, null, null, urlWarning, List.of());
+                } else {
+                    listener.stepStarted(index, step);
+                    int stepNumber = i < plan.stepNumbers().size() ? plan.stepNumbers().get(i) : index;
+                    result = executeStep(index, stepNumber, step, plan, resolvedAuth, context, secrets,
+                            deadline, following, notFollowing, urlWarning);
+                    if (!result.success()) {
+                        timedOut |= "GLOBAL_TIMEOUT".equals(result.errorKind());
+                        skipReason = "Non exécutée : l'étape " + index + " « " + step.name() + " » a échoué.";
+                        skipKind = "PREVIOUS_FAILED";
+                    }
+                }
+                results.add(result);
+                listener.stepFinished(result);
             }
-            results.add(result);
-            listener.stepFinished(result);
+        } finally {
+            // Appels synchrones termines (reponse lue, ou attente abandonnee) : clients fermes tout de suite.
+            HttpClients.shutdownQuietly(following);
+            HttpClients.shutdownQuietly(notFollowing);
         }
 
         int executed = (int) results.stream().filter(r -> !TestRunResponse.SKIPPED.equals(r.status())).count();
@@ -218,9 +240,17 @@ public class StepTestRunner {
         boolean hasAssertion = step.assertionBodyContains() != null && !step.assertionBodyContains().isBlank();
         boolean captureConfigured = step.captureVariableName() != null && !step.captureVariableName().isBlank()
                 && step.captureJsonPath() != null && !step.captureJsonPath().isBlank();
+        boolean hasMaxTime = StepChecks.hasMaxResponseTime(step.maxResponseTimeMs());
+        boolean hasJson = step.hasJsonAssertion();
+        String jsonOperator = step.assertionJsonOperator() != null ? step.assertionJsonOperator().name()
+                : com.loadpilot.backend.enums.JsonAssertionOperator.EQUALS.name();
+        String jsonExpected = step.assertionJsonValue() == null ? "" : TestRunMasking.maskSecrets(step.assertionJsonValue(), secrets);
         Checks notEvaluated = new Checks(new StatusCheck(expected, null, false),
                 hasAssertion ? new AssertionCheck(TestRunMasking.maskSecrets(step.assertionBodyContains(), secrets), null) : null,
                 captureConfigured ? new CaptureCheck(step.captureVariableName(), step.captureJsonPath(), false, null, false,
+                        "Non évaluée : aucune réponse reçue.") : null,
+                hasMaxTime ? new ResponseTimeCheck(step.maxResponseTimeMs(), null, null) : null,
+                hasJson ? new JsonCheck(step.assertionJsonPath().trim(), jsonOperator, jsonExpected, null,
                         "Non évaluée : aucune réponse reçue.") : null);
 
         // Comme le moteur : jamais de requete envoyee avec un ${...} brut (URL, en-tetes ou corps).
@@ -231,7 +261,7 @@ public class StepTestRunner {
 
         HttpRequest request;
         try {
-            request = buildRequest(step, url, body, hasBody, stepHeaders, auth, effectiveTimeout);
+            request = buildRequest(step, url, body, hasBody, stepHeaders, auth, effectiveTimeout, plan.network());
         } catch (InvalidRequestException e) {
             return failed(index, step, e.getMessage(), "INVALID_REQUEST", sent, notEvaluated, urlWarning, warnings);
         }
@@ -277,23 +307,43 @@ public class StepTestRunner {
 
         boolean statusOk = step.expectedStatus() != null ? status == step.expectedStatus() : status >= 200 && status < 400;
         Boolean assertionOk = hasAssertion ? fullText.contains(step.assertionBodyContains()) : null;
-        boolean success = statusOk && !Boolean.FALSE.equals(assertionOk);
+        // Controles optionnels, evalues comme dans le moteur (StepChecks) et en plus des precedents.
+        String jsonProblem = hasJson ? StepChecks.jsonAssertionProblem(objectMapper, fullText, step.assertionJsonPath(),
+                step.assertionJsonOperator(), step.assertionJsonValue()) : null;
+        String timeProblem = StepChecks.responseTimeProblem(step.maxResponseTimeMs(), durationMs);
+        boolean success = statusOk && !Boolean.FALSE.equals(assertionOk) && jsonProblem == null && timeProblem == null;
 
         // Capture apres evaluation, quel que soit le resultat de l'assertion (comme le moteur).
         CaptureCheck capture = null;
         if (captureConfigured) {
-            String value = JsonPathExtractor.extract(objectMapper, fullText, step.captureJsonPath());
+            boolean fromHeader = step.capturesFromHeader();
+            boolean fromHtml = step.capturesFromHtml();
+            HtmlExtractor.Match htmlMatch = fromHtml ? HtmlExtractor.find(fullText, step.captureJsonPath()) : null;
+            String value = fromHtml ? htmlMatch.value()
+                    : fromHeader ? ResponseHeaderExtractor.extract(response.headers(), step.captureJsonPath())
+                    : JsonPathExtractor.extract(objectMapper, fullText, step.captureJsonPath());
+            if (fromHtml && htmlMatch.count() > 1) {
+                warnings.add(htmlMatch.count() + " éléments correspondent à « " + HtmlExtractor.parseSpec(step.captureJsonPath()).selector()
+                        + " » : le premier de la page est utilisé. Précisez le sélecteur si ce n'est pas le bon.");
+            }
             if (value != null) {
                 variables.capture(step.captureVariableName().trim(), value);
                 boolean sensitive = TestRunMasking.isSensitiveName(step.captureVariableName())
-                        || TestRunMasking.isSensitiveName(step.captureJsonPath()) || secrets.contains(value);
+                        || TestRunMasking.isSensitiveName(step.captureJsonPath()) || secrets.contains(value)
+                        || (fromHeader && TestRunMasking.isSensitiveHeaderCapture(step.captureJsonPath()))
+                        || (fromHtml && TestRunMasking.isSensitiveHtmlCapture(step.captureJsonPath(), htmlMatch.elementName()));
                 if (sensitive) secrets.add(value);
                 capture = new CaptureCheck(step.captureVariableName(), step.captureJsonPath(), true,
                         sensitive ? TestRunMasking.MASK : value, sensitive,
                         "Variable ${" + step.captureVariableName() + "} capturée.");
             } else {
+                // Raison precise (index hors limites, en-tete absent…), jamais le contenu de la reponse.
+                String reason = fromHtml ? htmlMatch.reason()
+                        : fromHeader ? ResponseHeaderExtractor.explain(response.headers(), step.captureJsonPath())
+                        : JsonPathExtractor.explain(objectMapper, fullText, step.captureJsonPath());
                 capture = new CaptureCheck(step.captureVariableName(), step.captureJsonPath(), false, null, false,
-                        isJson(fullText) ? "Introuvable à " + step.captureJsonPath() + "."
+                        fromHeader || fromHtml ? "Introuvable : " + reason + "."
+                                : isJson(fullText) ? "Introuvable à " + step.captureJsonPath() + (reason != null ? " : " + reason : "") + "."
                                 : "Réponse non JSON : impossible de lire " + step.captureJsonPath() + ".");
                 warnings.add("La variable ${" + step.captureVariableName() + "} ne sera pas disponible pour les étapes suivantes.");
             }
@@ -313,17 +363,25 @@ public class StepTestRunner {
                 ? "Réponse HTTP " + status + (statusText.isEmpty() ? "" : " " + statusText) + " (attendu " + expected + ")."
                 : Boolean.FALSE.equals(assertionOk)
                 ? HttpClientExecutionEngine.missingContentMessage(TestRunMasking.maskSecrets(step.assertionBodyContains(), secrets))
+                : jsonProblem != null ? TestRunMasking.maskSecrets(jsonProblem, secrets) + "."
+                : timeProblem != null ? timeProblem + "."
                 : null;
         Checks checks = new Checks(new StatusCheck(expected, status, statusOk),
                 hasAssertion ? new AssertionCheck(TestRunMasking.maskSecrets(step.assertionBodyContains(), secrets), assertionOk) : null,
-                capture);
+                capture,
+                hasMaxTime ? new ResponseTimeCheck(step.maxResponseTimeMs(), durationMs, timeProblem == null) : null,
+                hasJson ? new JsonCheck(step.assertionJsonPath().trim(), jsonOperator, jsonExpected, jsonProblem == null,
+                        jsonProblem == null ? null : TestRunMasking.maskSecrets(jsonProblem, secrets) + ".") : null);
+        boolean assertionFailed = Boolean.FALSE.equals(assertionOk) || jsonProblem != null;
         return new StepResult(index, step.stepId(), step.name(), success ? TestRunResponse.PASSED : TestRunResponse.FAILED,
-                success, error, !statusOk ? "HTTP_STATUS" : Boolean.FALSE.equals(assertionOk) ? "ASSERTION" : null,
+                success, error, !statusOk ? "HTTP_STATUS" : assertionFailed ? "ASSERTION"
+                        : timeProblem != null ? "RESPONSE_TIME" : null,
                 sent, received, checks, urlWarning, List.copyOf(warnings));
     }
 
     private HttpRequest buildRequest(StepExecutionSpec step, String url, String body, boolean hasBody,
-            Map<String, String> stepHeaders, ResolvedAuth auth, long timeoutSeconds) {
+            Map<String, String> stepHeaders, ResolvedAuth auth, long timeoutSeconds,
+            com.loadpilot.backend.service.http.NetworkProfile network) {
         HttpRequest.Builder builder;
         try {
             builder = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(timeoutSeconds));
@@ -348,6 +406,8 @@ public class StepTestRunner {
             }
         });
         auth.applyHeaders(builder, stepHeaders.keySet());
+        // Identifiant du proxy (de l'application, ou du serveur), seulement si la requete passe par lui.
+        network.applyTo(builder, URI.create(url), proxyAuthorization);
         return builder.build();
     }
 
@@ -433,11 +493,13 @@ public class StepTestRunner {
         };
     }
 
-    private HttpClient newClient(HttpClient.Redirect redirect) {
-        return HttpClient.newBuilder()
+    private HttpClient newClient(HttpClient.Redirect redirect, VirtualUserCookieJar cookies,
+            com.loadpilot.backend.service.http.NetworkProfile network) {
+        return network.configure(HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(defaultTimeoutSeconds))
                 .followRedirects(redirect)
+                .cookieHandler(cookies))
                 .build();
     }
 

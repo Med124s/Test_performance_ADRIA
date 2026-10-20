@@ -140,6 +140,31 @@ public class Scenario {
     @Column(name = "max_p95_ms")
     private Long maxP95Ms;
 
+    /** Frein automatique : taux d'erreurs (%) au-dela duquel le test est arrete EN DIRECT (voir
+     * ErrorRateBrake) ; null = desactive. Distinct du seuil de reussite, evalue a la fin. */
+    @Column(name = "error_brake_rate_percent")
+    private Double errorBrakeRatePercent;
+
+    /** Fenetre glissante (secondes) du frein automatique ; null = valeur par defaut (30 s). */
+    @Column(name = "error_brake_window_seconds")
+    private Integer errorBrakeWindowSeconds;
+
+    /** Ralentissement sur 429 (voir ThrottlePolicy) : null = actif (defaut), false = desactive (test de resilience). */
+    @Column(name = "throttle_on_429")
+    private Boolean throttleOn429;
+
+    /** Attente apres un 429 sans en-tete Retry-After (secondes) ; null = 5 s. */
+    @Column(name = "throttle_default_delay_seconds")
+    private Integer throttleDefaultDelaySeconds;
+
+    /** Rejeux au plus d'une etape apres un 429 ; null = 3. */
+    @Column(name = "throttle_max_retries")
+    private Integer throttleMaxRetries;
+
+    /** Variation aleatoire du think time (± %, voir ThinkTime) ; null = think time fixe. */
+    @Column(name = "think_time_variation_percent")
+    private Integer thinkTimeVariationPercent;
+
     /** Archivage logique : masque des listes par defaut, historique conserve,
      * restaurable (voir migration 017). */
     @Column(name = "archived", nullable = false)

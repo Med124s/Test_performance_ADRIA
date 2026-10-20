@@ -12,6 +12,8 @@ import {
   hasContentCheck,
   hasHeader,
 } from './wizardModel'
+import { isSetCookie, joinHeaderCapture, splitHeaderCapture } from '../../utils/headerCapture'
+import { joinHtmlCapture, splitHtmlCapture } from '../../utils/htmlCapture'
 import { urlMismatch } from './testRunModel'
 import {
   KnownVariable,
@@ -107,6 +109,12 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
   const needsContentType = bodyFormat === 'json' && !hasHeader(step.headers, 'Content-Type')
   const headerCount = step.headers.filter((h) => h.key.trim()).length
   const hasCapture = !!(step.captureVariableName.trim() && step.captureJsonPath.trim())
+  // Capture depuis un en-tête : « Set-Cookie:NOM » est saisi en deux champs (en-tête, cookie).
+  const captureFromHeader = step.captureSource === 'HEADER'
+  const headerCapture = splitHeaderCapture(step.captureJsonPath)
+  // Capture depuis la page HTML : « sélecteur::attr(attribut) » saisi en deux champs.
+  const captureFromHtml = step.captureSource === 'HTML'
+  const htmlCapture = splitHtmlCapture(step.captureJsonPath)
   const pathVariables = detectPathVariables(step.url)
   const paramCount = pathVariables.length + step.queryParams.filter((q) => q.enabled && q.key.trim()).length
   const warnings = Array.from(new Set(stepVariableNames(step).flatMap((name) =>
@@ -189,7 +197,7 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
     { id: 'params', label: 'Paramètres', icon: 'bi-sliders2', badge: paramCount || undefined, error: !!err('queryParams') },
     { id: 'headers', label: 'En-têtes', icon: 'bi-list-ul', badge: headerCount || undefined, error: !!err('headers') },
     { id: 'body', label: 'Corps', icon: 'bi-braces', badge: bodyFormat === 'empty' ? undefined : bodyFormat === 'json' ? 'JSON' : 'Texte', error: !!err('body') },
-    { id: 'validation', label: 'Validation', icon: 'bi-check2-circle', badge: step.expectedStatus || undefined, error: !!(err('expectedStatus') || err('assertionBodyContains')) },
+    { id: 'validation', label: 'Validation', icon: 'bi-check2-circle', badge: step.expectedStatus || undefined, error: !!(err('expectedStatus') || err('assertionBodyContains') || err('maxResponseTimeMs') || err('assertionJsonPath') || err('assertionJsonValue')) },
     { id: 'variables', label: 'Variables', icon: 'bi-box-arrow-in-down-right', badge: hasCapture ? step.captureVariableName.trim() : undefined, error: !!(err('captureVariableName') || err('captureJsonPath')) },
   ]
 
@@ -483,6 +491,62 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
                 </div>
               )}
             </div>
+            <div className="col-12">
+              <div className="sw-section-label">Contrôles supplémentaires (optionnels)</div>
+            </div>
+            <div className="col-12 col-md-7">
+              <label className="pt-form-label">Assertion JSON</label>
+              <div className="d-flex gap-2">
+                <input
+                  className={`pt-form-control ${err('assertionJsonPath') ? 'is-invalid' : ''}`}
+                  placeholder="Champ, ex : $.status"
+                  value={step.assertionJsonPath ?? ''}
+                  maxLength={500}
+                  onChange={(e) => onChange({ assertionJsonPath: e.target.value })}
+                  aria-label="Champ JSON à vérifier"
+                />
+                <select
+                  className="pt-form-control"
+                  style={{ maxWidth: '8.5rem' }}
+                  value={step.assertionJsonOperator ?? 'EQUALS'}
+                  onChange={(e) => onChange({ assertionJsonOperator: e.target.value as 'EQUALS' | 'CONTAINS' })}
+                  aria-label="Comparaison de l’assertion JSON"
+                >
+                  <option value="EQUALS">égale</option>
+                  <option value="CONTAINS">contient</option>
+                </select>
+                <input
+                  className={`pt-form-control ${err('assertionJsonValue') ? 'is-invalid' : ''}`}
+                  placeholder="Valeur, ex : OK"
+                  value={step.assertionJsonValue ?? ''}
+                  maxLength={1000}
+                  onChange={(e) => onChange({ assertionJsonValue: e.target.value })}
+                  aria-label="Valeur attendue de l’assertion JSON"
+                />
+              </div>
+              {err('assertionJsonPath') || err('assertionJsonValue') ? (
+                <div className="sw-field-error">{err('assertionJsonPath') ?? err('assertionJsonValue')}</div>
+              ) : (
+                <div className="sw-field-hint">
+                  Même syntaxe que la capture (ex : <code>data.items[0].id</code>). L’étape échoue si le champ est absent ou
+                  n’a pas la valeur attendue. « égale » compare le texte exact (un tableau ou un objet se compare en JSON).
+                </div>
+              )}
+            </div>
+            <div className="col-12 col-md-5">
+              <label className="pt-form-label">Temps de réponse maximal (ms)</label>
+              <input
+                className={`pt-form-control ${err('maxResponseTimeMs') ? 'is-invalid' : ''}`}
+                inputMode="numeric"
+                placeholder="Vide = aucun maximum"
+                value={step.maxResponseTimeMs ?? ''}
+                onChange={(e) => onChange({ maxResponseTimeMs: e.target.value })}
+                aria-label="Temps de réponse maximal (ms)"
+              />
+              {err('maxResponseTimeMs') ? <div className="sw-field-error">{err('maxResponseTimeMs')}</div> : (
+                <div className="sw-field-hint">L’étape échoue si la réponse arrive plus tard (message : « Temps de réponse trop long »).</div>
+              )}
+            </div>
           </div>
         )}
 
@@ -517,6 +581,23 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
             </div>
             <div>
               <div className="sw-section-label">Capturer une valeur de la réponse</div>
+              <div className="sw-radio-group mb-2" role="radiogroup" aria-label="Où lire la valeur capturée">
+                <label>
+                  <input type="radio" name={`capture-source-${step.uid}`} checked={!captureFromHeader && !captureFromHtml}
+                    onChange={() => onChange({ captureSource: undefined, captureJsonPath: '' })} />
+                  <span><strong>Corps JSON</strong> — un chemin dans la réponse (ex : <code>$.data.accounts[0].id</code>).</span>
+                </label>
+                <label>
+                  <input type="radio" name={`capture-source-${step.uid}`} checked={captureFromHeader}
+                    onChange={() => onChange({ captureSource: 'HEADER', captureJsonPath: '' })} />
+                  <span><strong>En-tête de réponse</strong> — la valeur d’un en-tête (ex : <code>X-CSRF-Token</code>) ou d’un cookie.</span>
+                </label>
+                <label>
+                  <input type="radio" name={`capture-source-${step.uid}`} checked={captureFromHtml}
+                    onChange={() => onChange({ captureSource: 'HTML', captureJsonPath: '' })} />
+                  <span><strong>Page HTML</strong> — un champ ou un attribut de la page (ex : le jeton caché d’un formulaire).</span>
+                </label>
+              </div>
               <div className="row g-2">
                 <div className="col-12 col-md-5">
                   <input
@@ -525,24 +606,72 @@ function StepEditor({ step, index, baseUrl, errors, showErrors, variables, later
                     value={step.captureVariableName}
                     onChange={(e) => onChange({ captureVariableName: e.target.value })}
                     spellCheck={false}
+                    aria-label="Nom de la variable capturée"
                   />
                   {err('captureVariableName') && <div className="sw-field-error">{err('captureVariableName')}</div>}
                 </div>
                 <div className="col-12 col-md-7">
-                  <input
-                    className={`pt-form-control ${err('captureJsonPath') ? 'is-invalid' : ''}`}
-                    placeholder="Chemin JSON (ex : $.token ou $.data.id)"
-                    value={step.captureJsonPath}
-                    onChange={(e) => onChange({ captureJsonPath: e.target.value })}
-                    spellCheck={false}
-                  />
+                  {captureFromHeader ? (
+                    <div className="d-flex flex-column gap-2">
+                      <input
+                        className={`pt-form-control ${err('captureJsonPath') ? 'is-invalid' : ''}`}
+                        placeholder="Nom de l’en-tête (ex : X-CSRF-Token ou Set-Cookie)"
+                        value={headerCapture.header}
+                        onChange={(e) => onChange({ captureJsonPath: joinHeaderCapture(e.target.value, headerCapture.cookie) })}
+                        spellCheck={false}
+                        aria-label="Nom de l’en-tête de réponse"
+                      />
+                      {isSetCookie(headerCapture.header) && (
+                        <input
+                          className="pt-form-control"
+                          placeholder="Nom du cookie (ex : SESSIONID)"
+                          value={headerCapture.cookie}
+                          onChange={(e) => onChange({ captureJsonPath: joinHeaderCapture(headerCapture.header, e.target.value) })}
+                          spellCheck={false}
+                          aria-label="Nom du cookie"
+                        />
+                      )}
+                    </div>
+                  ) : captureFromHtml ? (
+                    <div className="d-flex flex-column gap-2">
+                      <input
+                        className={`pt-form-control ${err('captureJsonPath') ? 'is-invalid' : ''}`}
+                        placeholder="Sélecteur CSS (ex : input[name=csrf_token])"
+                        value={htmlCapture.selector}
+                        onChange={(e) => onChange({ captureJsonPath: joinHtmlCapture(e.target.value, htmlCapture.attribute) })}
+                        spellCheck={false}
+                        aria-label="Sélecteur CSS de l’élément"
+                      />
+                      <input
+                        className="pt-form-control"
+                        placeholder="Attribut à lire (ex : value) — vide = texte de l’élément"
+                        value={htmlCapture.attribute}
+                        onChange={(e) => onChange({ captureJsonPath: joinHtmlCapture(htmlCapture.selector, e.target.value) })}
+                        spellCheck={false}
+                        aria-label="Attribut à lire"
+                      />
+                    </div>
+                  ) : (
+                    <input
+                      className={`pt-form-control ${err('captureJsonPath') ? 'is-invalid' : ''}`}
+                      placeholder="Chemin JSON (ex : $.token ou $.data.accounts[0].id)"
+                      value={step.captureJsonPath}
+                      onChange={(e) => onChange({ captureJsonPath: e.target.value })}
+                      spellCheck={false}
+                      aria-label="Chemin JSON de la valeur capturée"
+                    />
+                  )}
                   {err('captureJsonPath') && <div className="sw-field-error">{err('captureJsonPath')}</div>}
                 </div>
               </div>
               <div className="sw-field-hint mt-1">
                 {hasCapture
                   ? <>Les étapes suivantes pourront utiliser <code>${'{'}{step.captureVariableName.trim()}{'}'}</code> (propre à chaque utilisateur virtuel et à chaque itération).</>
-                  : 'Chemin simple par points (pas de tableaux ni de filtres).'}
+                  : captureFromHeader
+                    ? 'Nom de l’en-tête sans tenir compte des majuscules ; plusieurs valeurs : la première est retenue. Set-Cookie : indiquez le cookie dont lire la valeur.'
+                    : captureFromHtml
+                      ? 'Sélecteur CSS comme dans un navigateur (ex : #compte, input[name=csrf_token]) ; plusieurs éléments : le premier de la page est retenu.'
+                      : 'Chemin par points, avec index de tableau entre crochets (ex : items[0].id) ; pas de filtres.'}
               </div>
             </div>
           </div>

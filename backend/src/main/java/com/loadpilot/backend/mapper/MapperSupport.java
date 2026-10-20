@@ -34,7 +34,7 @@ public final class MapperSupport {
     /**
      * P1-C — debit reel (requetes reellement executees / duree en secondes)
      * pour ExecutionHistoryResponse.throughput - meme formule EXACTE que
-     * MetricGenerationService/PerformanceStatisticsService (voir
+     * PerformanceAggregates/PerformanceStatisticsService (voir
      * ThroughputCalculator). "requetes reellement executees" =
      * successfulSteps + failedSteps (jamais totalSteps, qui peut etre
      * superieur si l'execution s'est arretee au premier echec - voir

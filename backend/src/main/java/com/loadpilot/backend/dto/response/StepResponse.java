@@ -26,10 +26,18 @@ public record StepResponse(
         String assertionBodyContains,
         String captureVariableName,
         String captureJsonPath,
+        /** null = JSON. */
+        com.loadpilot.backend.enums.CaptureSource captureSource,
         String pathParams,
         String queryParams,
         StepStatus status,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        /** Temps de reponse maximal (ms) ; null = aucun controle. */
+        Integer maxResponseTimeMs,
+        /** Assertion JSON : champ, comparaison (EQUALS / CONTAINS), valeur attendue ; null = aucune. */
+        String assertionJsonPath,
+        com.loadpilot.backend.enums.JsonAssertionOperator assertionJsonOperator,
+        String assertionJsonValue
 ) {
 }

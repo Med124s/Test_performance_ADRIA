@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Autorite(s) de certification propres a une application (voir service.http.TlsTrust) : colonne
+        ADDITIONNELLE et NULLABLE. NULL = comportement d'avant (magasin de confiance global de la JVM).
+
+        application.tls_ca_certificate : un ou plusieurs certificats X.509 au format PEM, ajoutes a la
+                                         confiance de la JVM pour cette application uniquement. Donnee
+                                         publique (aucune cle privee), donc non chiffree.
+    -->
+    <changeSet id="040-application-tls-ca" author="loadpilot">
+        <addColumn tableName="application">
+            <column name="tls_ca_certificate" type="VARCHAR(65536)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

@@ -41,8 +41,22 @@ describe('validateAuthForm — parité avec le backend', () => {
     const base = { type: 'LOGIN_TOKEN' as const, loginPath: '/api/auth/login', loginBody: '{"u":"a"}', tokenJsonPath: '$.data.accessToken' }
     expect(validateAuthForm(form(base))).toEqual({})
     expect(validateAuthForm(form({ ...base, loginBody: '{u: a}' })).loginBody).toBe('Le corps doit être un JSON valide.')
-    expect(validateAuthForm(form({ ...base, tokenJsonPath: '$.items[0].token' })).tokenJsonPath)
+    // Index de tableau acceptés (même sous-ensemble que JsonPathExtractor) ; index négatif ou non entier refusé.
+    expect(validateAuthForm(form({ ...base, tokenJsonPath: '$.items[0].token' }))).toEqual({})
+    expect(validateAuthForm(form({ ...base, tokenJsonPath: '$[0].data[1][2].token' }))).toEqual({})
+    expect(validateAuthForm(form({ ...base, tokenJsonPath: '$.items[-1].token' })).tokenJsonPath)
       .toBe('Chemin invalide (ex : $.token ou $.data.accessToken).')
+    expect(validateAuthForm(form({ ...base, tokenJsonPath: '$.items[a].token' })).tokenJsonPath)
+      .toBe('Chemin invalide (ex : $.token ou $.data.accessToken).')
+    // Jeton lu dans un en-tête de réponse : nom d'en-tête (ou Set-Cookie:NOM), messages identiques au serveur.
+    const header = { ...base, tokenSource: 'HEADER' as const }
+    expect(validateAuthForm(form({ ...header, tokenJsonPath: 'X-Auth-Token' }))).toEqual({})
+    expect(validateAuthForm(form({ ...header, tokenJsonPath: 'Set-Cookie:ACCESS' }))).toEqual({})
+    expect(validateAuthForm(form({ ...header, tokenJsonPath: '' })).tokenJsonPath).toBe("Indiquez l'en-tête qui contient le jeton (ex : X-Auth-Token).")
+    expect(validateAuthForm(form({ ...header, tokenJsonPath: 'X Auth Token' })).tokenJsonPath)
+      .toBe("Jeton : nom d'en-tête invalide (pas d'espace ni de caractère spécial, ex. X-CSRF-Token).")
+    expect(authFormToRequest(form({ ...header, tokenJsonPath: 'X-Auth-Token' }))).toMatchObject({ tokenSource: 'HEADER', tokenJsonPath: 'X-Auth-Token' })
+    expect('tokenSource' in authFormToRequest(form(base))).toBe(false)
     expect(validateAuthForm(form({ ...base, loginPath: '/api auth' })).loginPath).toBe("Le chemin ne doit pas contenir d'espace.")
     expect(validateAuthForm(form({ ...base, loginPath: 'https://sso.example.com/token' }))).toEqual({})
   })

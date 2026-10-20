@@ -63,7 +63,7 @@ public class Execution {
      * lancement (P0-A) - jamais recalculee depuis le Scenario courant, pour
      * que l'historique reste fidele meme si le Scenario est reconfigure
      * plus tard (meme principe de denormalisation deja utilise par
-     * Metric.throughput/errorRate, voir MetricGenerationService).
+     * Metric.throughput/errorRate, voir PerformanceAggregates).
      */
     @Builder.Default
     @Column(name = "virtual_users", nullable = false)

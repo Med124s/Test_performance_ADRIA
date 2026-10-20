@@ -3,7 +3,10 @@ import {
   BackendApplicationAuthRequest,
   BackendApplicationAuthResponse,
   BackendApplicationAuthType,
+  BackendCaptureSource,
 } from '../../types/backendContracts'
+import { headerCaptureProblem, isSetCookie, joinHeaderCapture, splitHeaderCapture } from '../../utils/headerCapture'
+import InfoTip from '../InfoTip'
 import './applicationAuth.css'
 
 // ============================================================
@@ -24,6 +27,8 @@ export interface AuthForm {
   loginPath: string
   loginBody: string
   tokenJsonPath: string
+  /** Où lire le jeton : corps JSON (tokenJsonPath = chemin) ou en-tête de réponse (tokenJsonPath = nom de l'en-tête). */
+  tokenSource: BackendCaptureSource
   tokenHeaderName: string
   tokenPrefix: string
   verificationPath: string
@@ -40,6 +45,7 @@ export const EMPTY_AUTH_FORM: AuthForm = {
   loginPath: '/api/auth/login',
   loginBody: '{\n  "username": "",\n  "password": ""\n}',
   tokenJsonPath: '$.token',
+  tokenSource: 'JSON',
   tokenHeaderName: 'Authorization',
   tokenPrefix: 'Bearer ',
   verificationPath: '',
@@ -57,6 +63,7 @@ export function authFormFromResponse(auth: BackendApplicationAuthResponse | null
     loginPath: auth.loginPath ?? EMPTY_AUTH_FORM.loginPath,
     loginBody: '',
     tokenJsonPath: auth.tokenJsonPath ?? EMPTY_AUTH_FORM.tokenJsonPath,
+    tokenSource: auth.tokenSource === 'HEADER' ? 'HEADER' : 'JSON',
     tokenHeaderName: auth.tokenHeaderName ?? EMPTY_AUTH_FORM.tokenHeaderName,
     tokenPrefix: auth.tokenPrefix ?? EMPTY_AUTH_FORM.tokenPrefix,
     verificationPath: auth.verificationPath ?? '',
@@ -66,7 +73,7 @@ export function authFormFromResponse(auth: BackendApplicationAuthResponse | null
 // Mêmes motifs que ApplicationAuthSupport (backend).
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 const QUERY_NAME = /^[^\s&=?#]+$/
-const JSON_PATH = /^(\$\.?)?[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/
+const JSON_PATH = /^(\$\.?)?(?:[A-Za-z0-9_-]+|\[\d{1,9}])(?:\[\d{1,9}])*(\.[A-Za-z0-9_-]+(?:\[\d{1,9}])*)*$/
 const LINE_BREAK = /[\r\n\u0000]/
 
 /** Longueurs maximales = @Size de ApplicationAuthRequest (messages identiques). */
@@ -158,7 +165,12 @@ export function validateAuthForm(form: AuthForm, existing?: BackendApplicationAu
         set('loginBody', 'Indiquez les identifiants envoyés (JSON).')
       }
       const tokenJsonPath = form.tokenJsonPath.trim()
-      if (!tokenJsonPath) set('tokenJsonPath', 'Indiquez où lire le jeton (ex : $.token).')
+      if (form.tokenSource === 'HEADER') {
+        // tokenJsonPath = nom de l'en-tête de réponse qui contient le jeton (ou « Set-Cookie:NOM »).
+        const problem = tokenJsonPath ? headerCaptureProblem(tokenJsonPath) : null
+        if (!tokenJsonPath) set('tokenJsonPath', "Indiquez l'en-tête qui contient le jeton (ex : X-Auth-Token).")
+        else if (problem) set('tokenJsonPath', `Jeton : ${problem}.`)
+      } else if (!tokenJsonPath) set('tokenJsonPath', 'Indiquez où lire le jeton (ex : $.token).')
       else if (!JSON_PATH.test(tokenJsonPath)) set('tokenJsonPath', 'Chemin invalide (ex : $.token ou $.data.accessToken).')
       const headerName = form.tokenHeaderName.trim()
       if (headerName && !HEADER_NAME.test(headerName)) set('tokenHeaderName', "Nom d'en-tête invalide (lettres, chiffres et - uniquement).")
@@ -189,6 +201,8 @@ export function authFormToRequest(form: AuthForm): BackendApplicationAuthRequest
         loginPath: opt(form.loginPath),
         loginBody: form.loginBody.trim() ? form.loginBody : null,
         tokenJsonPath: opt(form.tokenJsonPath),
+        // Absent = JSON (comportement historique).
+        ...(form.tokenSource === 'HEADER' ? { tokenSource: 'HEADER' as const } : {}),
         tokenHeaderName: opt(form.tokenHeaderName),
         // Préfixe envoyé tel quel (y compris vide = jeton brut).
         tokenPrefix: form.tokenPrefix,
@@ -242,7 +256,8 @@ function ApplicationAuthFields({ value, onChange, errors, showErrors, existing, 
         ? `?${value.apiKeyName.trim() || 'api_key'}=••••••`
         : `${value.apiKeyName.trim() || 'X-API-Key'}: ••••••`
       case 'BASIC': return 'Authorization: Basic base64(utilisateur:mot de passe)'
-      case 'LOGIN_TOKEN': return `${value.tokenHeaderName.trim() || 'Authorization'}: ${value.tokenPrefix}<jeton lu dans ${value.tokenJsonPath.trim() || '$.token'}>`
+      case 'LOGIN_TOKEN': return `${value.tokenHeaderName.trim() || 'Authorization'}: ${value.tokenPrefix}<jeton lu dans ${value.tokenSource === 'HEADER'
+        ? `l’en-tête ${value.tokenJsonPath.trim() || '…'}` : value.tokenJsonPath.trim() || '$.token'}>`
       default: return null
     }
   })()
@@ -330,21 +345,46 @@ function ApplicationAuthFields({ value, onChange, errors, showErrors, existing, 
             <div className="aa-error">{err('loginPath')}</div>
           ) : baseUrl?.trim() && value.loginPath.trim() ? (
             <div className="aa-help">Appel réel : <code>POST {resolveLoginUrl(baseUrl.trim(), value.loginPath.trim())}</code></div>
-          ) : (
-            <div className="aa-help">Chemin relatif à l’URL de l’application (ou URL complète).</div>
-          )}
+          ) : null}
 
           <label className="aa-label">Identifiants envoyés (JSON) *</label>
           <textarea className={`pt-form-control aa-mono ${err('loginBody') ? 'is-invalid' : ''}`} rows={4} spellCheck={false}
             placeholder={keptPlaceholder('loginBody', '{"username": "…", "password": "…"}')} value={value.loginBody} onChange={(e) => set({ loginBody: e.target.value })} />
           {err('loginBody') && <div className="aa-error">{err('loginBody')}</div>}
 
+          <label className="aa-label">
+            Lire le jeton dans
+            <InfoTip text="Le jeton est aussi disponible dans vos étapes via ${authToken}." />
+          </label>
+          <div className="aa-segmented mb-2">
+            {(['JSON', 'HEADER'] as BackendCaptureSource[]).map((source) => (
+              <button key={source} type="button" className={value.tokenSource === source ? 'active' : ''}
+                onClick={() => set({ tokenSource: source, tokenJsonPath: source === value.tokenSource ? value.tokenJsonPath : source === 'JSON' ? '$.token' : '' })}>
+                {source === 'JSON' ? 'Corps JSON' : 'En-tête de réponse'}
+              </button>
+            ))}
+          </div>
           <div className="aa-row">
-            <div className="aa-grow">
-              <label className="aa-label">Chemin du token *</label>
-              <input className={`pt-form-control aa-mono ${err('tokenJsonPath') ? 'is-invalid' : ''}`} value={value.tokenJsonPath} onChange={(e) => set({ tokenJsonPath: e.target.value })} placeholder="$.token" />
-              {err('tokenJsonPath') && <div className="aa-error">{err('tokenJsonPath')}</div>}
-            </div>
+            {value.tokenSource === 'HEADER' ? (
+              <div className="aa-grow">
+                <label className="aa-label">En-tête de réponse *</label>
+                <input className={`pt-form-control aa-mono ${err('tokenJsonPath') ? 'is-invalid' : ''}`} value={splitHeaderCapture(value.tokenJsonPath).header}
+                  onChange={(e) => set({ tokenJsonPath: joinHeaderCapture(e.target.value, splitHeaderCapture(value.tokenJsonPath).cookie) })}
+                  placeholder="X-Auth-Token" aria-label="En-tête de réponse qui contient le jeton" />
+                {isSetCookie(splitHeaderCapture(value.tokenJsonPath).header) && (
+                  <input className="pt-form-control aa-mono mt-1" value={splitHeaderCapture(value.tokenJsonPath).cookie}
+                    onChange={(e) => set({ tokenJsonPath: joinHeaderCapture(splitHeaderCapture(value.tokenJsonPath).header, e.target.value) })}
+                    placeholder="Nom du cookie (ex : SESSIONID)" aria-label="Nom du cookie qui contient le jeton" />
+                )}
+                {err('tokenJsonPath') && <div className="aa-error">{err('tokenJsonPath')}</div>}
+              </div>
+            ) : (
+              <div className="aa-grow">
+                <label className="aa-label">Chemin du token *</label>
+                <input className={`pt-form-control aa-mono ${err('tokenJsonPath') ? 'is-invalid' : ''}`} value={value.tokenJsonPath} onChange={(e) => set({ tokenJsonPath: e.target.value })} placeholder="$.token" />
+                {err('tokenJsonPath') && <div className="aa-error">{err('tokenJsonPath')}</div>}
+              </div>
+            )}
             <div className="aa-grow">
               <label className="aa-label">En-tête</label>
               <input className={`pt-form-control aa-mono ${err('tokenHeaderName') ? 'is-invalid' : ''}`} value={value.tokenHeaderName} onChange={(e) => set({ tokenHeaderName: e.target.value })} placeholder="Authorization" />
@@ -356,13 +396,15 @@ function ApplicationAuthFields({ value, onChange, errors, showErrors, existing, 
               {err('tokenPrefix') && <div className="aa-error">{err('tokenPrefix')}</div>}
             </div>
           </div>
-          <div className="aa-help">Le jeton est aussi disponible dans vos étapes via <code>{'${authToken}'}</code>.</div>
         </div>
       )}
 
       {CREDENTIAL_CHECK_TYPES.includes(value.type) && (
         <div className="aa-fields">
-          <label className="aa-label" htmlFor="aa-verification-path">Endpoint de vérification *</label>
+          <label className="aa-label" htmlFor="aa-verification-path">
+            Endpoint de vérification *
+            <InfoTip text="Chemin protégé de l’application : il doit répondre 401 ou 403 sans identifiants. Le test l’appelle sans puis avec vos identifiants." />
+          </label>
           <div className="aa-inline">
             <span className="aa-method">GET</span>
             <input
@@ -376,12 +418,9 @@ function ApplicationAuthFields({ value, onChange, errors, showErrors, existing, 
           </div>
           {err('verificationPath') ? (
             <div className="aa-error">{err('verificationPath')}</div>
-          ) : (
-            <div className="aa-help">
-              Chemin <b>protégé</b> de l’application (il doit répondre 401 ou 403 sans identifiants). Le test l’appelle sans puis avec vos identifiants
-              {baseUrl?.trim() && value.verificationPath.trim() && <> : <code>GET {resolveLoginUrl(baseUrl.trim(), value.verificationPath.trim())}</code></>}.
-            </div>
-          )}
+          ) : baseUrl?.trim() && value.verificationPath.trim() ? (
+            <div className="aa-help">Appel réel : <code>GET {resolveLoginUrl(baseUrl.trim(), value.verificationPath.trim())}</code></div>
+          ) : null}
         </div>
       )}
 

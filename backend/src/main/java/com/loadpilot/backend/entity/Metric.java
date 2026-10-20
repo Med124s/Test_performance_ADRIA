@@ -19,10 +19,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * Mesure REELLE (jamais simulee) rattachee a une Execution - voir
- * service.impl.MetricGenerationService, seule source actuelle de Metric
- * (generation automatique apres chaque Execution, un Metric par
- * ExecutionStepResult).
+ * ANCIENNE copie d'un ExecutionStepResult (une ligne par requete), en fin de vie : plus jamais
+ * ecrite ni lue (voir MetricRepository, migration 041). Entite conservee tant que la table contient
+ * des lignes anterieures, effacees par la purge a 90 jours ou la suppression de leur execution.
  *
  * "application"/"scenario" sont nullables au niveau du schema : ils sont
  * TOUJOURS renseignes pour un Metric issu d'une Execution (la chaine
@@ -73,7 +72,7 @@ public class Metric {
     /**
      * Requetes/seconde, calcule au niveau de l'EXECUTION entiere (steps
      * reellement executes / duree totale en secondes) - voir
-     * MetricGenerationService#computeThroughput. Cette meme valeur
+     * ThroughputCalculator (aujourd'hui PerformanceAggregates.throughput). Cette meme valeur
      * execution-level est reportee sur chaque Metric de cette Execution :
      * ce n'est PAS une mesure individuelle par Step. Null si la duree est
      * nulle/nulle-ou-egale-a-zero.

@@ -3,6 +3,7 @@ package com.loadpilot.backend.service.validation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.loadpilot.backend.dto.request.StepRequest;
+import com.loadpilot.backend.enums.CaptureSource;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -27,8 +28,11 @@ public final class StepRules {
     /** Premier probleme trouve (message lisible), ou null si l'etape est valide. */
     public static String validate(StepRequest request) {
         String problem = validate(request.url(), request.headers(), request.body(), request.captureVariableName(),
-                request.captureJsonPath());
-        return problem != null ? problem : validateParams(request.pathParams(), request.queryParams());
+                request.captureJsonPath(), request.captureSource());
+        if (problem == null) problem = validateParams(request.pathParams(), request.queryParams());
+        return problem != null ? problem
+                : com.loadpilot.backend.service.execution.StepChecks.configurationProblem(request.assertionJsonPath(),
+                        request.assertionJsonOperator(), request.assertionJsonValue());
     }
 
     /**
@@ -78,6 +82,12 @@ public final class StepRules {
     }
 
     public static String validate(String url, String headers, String body, String captureName, String capturePath) {
+        return validate(url, headers, body, captureName, capturePath, null);
+    }
+
+    /** captureSource HEADER : capturePath est un nom d'en-tete de reponse, ou "Set-Cookie:NOM". */
+    public static String validate(String url, String headers, String body, String captureName, String capturePath,
+            CaptureSource captureSource) {
         String trimmedUrl = url == null ? "" : url.trim();
         if (trimmedUrl.contains("://") && !ABSOLUTE_URL.matcher(trimmedUrl).matches()) {
             return "URL invalide : utilisez un chemin relatif (ex. /api/ressource) ou une adresse http(s)://hôte.";
@@ -112,12 +122,50 @@ public final class StepRules {
                 }
             }
         }
+        boolean fromHeader = captureSource == CaptureSource.HEADER;
+        boolean fromHtml = captureSource == CaptureSource.HTML;
         boolean hasName = captureName != null && !captureName.isBlank();
         boolean hasPath = capturePath != null && !capturePath.isBlank();
-        if (hasName && !hasPath) return "Capture : indiquez où lire la valeur (ex. $.token).";
+        if (hasName && !hasPath) {
+            return fromHeader ? "Capture : indiquez le nom de l'en-tête (ex. X-CSRF-Token)."
+                    : fromHtml ? "Capture : indiquez le sélecteur CSS de l'élément (ex. input[name=csrf_token])."
+                    : "Capture : indiquez où lire la valeur (ex. $.token).";
+        }
         if (hasPath && !hasName) return "Capture : donnez un nom à la variable (ex. token).";
         if (hasName && !VARIABLE_NAME.matcher(captureName.trim()).matches()) {
             return "Capture : nom de variable invalide (lettres, chiffres et _ uniquement).";
+        }
+        if (fromHeader && hasPath) {
+            String problem = headerCaptureProblem(capturePath);
+            if (problem != null) return "Capture : " + problem + ".";
+        }
+        if (fromHtml && hasPath) {
+            // Selecteur CSS verifie par le meme analyseur que l'execution (jsoup).
+            String problem = com.loadpilot.backend.service.execution.HtmlExtractor.specProblem(capturePath);
+            if (problem != null) return "Capture : " + problem + ".";
+        }
+        return null;
+    }
+
+    /**
+     * Lecture dans un en-tete de reponse : nom d'en-tete valide (ex. X-CSRF-Token), ou "Set-Cookie:NOM"
+     * pour la valeur d'un cookie. Probleme en minuscule et sans point final (prefixe par l'appelant),
+     * ou null. Meme regle que le frontend (headerCaptureProblem, wizardModel.ts).
+     */
+    public static String headerCaptureProblem(String spec) {
+        String trimmed = spec.trim();
+        int colon = trimmed.indexOf(':');
+        String name = colon < 0 ? trimmed : trimmed.substring(0, colon).trim();
+        if (!HEADER_NAME.matcher(name).matches()) {
+            return "nom d'en-tête invalide (pas d'espace ni de caractère spécial, ex. X-CSRF-Token)";
+        }
+        if (colon >= 0) {
+            if (!name.equalsIgnoreCase("Set-Cookie")) {
+                return "un nom de cookie ne s'indique que pour Set-Cookie (ex. Set-Cookie:SESSIONID)";
+            }
+            if (!HEADER_NAME.matcher(trimmed.substring(colon + 1).trim()).matches()) {
+                return "nom de cookie invalide (ex. Set-Cookie:SESSIONID)";
+            }
         }
         return null;
     }

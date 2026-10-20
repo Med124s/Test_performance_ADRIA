@@ -112,12 +112,34 @@ public class Step {
 
     /** Master prompt final (Lot B) — chemin (sous-ensemble simple, voir
      * JsonPathExtractor : segments separes par des points, prefixe "$."
-     * optionnel, ex. "$.token"/"token"/"data.token" - jamais de tableaux/
-     * filtres/wildcards, aucune dependance JSONPath ajoutee) dans le corps
+     * optionnel, index de tableau [n] acceptes, ex. "$.token"/"data.token"/
+     * "data.accounts[0].id" - jamais de filtres/wildcards, aucune dependance
+     * JSONPath ajoutee) dans le corps
      * JSON de la reponse. null ou reponse non-JSON/chemin introuvable =
      * aucune variable produite, jamais une erreur d'execution. */
     @Column(name = "capture_json_path", length = 500)
     private String captureJsonPath;
+
+    /** Source de la capture : JSON (corps, chemin ci-dessus) ou HEADER (captureJsonPath = nom de
+     * l'en-tete de reponse, ou "Set-Cookie:NOM") - null = JSON, voir migration 034. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "capture_source", length = 20)
+    private com.loadpilot.backend.enums.CaptureSource captureSource;
+
+    /** Temps de reponse maximal (ms) : au-dela, l'etape echoue (voir StepChecks) ; null = aucun. */
+    @Column(name = "max_response_time_ms")
+    private Integer maxResponseTimeMs;
+
+    /** Assertion JSON : champ a verifier (meme syntaxe que la capture) ; null = aucune. */
+    @Column(name = "assertion_json_path", length = 500)
+    private String assertionJsonPath;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "assertion_json_operator", length = 16)
+    private com.loadpilot.backend.enums.JsonAssertionOperator assertionJsonOperator;
+
+    @Column(name = "assertion_json_value", length = 1000)
+    private String assertionJsonValue;
 
     /** Variables de chemin (:nom / {nom}) : objet JSON {"nom": "valeur ou ${variable}"}. */
     @Column(name = "path_params", length = 4000)

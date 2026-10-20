@@ -18,22 +18,31 @@ public class ResourceMonitor {
     private static final Logger log = LoggerFactory.getLogger(ResourceMonitor.class);
 
     private final ObjectMapper mapper;
-    private final HttpClient client = HttpClient.newBuilder()
-            .connectTimeout(ResourceProbe.TIMEOUT)
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
 
     public ResourceMonitor(ObjectMapper mapper) {
         this.mapper = mapper;
     }
 
-    /** Lecture en cours pour une execution : stop() l'arrete (appele a la fin du test). */
+    /**
+     * Client propre a une session (ou a un test) : avec le proxy de SON application (voir
+     * MonitoringConfig.network), ferme a la fin - jamais un client partage entre applications.
+     */
+    static HttpClient newClient(MonitoringConfig config) {
+        return config.network().configure(HttpClient.newBuilder()
+                .connectTimeout(ResourceProbe.TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL))
+                .build();
+    }
+
+    /** Lecture en cours pour une execution : stop() l'arrete (appele a la fin du test) et ferme son client. */
     public static final class Session {
         private final Thread thread;
+        private final HttpClient client;
         private volatile boolean stopped;
 
-        private Session(Thread thread) {
+        private Session(Thread thread, HttpClient client) {
             this.thread = thread;
+            this.client = client;
         }
 
         public void stop() {
@@ -44,11 +53,13 @@ public class ResourceMonitor {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+            com.loadpilot.backend.service.http.HttpClients.shutdownQuietly(client);
         }
     }
 
     /** Demarre la lecture toutes les intervalSeconds (premiere lecture immediate). */
     public Session start(MonitoringConfig config, ResourceTrack track) {
+        HttpClient client = newClient(config);
         ResourceProbe probe = new ResourceProbe(config, client, mapper);
         Session[] holder = new Session[1];
         Thread thread = Thread.ofVirtual().name("monitoring-" + config.type()).unstarted(() -> {
@@ -75,7 +86,7 @@ public class ResourceMonitor {
                 }
             }
         });
-        holder[0] = new Session(thread);
+        holder[0] = new Session(thread, client);
         thread.start();
         return holder[0];
     }
@@ -85,6 +96,12 @@ public class ResourceMonitor {
         if (!config.enabled()) {
             return new MonitoringTestResponse(false, "Choisissez un type de monitoring et indiquez son URL.", null, null, null);
         }
+        // Proxy de l'application : verifie d'abord lui-meme, pour qu'un echec le designe (et non le monitoring).
+        String proxyUnreachable = config.network().proxyUnreachable();
+        if (proxyUnreachable != null) {
+            return new MonitoringTestResponse(false, proxyUnreachable, null, null, null);
+        }
+        HttpClient client = newClient(config);
         ResourceProbe probe = new ResourceProbe(config, client, mapper);
         try {
             ResourceProbe.Reading first = probe.read();
@@ -102,6 +119,8 @@ public class ResourceMonitor {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new MonitoringTestResponse(false, "Test du monitoring interrompu.", null, null, null);
+        } finally {
+            com.loadpilot.backend.service.http.HttpClients.shutdownQuietly(client);
         }
     }
 }

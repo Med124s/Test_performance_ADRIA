@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Ralentissement sur 429 Too Many Requests (voir ThrottlePolicy) : colonnes ADDITIONNELLES et NULLABLES.
+        NULL = valeur par defaut, sans reecrire les scenarios existants.
+
+        scenario.throttle_on_429               : respecter les 429 (attente puis rejeu de l'etape) ; NULL = oui.
+        scenario.throttle_default_delay_seconds : attente sans en-tete Retry-After ; NULL = 5 s.
+        scenario.throttle_max_retries           : rejeux au plus par etape apres un 429 ; NULL = 3.
+    -->
+    <changeSet id="036-scenario-throttle-429" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="throttle_on_429" type="BOOLEAN"/>
+            <column name="throttle_default_delay_seconds" type="INT"/>
+            <column name="throttle_max_retries" type="INT"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

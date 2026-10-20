@@ -39,6 +39,24 @@ public final class TestRunMasking {
         return name != null && SENSITIVE_NAME.matcher(name).matches();
     }
 
+    private static final Pattern SENSITIVE_HTML_NAME = Pattern.compile(".*(" + SENSITIVE_WORDS + "|csrf|xsrf|session).*", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Capture depuis une page HTML : selecteur, ou nom (name/id) de l'element retenu, qui ressemble a
+     * un jeton, un mot de passe ou une session (ex. input[name=csrf_token], authenticity_token).
+     */
+    public static boolean isSensitiveHtmlCapture(String spec, String elementName) {
+        return (spec != null && SENSITIVE_HTML_NAME.matcher(spec).matches())
+                || (elementName != null && SENSITIVE_HTML_NAME.matcher(elementName).matches());
+    }
+
+    /** Capture depuis un en-tete (nom, ou "Set-Cookie:NOM") : en-tete d'authentification ou de cookie, ou nom sensible. */
+    public static boolean isSensitiveHeaderCapture(String spec) {
+        if (spec == null) return false;
+        String name = spec.split(":", 2)[0].trim().toLowerCase(Locale.ROOT);
+        return SENSITIVE_HEADERS.contains(name) || isSensitiveName(spec);
+    }
+
     public static Map<String, String> maskHeaders(Map<String, String> headers, Set<String> extraSensitiveNames,
             Collection<String> secrets) {
         Map<String, String> masked = new LinkedHashMap<>();

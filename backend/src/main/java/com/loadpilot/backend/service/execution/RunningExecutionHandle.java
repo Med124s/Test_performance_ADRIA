@@ -31,6 +31,7 @@ public final class RunningExecutionHandle {
     /** Utilisateur qui a demande l'annulation (« Annulée par … ») ; null = annulation automatique. */
     private volatile String cancelledBy;
     private final List<Future<?>> futures = new CopyOnWriteArrayList<>();
+    private final Object cancelLock = new Object();
 
     private final Object pauseLock = new Object();
     private boolean paused = false;
@@ -83,6 +84,28 @@ public final class RunningExecutionHandle {
         this.resources = track;
     }
 
+    /** Ecriture des resultats au fil du test (voir ResultStream) ; null = resultats gardes en memoire jusqu'a la fin. */
+    private volatile ResultStream resultStream;
+
+    public ResultStream resultStream() {
+        return resultStream;
+    }
+
+    public void resultStream(ResultStream stream) {
+        this.resultStream = stream;
+    }
+
+    private volatile com.loadpilot.backend.service.monitoring.InjectorTrack injector;
+
+    /** Mesures de LoadPilot lui-meme pendant le test (null tant que non demarre). */
+    public com.loadpilot.backend.service.monitoring.InjectorTrack injector() {
+        return injector;
+    }
+
+    public void injector(com.loadpilot.backend.service.monitoring.InjectorTrack track) {
+        this.injector = track;
+    }
+
     public void detailRecorder(RequestDetailRecorder recorder) {
         this.detailRecorder = recorder;
     }
@@ -100,10 +123,9 @@ public final class RunningExecutionHandle {
         return cancelledBy;
     }
 
-    /** Annulation demandee par un utilisateur. */
-    public void requestCancellationBy(String username) {
-        if (!cancelled) cancelledBy = username;
-        requestCancellation(null);
+    /** Annulation demandee par un utilisateur ; true si c'est cette demande qui a annule. */
+    public boolean requestCancellationBy(String username) {
+        return requestCancellation(null, username);
     }
 
     public void registerFuture(Future<?> future) {
@@ -134,11 +156,30 @@ public final class RunningExecutionHandle {
         requestCancellation(null);
     }
 
-    public void requestCancellation(String reason) {
-        if (!cancelled) {
-            cancellationReason = reason;
+    /** Annulation automatique avec son motif ; true si c'est cette demande qui a annule. */
+    public boolean requestCancellation(String reason) {
+        return requestCancellation(reason, null);
+    }
+
+    /**
+     * La premiere demande l'emporte (atomique) : son motif et son auteur sont gardes, une demande
+     * concurrente (ex. frein automatique et clic sur « Annuler » au meme instant) ne les ecrase pas.
+     */
+    private boolean requestCancellation(String reason, String username) {
+        boolean first;
+        synchronized (cancelLock) {
+            first = !cancelled;
+            if (first) {
+                cancellationReason = reason;
+                cancelledBy = username;
+                cancelled = true;
+            }
         }
-        cancelled = true;
+        interruptAll();
+        return first;
+    }
+
+    private void interruptAll() {
         synchronized (pauseLock) {
             pauseLock.notifyAll();
         }

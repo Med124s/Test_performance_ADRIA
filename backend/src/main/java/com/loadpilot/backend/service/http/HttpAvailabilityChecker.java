@@ -19,4 +19,14 @@ public interface HttpAvailabilityChecker {
     default HttpAvailabilityResult check(String url, java.util.Map<String, String> headers, Duration timeout) {
         return check(url, timeout);
     }
+
+    /** Sans en-tete, avec les reglages reseau de l'application (proxy). Par defaut, les ignore (implementations de test). */
+    default HttpAvailabilityResult check(String url, Duration timeout, NetworkProfile network) {
+        return check(url, timeout);
+    }
+
+    /** Variante complete : reglages reseau de l'application (proxy). Par defaut, les ignore (implementations de test). */
+    default HttpAvailabilityResult check(String url, java.util.Map<String, String> headers, Duration timeout, NetworkProfile network) {
+        return check(url, headers, timeout);
+    }
 }

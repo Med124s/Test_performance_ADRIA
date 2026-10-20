@@ -10,7 +10,7 @@ import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 
-@Mapper(componentModel = "spring", uses = {MapperSupport.class, ApplicationAuthSupport.class, MonitoringSupport.class})
+@Mapper(componentModel = "spring", uses = {MapperSupport.class, ApplicationAuthSupport.class, MonitoringSupport.class, com.loadpilot.backend.service.http.NetworkSupport.class})
 public interface ApplicationMapper {
 
     @Mapping(target = "id", ignore = true)
@@ -30,6 +30,12 @@ public interface ApplicationMapper {
     @Mapping(target = "monitoringHeaderName", ignore = true)
     @Mapping(target = "monitoringSecret", ignore = true)
     @Mapping(target = "monitoringIntervalSeconds", ignore = true)
+    @Mapping(target = "monitoringWithoutProxy", ignore = true)
+    @Mapping(target = "proxyMode", ignore = true)
+    @Mapping(target = "proxyHost", ignore = true)
+    @Mapping(target = "proxyPort", ignore = true)
+    @Mapping(target = "proxyUsername", ignore = true)
+    @Mapping(target = "proxyPassword", ignore = true)
     Application toEntity(ApplicationRequest request);
 
     @Mapping(target = "id", ignore = true)
@@ -49,12 +55,19 @@ public interface ApplicationMapper {
     @Mapping(target = "monitoringHeaderName", ignore = true)
     @Mapping(target = "monitoringSecret", ignore = true)
     @Mapping(target = "monitoringIntervalSeconds", ignore = true)
+    @Mapping(target = "monitoringWithoutProxy", ignore = true)
+    @Mapping(target = "proxyMode", ignore = true)
+    @Mapping(target = "proxyHost", ignore = true)
+    @Mapping(target = "proxyPort", ignore = true)
+    @Mapping(target = "proxyUsername", ignore = true)
+    @Mapping(target = "proxyPassword", ignore = true)
     void updateEntityFromRequest(ApplicationRequest request, @MappingTarget Application application);
 
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")
     @Mapping(target = "createdBy", source = "createdBy", qualifiedByName = "appUserDisplayName")
     @Mapping(target = "auth", source = "application", qualifiedByName = "applicationAuthResponse")
     @Mapping(target = "monitoring", source = "application", qualifiedByName = "applicationMonitoringResponse")
+    @Mapping(target = "network", source = "application", qualifiedByName = "applicationNetworkResponse")
     ApplicationResponse toResponse(Application application);
 
     List<ApplicationResponse> toResponseList(List<Application> applications);

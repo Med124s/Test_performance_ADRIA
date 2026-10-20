@@ -51,6 +51,28 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage(), request);
     }
 
+    /** Lecture refusee avant de charger tous les resultats d'une execution (voir ResultLoadGuard) : 413 ou 409. */
+    @ExceptionHandler(ResultSetTooLargeException.class)
+    public ResponseEntity<ErrorResponse> handleResultSetTooLarge(ResultSetTooLargeException ex, HttpServletRequest request) {
+        return build(ex.status(), ex.getMessage(), request);
+    }
+
+    /**
+     * Manque de memoire pendant une requete (dernier recours : ResultLoadGuard refuse en principe
+     * avant). Spring transmet l'erreur enveloppee, ce gestionnaire recoit sa cause. Reponse 503
+     * claire au lieu de la page d'erreur generique ; la memoire de la requete est liberee une fois
+     * sa pile deroulee. Journal explicite : d'autres traitements ont pu echouer pendant ce temps.
+     */
+    @ExceptionHandler(OutOfMemoryError.class)
+    public ResponseEntity<ErrorResponse> handleOutOfMemory(OutOfMemoryError error, HttpServletRequest request) {
+        log.error("Memoire insuffisante pendant {} {} : requete abandonnee ({}). D'autres traitements en cours ont pu "
+                + "echouer en meme temps ; augmenter LOADPILOT_JVM_MAX_MEMORY ou reduire le volume des tests.",
+                request.getMethod(), request.getRequestURI(), error.getMessage());
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "Mémoire du serveur insuffisante pour traiter cette demande : "
+                + "elle a été abandonnée. Réessayez plus tard ; si le problème persiste, l'exécution est trop volumineuse "
+                + "pour la mémoire de ce serveur.", request);
+    }
+
     /** P0-B : parametre de charge invalide pour ce deploiement (limite
      * configurable, distincte des bornes absolues @Min/@Max). */
     @ExceptionHandler(LoadConfigurationException.class)

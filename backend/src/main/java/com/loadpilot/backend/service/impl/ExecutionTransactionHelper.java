@@ -149,12 +149,16 @@ public class ExecutionTransactionHelper {
                 .map(s -> new StepExecutionSpec(s.getId(), s.getName(), s.getMethod(), s.getUrl(),
                         s.getHeaders(), s.getBody(), s.getExpectedStatus(), s.getThinkTimeMs(),
                         s.getTimeoutSeconds(), s.getFollowRedirects(), s.getAssertionBodyContains(),
-                        s.getCaptureVariableName(), s.getCaptureJsonPath(), s.getPathParams(), s.getQueryParams()))
+                        s.getCaptureVariableName(), s.getCaptureJsonPath(), s.getPathParams(), s.getQueryParams(),
+                        s.getCaptureSource(), s.getMaxResponseTimeMs(), s.getAssertionJsonPath(),
+                        s.getAssertionJsonOperator(), s.getAssertionJsonValue()))
                 .toList();
 
         LoadTestSpec loadSpec = new LoadTestSpec(scenario.getVirtualUsers(), scenario.getRampUpSeconds(),
                 scenario.getDurationSeconds(), scenario.getIterations(), scenario.getThinkTimeMs(),
-                scenario.getTargetRps());
+                scenario.getTargetRps(), com.loadpilot.backend.service.execution.ThrottlePolicy.of(scenario.getThrottleOn429(),
+                        scenario.getThrottleDefaultDelaySeconds(), scenario.getThrottleMaxRetries()),
+                scenario.getThinkTimeVariationPercent() == null ? 0 : scenario.getThinkTimeVariationPercent());
 
         // P1-Q Etape B - parse ICI (transaction courte, Scenario encore
         // gere) le CSV data source eventuel du Scenario - jamais reparse a
@@ -165,7 +169,10 @@ public class ExecutionTransactionHelper {
                 ScenarioVariables.parse(scenario.getVariables()), specs);
 
         return new PreparedExecution(saved.getId(), specs, applicationBaseUrl, auth, loadSpec, vuVariableRows, variableSources,
-                scenario.getName(), triggeredByAppUserId, scheduleId, scenario.getRequestDetailMode());
+                scenario.getName(), triggeredByAppUserId, scheduleId, scenario.getRequestDetailMode(),
+                com.loadpilot.backend.service.execution.ErrorRateBrake.Config.of(scenario.getErrorBrakeRatePercent(),
+                        scenario.getErrorBrakeWindowSeconds()),
+                com.loadpilot.backend.service.http.NetworkProfile.of(scenario.getApplication()));
     }
 
     /**
@@ -238,40 +245,24 @@ public class ExecutionTransactionHelper {
             return execution;
         }
 
-        // Etapes du scenario chargees en UNE requete : chaque resultat garde
-        // une copie (nom, methode, URL) pour que l'historique survive a la
-        // suppression ulterieure de l'etape (voir migration 017). Une etape
-        // ne peut pas etre supprimee pendant une execution (StepServiceImpl).
-        Map<UUID, Step> stepsById = new java.util.HashMap<>();
-        for (Step s : stepRepository.findByScenarioId(execution.getScenario().getId(), Sort.unsorted())) {
-            stepsById.put(s.getId(), s);
-        }
-        for (StepOutcome stepOutcome : outcome.stepOutcomes()) {
-            Step step = stepsById.get(stepOutcome.stepId());
-            ExecutionStepResult result = ExecutionStepResult.builder()
-                    .execution(execution)
-                    .step(step)
-                    .stepName(step != null ? step.getName() : null)
-                    .stepMethod(step != null ? step.getMethod() : null)
-                    .stepUrl(step != null ? step.getUrl() : null)
-                    .httpStatus(stepOutcome.httpStatus())
-                    .responseTime(stepOutcome.responseTimeMs())
-                    .success(stepOutcome.success())
-                    .error(stepOutcome.error())
-                    .timestamp(stepOutcome.timestamp())
-                    .virtualUser(stepOutcome.virtualUser())
-                    .iteration(stepOutcome.iteration())
-                    .requestUrl(stepOutcome.requestUrl())
-                    .build();
-            ExecutionStepResult savedResult = executionStepResultRepository.save(result);
-            if (stepOutcome.detail() != null) {
-                requestDetailRepository.save(toDetailEntity(stepOutcome.detail(), savedResult, execution));
+        // Resultats pas encore enregistres : tous (moteur sans ecriture au fil du test) ou aucun (deja
+        // ecrits par ResultStream, voir appendResults). Une etape ne peut pas etre supprimee pendant une
+        // execution (StepServiceImpl).
+        if (!outcome.stepOutcomes().isEmpty()) {
+            Map<UUID, Step> stepsById = new java.util.HashMap<>();
+            for (Step s : stepRepository.findByScenarioId(execution.getScenario().getId(), Sort.unsorted())) {
+                stepsById.put(s.getId(), s);
+            }
+            for (StepOutcome stepOutcome : outcome.stepOutcomes()) {
+                saveResult(stepOutcome, execution, stepsById.get(stepOutcome.stepId()));
             }
         }
         execution.setDetailSampleCapReached(detailSampleCapReached);
 
-        long successCount = outcome.stepOutcomes().stream().filter(StepOutcome::success).count();
-        long failCount = outcome.stepOutcomes().size() - successCount;
+        // Compteurs relus en base : exactement les resultats conserves, ecrits pendant le test ou ici.
+        executionStepResultRepository.flush();
+        long successCount = executionStepResultRepository.countByExecutionIdAndSuccess(executionId, true);
+        long failCount = executionStepResultRepository.countByExecutionIdAndSuccess(executionId, false);
 
         Instant finishedAt = Instant.now();
         closePause(execution, finishedAt);
@@ -288,6 +279,75 @@ public class ExecutionTransactionHelper {
         execution.setDuration(Duration.between(execution.getStartedAt(), finishedAt).toMillis());
 
         return executionRepository.saveAndFlush(execution);
+    }
+
+    /**
+     * Un lot de resultats ecrit PENDANT le test (voir ResultStream), dans sa propre transaction courte.
+     * steps : etapes de l'execution (copie de leur nom, methode et URL dans chaque resultat, pour que
+     * l'historique survive a la suppression ulterieure de l'etape - voir migration 017) ; l'etape et
+     * l'execution sont referencees sans etre relues (getReferenceById).
+     * Aucun verrou sur l'execution : jamais en concurrence avec pause, reprise ou annulation.
+     */
+    @Transactional
+    public void appendResults(UUID executionId, List<StepOutcome> batch, Map<UUID, StepExecutionSpec> steps) {
+        Execution execution = executionRepository.getReferenceById(executionId);
+        for (StepOutcome outcome : batch) {
+            StepExecutionSpec spec = outcome.stepId() == null ? null : steps.get(outcome.stepId());
+            Step step = spec == null ? null : stepRepository.getReferenceById(spec.stepId());
+            saveResult(outcome, execution, step, spec);
+        }
+    }
+
+    private void saveResult(StepOutcome stepOutcome, Execution execution, Step step) {
+        saveResult(stepOutcome, execution, step, null);
+    }
+
+    /** Un resultat (et son detail eventuel) ; spec, si fourni, donne la copie de l'etape sans la relire. */
+    private void saveResult(StepOutcome stepOutcome, Execution execution, Step step, StepExecutionSpec spec) {
+        ExecutionStepResult result = ExecutionStepResult.builder()
+                .execution(execution)
+                .step(step)
+                .stepName(spec != null ? spec.name() : step != null ? step.getName() : null)
+                .stepMethod(spec != null ? spec.method() : step != null ? step.getMethod() : null)
+                .stepUrl(spec != null ? spec.url() : step != null ? step.getUrl() : null)
+                .httpStatus(stepOutcome.httpStatus())
+                .responseTime(stepOutcome.responseTimeMs())
+                .success(stepOutcome.success())
+                .error(stepOutcome.error())
+                .timestamp(stepOutcome.timestamp())
+                .virtualUser(stepOutcome.virtualUser())
+                .iteration(stepOutcome.iteration())
+                .requestUrl(stepOutcome.requestUrl())
+                .build();
+        ExecutionStepResult savedResult = executionStepResultRepository.save(result);
+        if (stepOutcome.detail() != null) {
+            requestDetailRepository.save(toDetailEntity(stepOutcome.detail(), savedResult, execution));
+        }
+    }
+
+    /**
+     * Echec inattendu de la tache asynchrone (erreur memoire, exception imprevue) : passe l'execution
+     * a FAILED sous le MEME verrou que markRunning/finalizeExecution/attemptCancellation, et seulement
+     * si elle est encore active - un statut de fin deja enregistre (erreur survenue apres
+     * finalizeExecution) n'est jamais ecrase. Retourne true si l'execution a ete marquee.
+     */
+    @Transactional
+    public boolean markFailedIfActive(UUID executionId, String errorMessage) {
+        Execution execution = executionRepository.findByIdForUpdate(executionId).orElse(null);
+        if (execution == null || !execution.getStatus().isActive()) {
+            return false;
+        }
+        Instant finishedAt = Instant.now();
+        closePause(execution, finishedAt);
+        // Resultats deja ecrits pendant le test (ResultStream) : conserves et comptes.
+        execution.setSuccessfulSteps((int) executionStepResultRepository.countByExecutionIdAndSuccess(executionId, true));
+        execution.setFailedSteps((int) executionStepResultRepository.countByExecutionIdAndSuccess(executionId, false));
+        execution.setStatus(ExecutionStatus.FAILED);
+        execution.setErrorMessage(errorMessage);
+        execution.setFinishedAt(finishedAt);
+        execution.setDuration(Duration.between(execution.getStartedAt(), finishedAt).toMillis());
+        executionRepository.saveAndFlush(execution);
+        return true;
     }
 
     /**

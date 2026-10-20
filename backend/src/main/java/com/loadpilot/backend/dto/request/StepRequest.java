@@ -1,5 +1,6 @@
 package com.loadpilot.backend.dto.request;
 
+import com.loadpilot.backend.enums.CaptureSource;
 import com.loadpilot.backend.enums.HttpMethod;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -87,13 +88,47 @@ public record StepRequest(
 
         // Parametres de requete : tableau JSON [{"key","value","enabled"}] (voir StepRules).
         @Size(max = 8000, message = "Les parametres de requete ne doivent pas depasser 8000 caracteres.")
-        String queryParams
+        String queryParams,
+
+        // Source de la capture : JSON (defaut, null) ou HEADER (captureJsonPath = nom de l'en-tete).
+        CaptureSource captureSource,
+
+        // Temps de reponse maximal (ms) : au-dela, l'etape echoue ; null = aucun controle.
+        @Min(value = 1, message = "Le temps de reponse maximal doit etre d'au moins 1 ms.")
+        @Max(value = 600_000, message = "Le temps de reponse maximal ne doit pas depasser 600 000 ms.")
+        Integer maxResponseTimeMs,
+
+        // Assertion JSON : champ (meme syntaxe que la capture), comparaison et valeur attendue ; null = aucune.
+        @Size(max = 500, message = "Le champ de l'assertion JSON ne doit pas depasser 500 caracteres.")
+        String assertionJsonPath,
+        com.loadpilot.backend.enums.JsonAssertionOperator assertionJsonOperator,
+        @Size(max = 1000, message = "La valeur attendue de l'assertion JSON ne doit pas depasser 1000 caracteres.")
+        String assertionJsonValue
 ) {
+    /** Compatibilite : etape sans controle de temps de reponse ni assertion JSON. */
+    public StepRequest(UUID scenarioId, String name, HttpMethod method, String url, String headers, String body,
+            Integer order, Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
+            String assertionBodyContains, String captureVariableName, String captureJsonPath, String pathParams,
+            String queryParams, CaptureSource captureSource) {
+        this(scenarioId, name, method, url, headers, body, order, expectedStatus, thinkTimeMs, timeoutSeconds,
+                followRedirects, assertionBodyContains, captureVariableName, captureJsonPath, pathParams, queryParams, captureSource,
+                null, null, null, null);
+    }
+
     /** Compatibilite : etape sans parametres de chemin ni de requete separes. */
     public StepRequest(UUID scenarioId, String name, HttpMethod method, String url, String headers, String body,
             Integer order, Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
             String assertionBodyContains, String captureVariableName, String captureJsonPath) {
         this(scenarioId, name, method, url, headers, body, order, expectedStatus, thinkTimeMs, timeoutSeconds,
                 followRedirects, assertionBodyContains, captureVariableName, captureJsonPath, null, null);
+    }
+
+    /** Compatibilite : capture JSON (source non precisee). */
+    public StepRequest(UUID scenarioId, String name, HttpMethod method, String url, String headers, String body,
+            Integer order, Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
+            String assertionBodyContains, String captureVariableName, String captureJsonPath, String pathParams,
+            String queryParams) {
+        this(scenarioId, name, method, url, headers, body, order, expectedStatus, thinkTimeMs, timeoutSeconds,
+                followRedirects, assertionBodyContains, captureVariableName, captureJsonPath, pathParams, queryParams, null);
     }
 }

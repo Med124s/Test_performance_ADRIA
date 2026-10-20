@@ -9,7 +9,6 @@ import com.loadpilot.backend.entity.AppUser;
 import com.loadpilot.backend.entity.Application;
 import com.loadpilot.backend.entity.Execution;
 import com.loadpilot.backend.entity.ExecutionStepResult;
-import com.loadpilot.backend.entity.Metric;
 import com.loadpilot.backend.entity.Scenario;
 import com.loadpilot.backend.entity.Step;
 import com.loadpilot.backend.enums.ApplicationStatus;
@@ -22,10 +21,8 @@ import com.loadpilot.backend.repository.AppUserRepository;
 import com.loadpilot.backend.repository.ApplicationRepository;
 import com.loadpilot.backend.repository.ExecutionRepository;
 import com.loadpilot.backend.repository.ExecutionStepResultRepository;
-import com.loadpilot.backend.repository.MetricRepository;
 import com.loadpilot.backend.repository.ScenarioRepository;
 import com.loadpilot.backend.repository.StepRepository;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
@@ -74,8 +71,6 @@ class DashboardServiceImplIntegrationTest {
     private ExecutionRepository executionRepository;
     @Autowired
     private ExecutionStepResultRepository executionStepResultRepository;
-    @Autowired
-    private MetricRepository metricRepository;
 
     private AppUser user;
 
@@ -133,28 +128,30 @@ class DashboardServiceImplIntegrationTest {
     }
 
     private void createResult(Execution execution, Step step, boolean success) {
+        createResult(execution, step, success, 100L);
+    }
+
+    private void createResult(Execution execution, Step step, boolean success, long responseTime) {
         executionStepResultRepository.saveAndFlush(ExecutionStepResult.builder()
                 .execution(execution)
                 .step(step)
                 .httpStatus(success ? 200 : 500)
-                .responseTime(100L)
+                .responseTime(responseTime)
                 .success(success)
                 .timestamp(Instant.now())
                 .build());
     }
 
-    private void createMetric(Application application, Scenario scenario, Step step, Execution execution,
-            Integer responseTime, BigDecimal throughput, BigDecimal errorRate) {
-        metricRepository.saveAndFlush(Metric.builder()
-                .application(application)
+    /** Execution terminee avec sa duree : son debit et son taux d'erreurs servent aux moyennes du Dashboard. */
+    private Execution executionWithDuration(Scenario scenario, int successful, int failed, long durationMs) {
+        return executionRepository.saveAndFlush(Execution.builder()
                 .scenario(scenario)
-                .step(step)
-                .execution(execution)
-                .responseTime(responseTime)
-                .statusCode(200)
-                .throughput(throughput)
-                .errorRate(errorRate)
-                .timestamp(Instant.now())
+                .startedAt(Instant.now())
+                .status(failed > 0 ? ExecutionStatus.THRESHOLDS_EXCEEDED : ExecutionStatus.SUCCESS)
+                .totalSteps(1)
+                .successfulSteps(successful)
+                .failedSteps(failed)
+                .duration(durationMs)
                 .build());
     }
 
@@ -267,16 +264,18 @@ class DashboardServiceImplIntegrationTest {
         Scenario scenarioB = createScenario(appB, "scenario-b", ScenarioStatus.ACTIVE);
         Step stepA = createStep(scenarioA, 1);
         Step stepB = createStep(scenarioB, 1);
-        Execution execA = createExecution(scenarioA, ExecutionStatus.SUCCESS, 1, 1, 0);
-        Execution execB = createExecution(scenarioB, ExecutionStatus.SUCCESS, 1, 1, 0);
-
-        createMetric(appA, scenarioA, stepA, execA, 100, BigDecimal.valueOf(10), BigDecimal.ZERO);
-        createMetric(appA, scenarioA, stepA, execA, 200, BigDecimal.valueOf(20), BigDecimal.ZERO);
-        createMetric(appB, scenarioB, stepB, execB, 999, BigDecimal.valueOf(999), BigDecimal.valueOf(50));
+        // Moyennes calculees sur les resultats : 1 requete en 100 ms (10 req/s) et 1 requete en 50 ms (20 req/s).
+        Execution execA1 = executionWithDuration(scenarioA, 1, 0, 100L);
+        Execution execA2 = executionWithDuration(scenarioA, 1, 0, 50L);
+        Execution execB = executionWithDuration(scenarioB, 1, 1, 2L);
+        createResult(execA1, stepA, true, 100L);
+        createResult(execA2, stepA, true, 200L);
+        createResult(execB, stepB, true, 999L);
+        createResult(execB, stepB, false, 999L);
 
         ApplicationDashboardResponse dashboardA = dashboardService.getApplicationDashboard(appA.getId());
 
-        // Moyenne de 100 et 200 = 150 - jamais influencee par la Metric de appB (999).
+        // Moyenne de 100 et 200 = 150 - jamais influencee par les requetes de appB (999).
         assertThat(dashboardA.performance().averageResponseTime()).isEqualByComparingTo("150.00");
         assertThat(dashboardA.performance().averageThroughput()).isEqualByComparingTo("15.000");
         assertThat(dashboardA.performance().averageErrorRate()).isEqualByComparingTo("0.00");

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Variation aleatoire du think time (voir service.execution.ThinkTime) : colonne ADDITIONNELLE et NULLABLE.
+
+        scenario.think_time_variation_percent : ± % autour du think time configure (scenario et etapes),
+                                                tirage uniforme ; NULL = think time fixe, comme avant.
+    -->
+    <changeSet id="038-scenario-think-time-variation" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="think_time_variation_percent" type="INT"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

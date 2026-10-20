@@ -89,13 +89,14 @@ public class TestRunPlanner {
             StepRequest s = payload.step();
             allSpecs.add(new StepExecutionSpec(payload.id(), s.name(), s.method(), s.url(), s.headers(), s.body(),
                     s.expectedStatus(), s.thinkTimeMs(), s.timeoutSeconds(), s.followRedirects(), s.assertionBodyContains(),
-                    s.captureVariableName(), s.captureJsonPath(), s.pathParams(), s.queryParams()));
+                    s.captureVariableName(), s.captureJsonPath(), s.pathParams(), s.queryParams(), s.captureSource(),
+                    s.maxResponseTimeMs(), s.assertionJsonPath(), s.assertionJsonOperator(), s.assertionJsonValue()));
         }
         List<Map<String, String>> rows = CsvDataSource.parse(draft.scenario().csvData());
         return new TestRunPlan(scenarioId, application.getUrl(), authSupport.toSpec(application),
                 allSpecs.subList(0, count), rows.isEmpty() ? Map.of() : rows.get(0), ScenarioVariables.parse(variablesJson),
                 Map.of(), java.util.stream.IntStream.rangeClosed(1, count).boxed().toList(),
-                new VariableSources(List.of(), null, Map.of(), allSpecs).captureStepByVariable());
+                new VariableSources(List.of(), null, Map.of(), allSpecs).captureStepByVariable(), com.loadpilot.backend.service.http.NetworkProfile.of(application));
     }
 
     /** onlyStepId null : toutes les etapes ; sinon cette seule etape (numerotee dans le scenario). */
@@ -118,14 +119,15 @@ public class TestRunPlanner {
         return new TestRunPlan(scenario.getId(), scenario.getApplication().getUrl(),
                 authSupport.toSpec(scenario.getApplication()), specs, rows.isEmpty() ? Map.of() : rows.get(0),
                 ScenarioVariables.parse(scenario.getVariables()), provided, numbers,
-                new VariableSources(List.of(), null, Map.of(), allSpecs).captureStepByVariable());
+                new VariableSources(List.of(), null, Map.of(), allSpecs).captureStepByVariable(), com.loadpilot.backend.service.http.NetworkProfile.of(scenario.getApplication()));
     }
 
     static StepExecutionSpec toSpec(Step s) {
         return new StepExecutionSpec(s.getId(), s.getName(), s.getMethod(), s.getUrl(),
                 s.getHeaders(), s.getBody(), s.getExpectedStatus(), s.getThinkTimeMs(),
                 s.getTimeoutSeconds(), s.getFollowRedirects(), s.getAssertionBodyContains(),
-                s.getCaptureVariableName(), s.getCaptureJsonPath(), s.getPathParams(), s.getQueryParams());
+                s.getCaptureVariableName(), s.getCaptureJsonPath(), s.getPathParams(), s.getQueryParams(), s.getCaptureSource(),
+                s.getMaxResponseTimeMs(), s.getAssertionJsonPath(), s.getAssertionJsonOperator(), s.getAssertionJsonValue());
     }
 
     private void ensureNotArchived(Scenario scenario) {

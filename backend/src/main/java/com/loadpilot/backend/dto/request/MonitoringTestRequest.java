@@ -12,6 +12,13 @@ public record MonitoringTestRequest(
         UUID applicationId,
         @NotNull(message = "La configuration de monitoring est obligatoire.")
         @Valid
-        ApplicationMonitoringRequest monitoring
+        ApplicationMonitoringRequest monitoring,
+        /** Reseau saisi (optionnel) : sinon celui de l'application enregistree (applicationId), sinon le proxy global. */
+        @Valid
+        ApplicationNetworkRequest network
 ) {
+    /** Compatibilite : sans reglage reseau saisi. */
+    public MonitoringTestRequest(UUID applicationId, ApplicationMonitoringRequest monitoring) {
+        this(applicationId, monitoring, null);
+    }
 }

@@ -300,7 +300,7 @@ Sur `DEMO — Connexion utilisateurs` :
 | Limite | Effet |
 |---|---|
 | Pas d'échappement JSON des valeurs injectées | un `"` ou un `\` dans le CSV casse le corps JSON |
-| JSONPath sans index de tableau | `$.items[0].id` n'est pas pris en charge, seulement `$.a.b` |
+| JSONPath simplifié | points et index de tableau (`$.a.b`, `$.items[0].id`) ; pas de filtres, de `[*]` ni d'index négatif |
 | Annulation | les résultats partiels sont perdus |
 | VU, itération et URL finale | présents dans l'API, pas encore affichés dans le détail d'une exécution |
 | Timeout, think time et redirections par étape | gérés par le backend, pas modifiables dans l'éditeur d'étape |

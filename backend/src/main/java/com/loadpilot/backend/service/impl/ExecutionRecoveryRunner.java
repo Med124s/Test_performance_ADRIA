@@ -54,12 +54,12 @@ import org.springframework.transaction.annotation.Transactional;
  *     QUEUED/RUNNING.
  *
  * CHOIX : (c). JUSTIFICATION : c'est la seule option qui ne mente jamais
- * sur l'etat reel du systeme. Constat verifie dans le code (pas suppose) :
- * ExecutionTransactionHelper.finalizeExecution est le SEUL endroit qui
- * persiste des ExecutionStepResult, et il n'est appele qu'une fois, a la
- * toute fin d'une Execution (succes, echec ou annulation) - donc une
- * Execution interrompue par un crash n'a JAMAIS de resultat partiel
- * persiste a preserver ou a partir duquel reprendre. FAILED (jamais
+ * sur l'etat reel du systeme. Les resultats sont ecrits en base PENDANT le
+ * test, par lots (voir ResultStream) : une Execution interrompue par un
+ * crash a donc des resultats partiels. Ils sont CONSERVES (jamais
+ * supprimes), comptes dans successfulSteps/failedSteps et consultables
+ * comme ceux de toute execution ; seul le dernier lot pas encore ecrit est
+ * perdu. Reprendre le test reste impossible (etat des VUs perdu). FAILED (jamais
  * CANCELLED : personne n'a demande l'annulation - c'est bien un echec reel
  * de l'infrastructure, pas une decision utilisateur) avec le message exact
  * "Backend restarted while execution was running" (demande explicitement
@@ -84,6 +84,7 @@ public class ExecutionRecoveryRunner implements ApplicationRunner {
     private static final String RECOVERY_REASON = "Backend restarted while execution was running";
 
     private final ExecutionRepository executionRepository;
+    private final com.loadpilot.backend.repository.ExecutionStepResultRepository resultRepository;
     private final AuditLogService auditLogService;
     private final NotificationService notificationService;
 
@@ -100,8 +101,13 @@ public class ExecutionRecoveryRunner implements ApplicationRunner {
 
         Instant now = Instant.now();
         for (Execution execution : orphaned) {
+            // Resultats ecrits pendant le test (ResultStream) avant l'arret : conserves, comptes, consultables.
+            long successful = resultRepository.countByExecutionIdAndSuccess(execution.getId(), true);
+            long failed = resultRepository.countByExecutionIdAndSuccess(execution.getId(), false);
+            execution.setSuccessfulSteps((int) successful);
+            execution.setFailedSteps((int) failed);
             execution.setStatus(ExecutionStatus.FAILED);
-            execution.setErrorMessage(RECOVERY_REASON);
+            execution.setErrorMessage(recoveryMessage(successful + failed));
             execution.setFinishedAt(now);
             execution.setDuration(Duration.between(execution.getStartedAt(), now).toMillis());
             executionRepository.save(execution);
@@ -130,5 +136,12 @@ public class ExecutionRecoveryRunner implements ApplicationRunner {
 
         log.warn("Recuperation au demarrage : {} execution(s) orpheline(s) marquee(s) FAILED ({}).",
                 orphaned.size(), RECOVERY_REASON);
+    }
+
+    /** Motif d'echec ; avec des resultats partiels, leur nombre (ils sont conserves). */
+    static String recoveryMessage(long keptResults) {
+        if (keptResults <= 0) return RECOVERY_REASON;
+        return RECOVERY_REASON + " (" + java.text.NumberFormat.getIntegerInstance(java.util.Locale.FRANCE).format(keptResults)
+                + " résultat(s) enregistré(s) avant l'interruption, conservé(s))";
     }
 }

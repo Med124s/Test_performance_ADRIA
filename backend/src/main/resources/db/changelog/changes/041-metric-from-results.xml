@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Fin de la copie des resultats dans la table metric (une ligne par requete, doublon complet de
+        execution_step_result) : les moyennes du Dashboard et /api/metrics sont calculees par agregats
+        sur execution_step_result (service.impl.PerformanceAggregates, MetricServiceImpl).
+
+        Table metric : CONSERVEE, ni videe ni supprimee ici. Plus aucune ligne n'y est ecrite ni lue ;
+        les lignes existantes sont effacees comme avant par la purge des resultats a 90 jours
+        (ResultsRetentionJob) ou par la suppression de leur execution. Supprimer la table effacerait des
+        donnees existantes : cela fera l'objet d'une migration separee, apres accord, une fois la table
+        videe par la purge.
+
+        Index ajoute : execution_step_result(captured_at), pour les moyennes du Dashboard sur une plage
+        de dates (r.timestamp BETWEEN :from AND :to) et les comptes deja faits sur cette meme colonne
+        (countByTimestampBetween...), qui parcouraient jusqu'ici toute la table.
+    -->
+    <changeSet id="041-result-captured-at-index" author="loadpilot">
+        <createIndex indexName="idx_execution_step_result_captured_at" tableName="execution_step_result">
+            <column name="captured_at"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

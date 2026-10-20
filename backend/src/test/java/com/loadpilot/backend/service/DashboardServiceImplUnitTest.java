@@ -5,6 +5,7 @@
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.loadpilot.backend.dto.response.ApplicationDashboardResponse;
@@ -15,7 +16,7 @@ import com.loadpilot.backend.exception.ResourceNotFoundException;
 import com.loadpilot.backend.repository.ApplicationRepository;
 import com.loadpilot.backend.repository.ExecutionRepository;
 import com.loadpilot.backend.repository.ExecutionStepResultRepository;
-import com.loadpilot.backend.repository.MetricRepository;
+import com.loadpilot.backend.service.impl.PerformanceAggregates;
 import com.loadpilot.backend.repository.ScenarioRepository;
 import com.loadpilot.backend.service.impl.DashboardServiceImpl;
 import java.util.Optional;
@@ -49,7 +50,16 @@ class DashboardServiceImplUnitTest {
     @Mock
     private ExecutionStepResultRepository executionStepResultRepository;
     @Mock
-    private MetricRepository metricRepository;
+    private PerformanceAggregates performanceAggregates;
+
+    /** Aucun resultat : AVG() sur un ensemble vide, null partout. */
+    private static final PerformanceAggregates.Averages NONE = new PerformanceAggregates.Averages(null, null, null);
+
+    @org.junit.jupiter.api.BeforeEach
+    void noResultsByDefault() {
+        lenient().when(performanceAggregates.overall()).thenReturn(NONE);
+        lenient().when(performanceAggregates.forApplication(any())).thenReturn(NONE);
+    }
 
     @InjectMocks
     private DashboardServiceImpl dashboardService;
@@ -61,9 +71,7 @@ class DashboardServiceImplUnitTest {
         // Mockito pour les types numeriques boites, meme non-primitifs) - il
         // faut donc stubber explicitement null pour simuler un AVG() JPQL
         // sur un ensemble vide (aucune Metric).
-        when(metricRepository.averageResponseTime()).thenReturn(null);
-        when(metricRepository.averageThroughput()).thenReturn(null);
-        when(metricRepository.averageErrorRate()).thenReturn(null);
+        when(performanceAggregates.overall()).thenReturn(NONE);
 
         DashboardResponse response = dashboardService.getGlobalDashboard();
 
@@ -102,9 +110,7 @@ class DashboardServiceImplUnitTest {
 
     @Test
     void getGlobalDashboard_metricsPresent_roundsAveragesToDocumentedScale() {
-        when(metricRepository.averageResponseTime()).thenReturn(123.456);
-        when(metricRepository.averageThroughput()).thenReturn(2.6666);
-        when(metricRepository.averageErrorRate()).thenReturn(12.5);
+        when(performanceAggregates.overall()).thenReturn(new PerformanceAggregates.Averages(123.456, 2.6666, 12.5));
 
         DashboardResponse response = dashboardService.getGlobalDashboard();
 
@@ -151,7 +157,7 @@ class DashboardServiceImplUnitTest {
         when(applicationRepository.findById(id)).thenReturn(Optional.of(application));
         // Double non stubbe -> Mockito renvoie 0.0 par defaut (pas null) :
         // stub explicite pour simuler l'absence reelle de Metric.
-        when(metricRepository.averageResponseTimeByApplication(id)).thenReturn(null);
+        when(performanceAggregates.forApplication(id)).thenReturn(NONE);
 
         ApplicationDashboardResponse response = dashboardService.getApplicationDashboard(id);
 

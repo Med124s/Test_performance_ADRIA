@@ -6,7 +6,7 @@ import java.math.BigDecimal;
  * Statistiques REELLEMENT calculees (voir PerformanceStatisticsService) a
  * partir des ExecutionStepResult d'une Execution - jamais une valeur
  * inventee. Tous les temps sont en MILLISECONDES. "throughput"/"errorRate"
- * suivent EXACTEMENT les memes formules que MetricGenerationService (voir
+ * suivent EXACTEMENT les memes formules que PerformanceAggregates (voir
  * sa Javadoc) pour rester cohérentes partout dans LoadPilot (prompt P1-A,
  * section 18) :
  *   throughput = totalRequests / dureeExecution(secondes, temps de pause exclu)

@@ -31,6 +31,7 @@ import com.loadpilot.backend.service.ExecutionService;
 import com.loadpilot.backend.service.NotificationService;
 import com.loadpilot.backend.service.execution.CancellationAttempt;
 import com.loadpilot.backend.service.execution.CancellationOutcome;
+import com.loadpilot.backend.service.execution.ErrorRateBrake;
 import com.loadpilot.backend.service.execution.ExecutionEngine;
 import com.loadpilot.backend.service.execution.PreparedExecution;
 import com.loadpilot.backend.service.execution.RequestDetailRecorder;
@@ -45,6 +46,7 @@ import com.loadpilot.backend.service.report.ExecutionStatistics;
 import com.loadpilot.backend.service.report.PerformanceStatisticsService;
 import com.loadpilot.backend.service.report.ReportErrorEntry;
 import com.loadpilot.backend.service.report.StepReportEntry;
+import com.loadpilot.backend.service.report.ThroughputCalculator;
 import com.loadpilot.backend.specification.ExecutionSpecifications;
 import java.time.Duration;
 import java.time.Instant;
@@ -94,7 +96,6 @@ public class ExecutionServiceImpl implements ExecutionService {
     private final ExecutionStepResultMapper executionStepResultMapper;
     private final ExecutionEngine executionEngine;
     private final ExecutionTransactionHelper transactionHelper;
-    private final MetricGenerationService metricGenerationService;
     private final AuditLogService auditLogService;
     private final AuditTargets auditTargets;
     private final RunningExecutionRegistry registry;
@@ -108,6 +109,9 @@ public class ExecutionServiceImpl implements ExecutionService {
     /** Fourni a la demande : ReportSnapshotService depend lui-meme de ce service (getReport). */
     private final org.springframework.beans.factory.ObjectProvider<ReportSnapshotService> reportSnapshotService;
     private final ScheduleNotifier scheduleNotifier;
+    /** Garde-fou des lectures qui chargent tous les resultats (rapport, detail complet). */
+    private final ResultLoadGuard resultLoadGuard;
+    private final com.loadpilot.backend.service.monitoring.InjectorMonitor injectorMonitor;
 
     /** Plafond memoire du detail des requetes par execution (Mo) - voir RequestDetailRecorder. */
     @org.springframework.beans.factory.annotation.Value("${app.execution.request-detail.max-memory-mb:50}")
@@ -202,6 +206,9 @@ public class ExecutionServiceImpl implements ExecutionService {
 
     private void runAsync(PreparedExecution prepared, RunningExecutionHandle handle, MonitoringConfig monitoring) {
         ResourceMonitor.Session monitoringSession = null;
+        ErrorRateBrake.Session brake = null;
+        com.loadpilot.backend.service.monitoring.InjectorMonitor.Session injectorSession = null;
+        com.loadpilot.backend.service.execution.ResultStream resultStream = null;
         UUID finishedId = null;
         try {
             ScenarioExecutionOutcome outcome;
@@ -218,8 +225,23 @@ public class ExecutionServiceImpl implements ExecutionService {
                 outcome = new ScenarioExecutionOutcome(List.of(), ExecutionStatus.FAILED, null);
             } else {
                 if (monitoring != null) monitoringSession = resourceMonitor.start(monitoring, handle.resources());
+                // LoadPilot lui-meme : meme frequence que la lecture CPU / RAM de la cible (5 s sans monitoring).
+                com.loadpilot.backend.service.monitoring.InjectorTrack injectorTrack = injectorMonitor.newTrack();
+                handle.injector(injectorTrack);
+                injectorSession = injectorMonitor.start(injectorTrack, monitoring != null ? monitoring.intervalSeconds()
+                        : com.loadpilot.backend.service.monitoring.InjectorMonitor.DEFAULT_INTERVAL_SECONDS);
+                brake = ErrorRateBrake.start(prepared.errorBrake(), handle,
+                        reason -> cancelForErrorRate(prepared.executionId(), reason));
+                // Resultats ecrits en base PENDANT le test, par lots (voir ResultStream) : un plantage ne
+                // perd que le dernier lot, jamais toute l'execution.
+                resultStream = openResultStream(prepared);
+                handle.resultStream(resultStream);
                 outcome = executionEngine.execute(prepared.steps(), prepared.applicationBaseUrl(), prepared.auth(),
-                        prepared.loadSpec(), handle, prepared.variableSources());
+                        prepared.loadSpec(), handle, prepared.variableSources(), prepared.network());
+                brake.stop();
+                injectorSession.stop();
+                // Dernier lot ecrit avant la finalisation, qui relit les compteurs en base.
+                closeResultStream(resultStream, prepared.executionId());
             }
 
             RunningExecutionHandle.Timeline timeline = handle.timeline(System.currentTimeMillis());
@@ -236,15 +258,8 @@ public class ExecutionServiceImpl implements ExecutionService {
                     handle.cancellationReason(), handle.detailRecorder() != null && handle.detailRecorder().sampleCapReached(),
                     handle.cancelledBy());
 
-            // Transaction courte separee, APRES finalisation (Phase 10) - voir
-            // commentaire historique : un echec de generation de Metric ne
-            // doit jamais alterer le statut deja committe.
-            try {
-                metricGenerationService.generateForExecution(finalized.getId());
-            } catch (Exception e) {
-                log.warn("Generation des metriques echouee pour l'execution {} : {}",
-                        finalized.getId(), e.getClass().getSimpleName());
-            }
+            // Plus de generation de metriques : elles sont calculees a la lecture, par agregats sur les
+            // resultats (voir PerformanceAggregates, MetricServiceImpl) - aucune copie des resultats.
 
             AuditResult auditResult = finalized.getStatus() == ExecutionStatus.SUCCESS
                     ? AuditResult.SUCCESS : AuditResult.FAILURE;
@@ -260,26 +275,36 @@ public class ExecutionServiceImpl implements ExecutionService {
             // la chronologie est capturee a la fin de l'execution, pas au moment de cette ecriture).
             try {
                 transactionHelper.saveTimeline(finalized.getId(), timeline);
-            } catch (Exception e) {
-                log.warn("Chronologie non enregistree pour l'execution {} : {}", finalized.getId(), e.getClass().getSimpleName());
+            } catch (Throwable e) {
+                logBackgroundFailure("Enregistrement de la chronologie", finalized.getId(), e);
             }
 
             // Resume pour le Dashboard (P95, debit, P95 par etape), calcule une fois ; best-effort.
             try {
                 executionStatsService.compute(finalized.getId());
-            } catch (Exception e) {
-                log.warn("Resume non calcule pour l'execution {} : {}", finalized.getId(), e.getClass().getSimpleName());
+            } catch (Throwable e) {
+                logBackgroundFailure("Calcul du resume", finalized.getId(), e);
             }
             finishedId = finalized.getId();
             if (prepared.scheduleId() != null) notifyScheduled(prepared, finalized.getStatus());
-        } catch (RuntimeException e) {
-            log.error("Echec inattendu de l'execution asynchrone {} : {}", prepared.executionId(), e.getClass().getSimpleName());
+        } catch (Throwable e) {
+            // Throwable, et pas seulement RuntimeException : cette tache est lancee par submit(), dont
+            // personne ne lit le resultat. Une Error (OutOfMemoryError pendant le test ou l'ecriture
+            // finale) serait sinon avalee sans aucun log, et l'execution resterait « En cours ».
+            log.error("Echec inattendu de l'execution asynchrone {} : {}", prepared.executionId(), e.getClass().getName());
+            // Resultats deja obtenus ecrits AVANT de marquer l'echec : ils restent consultables.
+            long kept = closeResultStream(resultStream, prepared.executionId());
+            boolean markedFailed = markFailedAfterUnexpectedError(prepared.executionId(), e, kept);
             auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.FINISH, AuditModule.EXECUTION), prepared.executionId())
                     .system(prepared.scheduleId() != null ? "Exécution planifiée" : "Fin d’exécution")
                     .description("Exécution interrompue par une erreur inattendue").failed(e));
-            notifyTerminalStatus(prepared, ExecutionStatus.FAILED);
+            // Statut de fin deja enregistre (erreur apres finalizeExecution) : sa notification est deja partie.
+            if (markedFailed) notifyTerminalStatus(prepared, ExecutionStatus.FAILED);
         } finally {
+            if (brake != null) brake.stop();
+            if (injectorSession != null) injectorSession.stop();
             if (monitoringSession != null) monitoringSession.stop();
+            closeResultStream(resultStream, prepared.executionId());
             registry.unregister(prepared.executionId());
         }
         // Rapport fige (sert de rapport une fois le detail purge), APRES liberation de la place :
@@ -288,9 +313,53 @@ public class ExecutionServiceImpl implements ExecutionService {
         if (finishedId != null) {
             try {
                 reportSnapshotService.getObject().capture(finishedId);
-            } catch (Exception e) {
-                log.warn("Rapport fige non enregistre pour l'execution {} : {}", finishedId, e.getClass().getSimpleName());
+            } catch (Throwable e) {
+                // Throwable : sinon un manque de memoire sortirait de cette tache (submit) sans aucun journal.
+                logBackgroundFailure("Rapport fige", finishedId, e);
             }
+        }
+    }
+
+    /** Flux d'ecriture des resultats d'une execution : un lot = une transaction (appendResults). */
+    private com.loadpilot.backend.service.execution.ResultStream openResultStream(PreparedExecution prepared) {
+        java.util.Map<UUID, com.loadpilot.backend.service.execution.StepExecutionSpec> stepsById = new java.util.HashMap<>();
+        for (var spec : prepared.steps()) {
+            if (spec.stepId() != null) stepsById.put(spec.stepId(), spec);
+        }
+        UUID executionId = prepared.executionId();
+        return new com.loadpilot.backend.service.execution.ResultStream(executionId.toString(),
+                batch -> transactionHelper.appendResults(executionId, batch, stepsById));
+    }
+
+    /**
+     * Ecrit les resultats restants et arrete le flux (sans effet s'il est absent ou deja ferme). Jamais
+     * d'exception. Retourne le nombre de resultats enregistres.
+     */
+    static long closeResultStream(com.loadpilot.backend.service.execution.ResultStream stream, UUID executionId) {
+        if (stream == null) return 0;
+        try {
+            stream.close();
+            if (stream.lost() > 0) {
+                log.error("Execution {} : {} resultat(s) non enregistre(s) (base indisponible).", executionId, stream.lost());
+            }
+            return stream.written();
+        } catch (Throwable e) {
+            log.error("Execution {} : ecriture des derniers resultats impossible : {}", executionId, e.getClass().getName());
+            return stream.written();
+        }
+    }
+
+    /**
+     * Echec d'un traitement en arriere-plan apres l'execution (metriques, resume, rapport fige) :
+     * jamais propage, toujours journalise - en erreur pour une Error (manque de memoire), sinon en
+     * avertissement (un refus de ResultLoadGuard, par exemple, avec son message).
+     */
+    static void logBackgroundFailure(String what, UUID executionId, Throwable e) {
+        if (e instanceof Error) {
+            log.error("{} impossible pour l'execution {} : {} ({})", what, executionId, e.getClass().getSimpleName(), e.getMessage());
+        } else {
+            log.warn("{} impossible pour l'execution {} : {}", what, executionId,
+                    e instanceof com.loadpilot.backend.exception.ResultSetTooLargeException ? e.getMessage() : e.getClass().getSimpleName());
         }
     }
 
@@ -304,6 +373,29 @@ public class ExecutionServiceImpl implements ExecutionService {
      * ScheduledExecution : uniquement reflete dans le libelle, jamais une
      * logique differente.
      */
+    /**
+     * Execution encore active apres une erreur inattendue : FAILED en base (jamais un statut de fin
+     * deja enregistre ecrase, voir ExecutionTransactionHelper.markFailedIfActive). Ne leve jamais : si
+     * la base est elle-meme injoignable, l'execution sera terminee au prochain demarrage
+     * (ExecutionRecoveryRunner).
+     */
+    private boolean markFailedAfterUnexpectedError(UUID executionId, Throwable error, long keptResults) {
+        String results = keptResults > 0
+                ? java.text.NumberFormat.getIntegerInstance(java.util.Locale.FRANCE).format(keptResults)
+                        + " résultat(s) obtenu(s) avant l'erreur conservé(s)"
+                : "résultats non enregistrés";
+        String message = error instanceof OutOfMemoryError
+                ? "Mémoire du backend insuffisante (OutOfMemoryError) : " + results + ". "
+                        + "Réduisez la charge ou la durée du test, ou augmentez LOADPILOT_JVM_MAX_MEMORY."
+                : "Erreur inattendue du serveur LoadPilot (" + error.getClass().getSimpleName() + ") : " + results + ".";
+        try {
+            return transactionHelper.markFailedIfActive(executionId, message);
+        } catch (Throwable markError) {
+            log.error("Execution {} non marquee en echec apres l'erreur inattendue : {}", executionId, markError.getClass().getName());
+            return false;
+        }
+    }
+
     private void notifyTerminalStatus(PreparedExecution prepared, ExecutionStatus status) {
         NotificationType type = switch (status) {
             case SUCCESS -> NotificationType.EXECUTION_SUCCESS;
@@ -360,13 +452,16 @@ public class ExecutionServiceImpl implements ExecutionService {
         Execution execution = executionRepository.findByIdWithScenarioAndApplication(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + id));
 
-        List<ExecutionStepResult> results = includeResults
-                ? executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id) : List.of();
         String applicationBaseUrl = execution.getScenario().getApplication().getUrl();
-
-        List<ExecutionStepResultResponse> resultResponses = results.stream()
-                .map(r -> executionStepResultMapper.toResponse(r, applicationBaseUrl))
-                .toList();
+        List<ExecutionStepResultResponse> resultResponses = List.of();
+        if (includeResults) {
+            try (ResultLoadGuard.Reservation r = resultLoadGuard.reserve(ResultLoadGuard.Load.DETAIL_WITH_RESULTS,
+                    executionStepResultRepository.countAllByExecutionId(id))) {
+                resultResponses = executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id).stream()
+                        .map(r2 -> executionStepResultMapper.toResponse(r2, applicationBaseUrl))
+                        .toList();
+            }
+        }
 
         ExecutionResponse base = executionMapper.toResponse(execution);
         return new ExecutionDetailResponse(base.id(), base.scenarioId(), base.scenarioName(), base.startedAt(),
@@ -374,7 +469,21 @@ public class ExecutionServiceImpl implements ExecutionService {
                 base.iterations(), base.totalSteps(), base.successfulSteps(), base.failedSteps(),
                 base.duration(), base.errorMessage(), resultResponses, execution.getRequestDetailMode(),
                 execution.isDetailSampleCapReached(), requestDetailRepository.countByExecutionIdAndKind(id, "FAILURE"),
-                requestDetailRepository.countByExecutionIdAndKind(id, "SAMPLE"), reportSnapshots.retention(execution, false, false));
+                requestDetailRepository.countByExecutionIdAndKind(id, "SAMPLE"), reportSnapshots.retention(execution, false, false),
+                toDouble(ThroughputCalculator.compute(executed(execution), execution.activeDurationMs())),
+                toDouble(PerformanceAggregates.errorRate(failed(execution), executed(execution))));
+    }
+
+    private static int executed(Execution e) {
+        return (e.getSuccessfulSteps() == null ? 0 : e.getSuccessfulSteps()) + failed(e);
+    }
+
+    private static int failed(Execution e) {
+        return e.getFailedSteps() == null ? 0 : e.getFailedSteps();
+    }
+
+    private static Double toDouble(java.math.BigDecimal value) {
+        return value == null ? null : value.doubleValue();
     }
 
     @Override
@@ -425,7 +534,18 @@ public class ExecutionServiceImpl implements ExecutionService {
                 execution.getPausedAt(),
                 pausedMs,
                 activeElapsedMs,
-                resources(execution, handle));
+                resources(execution, handle),
+                injector(handle, live));
+    }
+
+    /** LoadPilot lui-meme pendant le test (voir InjectorMonitor) ; null hors execution en cours ou avant la 1re lecture. */
+    static com.loadpilot.backend.dto.response.InjectorStatusResponse injector(RunningExecutionHandle handle, LiveStats.Snapshot live) {
+        com.loadpilot.backend.service.monitoring.InjectorTrack track = handle != null ? handle.injector() : null;
+        com.loadpilot.backend.service.monitoring.InjectorTrack.Sample latest = track != null ? track.latest() : null;
+        if (latest == null) return null;
+        return new com.loadpilot.backend.dto.response.InjectorStatusResponse(latest.processCpuPercent(), track.cpuMaxPercent(),
+                latest.machineCpuPercent(), latest.heapUsedMb(), latest.heapMaxMb(), live != null ? live.activeVirtualUsers() : 0,
+                latest.platformThreads(), track.cpuWarningPercent(), track.overloaded(), track.warning());
     }
 
     /** CPU / RAM de l'application testee : mesures en memoire pendant le test, resume enregistre ensuite. */
@@ -682,6 +802,42 @@ public class ExecutionServiceImpl implements ExecutionService {
                 .description("Exécution annulée automatiquement après une pause trop longue"));
     }
 
+    /**
+     * Frein automatique sur taux d'erreurs (voir ErrorRateBrake) : meme chemin qu'une annulation
+     * utilisateur (verrou de la ligne, puis drapeau du handle), avec son propre motif. Si une
+     * annulation manuelle est passee juste avant, c'est elle qui est gardee (premiere demande).
+     */
+    public void cancelForErrorRate(UUID id, String reason) {
+        cancelAutomatically(id, reason, "Frein sur taux d’erreurs");
+    }
+
+    /**
+     * Garde-fou memoire (voir ResultsMemoryGuard) : meme chemin, son propre motif. Les resultats deja
+     * obtenus sont finalises normalement, comme pour une annulation manuelle.
+     */
+    public void cancelForMemoryLimit(UUID id, String reason) {
+        cancelAutomatically(id, reason, "Limite de résultats en mémoire");
+    }
+
+    /** Arret automatique d'une execution en cours ; la premiere demande d'annulation l'emporte. */
+    private void cancelAutomatically(UUID id, String reason, String actor) {
+        RunningExecutionHandle handle = registry.get(id);
+        if (handle == null || handle.isCancelled()) {
+            return;
+        }
+        CancellationAttempt attempt = transactionHelper.attemptCancellation(id);
+        if (attempt.outcome() == CancellationOutcome.ALREADY_TERMINAL) {
+            return;
+        }
+        if (!handle.requestCancellation(reason)) {
+            return;
+        }
+        log.info("Execution {} arretee automatiquement ({})", id, actor);
+        auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.CANCEL, AuditModule.EXECUTION), id)
+                .system(actor)
+                .description(reason));
+    }
+
     @Override
     public ExecutionResponse retry(UUID id, UUID triggeredByAppUserId) {
         try {
@@ -777,15 +933,18 @@ public class ExecutionServiceImpl implements ExecutionService {
             }
         }
 
-        List<ExecutionStepResult> results = executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id);
-        // Debit calcule sur le temps de travail reel : le temps passe en pause est exclu.
-        long pausedMs = pausedDurationMs(execution, Instant.now());
-        Long activeDurationMs = execution.getDuration() != null ? Math.max(0L, execution.getDuration() - pausedMs) : null;
-        ExecutionStatistics statistics = performanceStatisticsService.computeOverallStatistics(results, activeDurationMs);
-        List<StepReportEntry> steps = performanceStatisticsService.computeStepBreakdown(results);
-        List<ReportErrorEntry> errors = performanceStatisticsService.extractErrors(results);
-        return report(execution, pausedMs, statistics, steps, errors, thresholds(execution, results, statistics),
-                reportSnapshots.retention(execution, false, false));
+        try (ResultLoadGuard.Reservation r = resultLoadGuard.reserve(ResultLoadGuard.Load.REPORT,
+                executionStepResultRepository.countAllByExecutionId(id))) {
+            List<ExecutionStepResult> results = executionStepResultRepository.findByExecutionIdOrderByTimestampAsc(id);
+            // Debit calcule sur le temps de travail reel : le temps passe en pause est exclu.
+            long pausedMs = pausedDurationMs(execution, Instant.now());
+            Long activeDurationMs = execution.getDuration() != null ? Math.max(0L, execution.getDuration() - pausedMs) : null;
+            ExecutionStatistics statistics = performanceStatisticsService.computeOverallStatistics(results, activeDurationMs);
+            List<StepReportEntry> steps = performanceStatisticsService.computeStepBreakdown(results);
+            List<ReportErrorEntry> errors = performanceStatisticsService.extractErrors(results);
+            return report(execution, pausedMs, statistics, steps, errors, thresholds(execution, results, statistics),
+                    reportSnapshots.retention(execution, false, false));
+        }
     }
 
     private static ExecutionReportResponse report(Execution execution, long pausedMs, ExecutionStatistics statistics,

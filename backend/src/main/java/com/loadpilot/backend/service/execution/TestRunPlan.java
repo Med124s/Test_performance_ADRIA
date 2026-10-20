@@ -24,13 +24,27 @@ public record TestRunPlan(
         Map<String, String> scenarioVariables,
         Map<String, String> providedVariables,
         List<Integer> stepNumbers,
-        Map<String, Integer> captureStepByVariable
+        Map<String, Integer> captureStepByVariable,
+        /** Proxy pour joindre l'application (voir NetworkProfile) ; null = proxy du serveur. */
+        com.loadpilot.backend.service.http.NetworkProfile network
 ) {
     /** Compatibilite : variables initiales traitees comme la ligne CSV, etapes numerotees 1..n. */
     public TestRunPlan(UUID scenarioId, String applicationBaseUrl, ApplicationAuthSpec auth, List<StepExecutionSpec> steps,
             Map<String, String> initialVariables) {
         this(scenarioId, applicationBaseUrl, auth, steps, initialVariables, Map.of(), Map.of(),
                 IntStream.rangeClosed(1, steps.size()).boxed().toList(),
-                new VariableSources(List.of(), null, Map.of(), steps).captureStepByVariable());
+                new VariableSources(List.of(), null, Map.of(), steps).captureStepByVariable(), null);
+    }
+
+    public TestRunPlan {
+        if (network == null) network = com.loadpilot.backend.service.http.NetworkProfile.inherit();
+    }
+
+    /** Compatibilite : proxy du serveur. */
+    public TestRunPlan(UUID scenarioId, String applicationBaseUrl, ApplicationAuthSpec auth, List<StepExecutionSpec> steps,
+            Map<String, String> csvRow, Map<String, String> scenarioVariables, Map<String, String> providedVariables,
+            List<Integer> stepNumbers, Map<String, Integer> captureStepByVariable) {
+        this(scenarioId, applicationBaseUrl, auth, steps, csvRow, scenarioVariables, providedVariables, stepNumbers,
+                captureStepByVariable, null);
     }
 }

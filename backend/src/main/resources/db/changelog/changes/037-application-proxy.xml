@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Proxy par application (voir service.http.NetworkProfile) : colonnes ADDITIONNELLES et NULLABLES.
+        NULL = comportement d'avant (proxy global des variables LOADPILOT_HTTPS_PROXY_*), sans reecrire
+        les applications existantes.
+
+        application.proxy_mode               : INHERIT (ou NULL) = proxy global ; NONE = jamais de proxy ;
+                                               CUSTOM = proxy propre a l'application.
+        application.proxy_host / proxy_port  : proxy de l'application (CUSTOM).
+        application.proxy_username           : identifiant Basic du proxy (optionnel).
+        application.proxy_password           : mot de passe du proxy, CHIFFRE (enc:v1:..., voir SecretCipher).
+        application.monitoring_without_proxy : lecture CPU / RAM en direct, sans proxy (URL souvent interne).
+    -->
+    <changeSet id="037-application-proxy" author="loadpilot">
+        <addColumn tableName="application">
+            <column name="proxy_mode" type="VARCHAR(16)"/>
+            <column name="proxy_host" type="VARCHAR(255)"/>
+            <column name="proxy_port" type="INT"/>
+            <column name="proxy_username" type="VARCHAR(255)"/>
+            <column name="proxy_password" type="VARCHAR(4000)"/>
+            <column name="monitoring_without_proxy" type="BOOLEAN"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

@@ -173,4 +173,45 @@
     -->
     <include file="db/changelog/changes/033-encrypt-application-secrets.xml"/>
 
+    <!--
+        Capture depuis un en-tete de reponse (source JSON ou HEADER) - voir changes/034-step-capture-source.xml.
+    -->
+    <include file="db/changelog/changes/034-step-capture-source.xml"/>
+
+    <!--
+        Frein automatique sur taux d'erreurs en direct (desactive par defaut) - voir changes/035-scenario-error-rate-brake.xml.
+    -->
+    <include file="db/changelog/changes/035-scenario-error-rate-brake.xml"/>
+
+    <!--
+        Ralentissement sur 429 Too Many Requests (actif par defaut) - voir changes/036-scenario-throttle-429.xml.
+    -->
+    <include file="db/changelog/changes/036-scenario-throttle-429.xml"/>
+
+    <!--
+        Proxy par application, mot de passe chiffre - voir changes/037-application-proxy.xml.
+    -->
+    <include file="db/changelog/changes/037-application-proxy.xml"/>
+
+    <!--
+        Variation aleatoire du think time (desactivee par defaut) - voir changes/038-scenario-think-time-variation.xml.
+    -->
+    <include file="db/changelog/changes/038-scenario-think-time-variation.xml"/>
+
+    <!--
+        Controles optionnels d'une etape (temps de reponse maximal, assertion JSON) - voir changes/039-step-response-time-and-json-checks.xml.
+    -->
+    <include file="db/changelog/changes/039-step-response-time-and-json-checks.xml"/>
+
+    <!--
+        Autorite de certification TLS propre a une application - voir changes/040-application-tls-ca.xml.
+    -->
+    <include file="db/changelog/changes/040-application-tls-ca.xml"/>
+
+    <!--
+        Metriques calculees sur les resultats (table metric en fin de vie, conservee) et index sur la date
+        des resultats - voir changes/041-metric-from-results.xml.
+    -->
+    <include file="db/changelog/changes/041-metric-from-results.xml"/>
+
 </databaseChangeLog>

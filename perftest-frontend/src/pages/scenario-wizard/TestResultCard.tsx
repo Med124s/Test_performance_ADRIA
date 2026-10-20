@@ -206,7 +206,20 @@ function TestResultCard({ step, index, baseUrl, result, running, disabled, onRun
                     {' '}= {result.checks.capture.found ? <strong>{result.checks.capture.value}</strong> : result.checks.capture.message}
                   </CheckRow>
                 )}
-                {!result.checks.assertion && !result.checks.capture && (
+                {result.checks.json && (
+                  <CheckRow ok={result.checks.json.ok} label="Assertion JSON">
+                    <code>{result.checks.json.path}</code> {result.checks.json.operator === 'CONTAINS' ? 'contient' : 'égale'}{' '}
+                    <code>{result.checks.json.expected}</code>
+                    {result.checks.json.ok === null ? ' — non évaluée' : result.checks.json.ok ? ' — OK' : ` — ${result.checks.json.message ?? 'KO'}`}
+                  </CheckRow>
+                )}
+                {result.checks.responseTime && (
+                  <CheckRow ok={result.checks.responseTime.ok} label="Temps de réponse">
+                    maximum <strong>{result.checks.responseTime.maxMs} ms</strong> · mesuré{' '}
+                    <strong>{result.checks.responseTime.actualMs == null ? '—' : `${result.checks.responseTime.actualMs} ms`}</strong>
+                  </CheckRow>
+                )}
+                {!result.checks.assertion && !result.checks.capture && !result.checks.json && !result.checks.responseTime && (
                   <li className="sw-field-hint">Aucune assertion ni capture configurée pour cette étape.</li>
                 )}
               </ul>

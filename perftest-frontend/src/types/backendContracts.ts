@@ -149,6 +149,13 @@ export interface BackendIntegrations {
 export type BackendApplicationAuthType = 'NONE' | 'BEARER_TOKEN' | 'API_KEY' | 'BASIC' | 'LOGIN_TOKEN'
 export type BackendApiKeyLocation = 'HEADER' | 'QUERY'
 
+/** Où lire une valeur capturée dans la réponse : corps JSON (chemin), en-tête (nom, ou « Set-Cookie:NOM »)
+ * ou page HTML (sélecteur CSS, suivi de « ::attr(NOM) » pour un attribut — capture d'étape uniquement). */
+export type BackendCaptureSource = 'JSON' | 'HEADER' | 'HTML'
+
+/** Comparaison de l'assertion JSON d'une étape : égale (défaut) ou contient. */
+export type BackendJsonAssertionOperator = 'EQUALS' | 'CONTAINS'
+
 /** Secrets (token, apiKeyValue, password, loginBody) : vides en mise à jour
  * = valeur déjà enregistrée conservée (jamais renvoyée par le backend). */
 export interface BackendApplicationAuthRequest {
@@ -162,6 +169,8 @@ export interface BackendApplicationAuthRequest {
   loginPath?: string | null
   loginBody?: string | null
   tokenJsonPath?: string | null
+  /** LOGIN_TOKEN : JSON (défaut, null) ou HEADER (tokenJsonPath = nom de l'en-tête qui contient le jeton). */
+  tokenSource?: BackendCaptureSource | null
   tokenHeaderName?: string | null
   tokenPrefix?: string | null
   /** BEARER_TOKEN / API_KEY / BASIC : endpoint protégé où le test de
@@ -177,6 +186,8 @@ export interface BackendApplicationAuthResponse {
   username: string | null
   loginPath: string | null
   tokenJsonPath: string | null
+  /** null = JSON. */
+  tokenSource?: BackendCaptureSource | null
   tokenHeaderName: string | null
   tokenPrefix: string | null
   verificationPath: string | null
@@ -194,6 +205,41 @@ export interface BackendApplicationRequest {
   auth?: BackendApplicationAuthRequest
   /** Absent = aucun monitoring à la création, inchangé en mise à jour. */
   monitoring?: BackendMonitoringRequest
+  /** Absent = proxy du serveur à la création, réseau inchangé en mise à jour. */
+  network?: BackendNetworkRequest
+}
+
+/** Proxy pour joindre l'application : du serveur (défaut), aucun, ou propre à l'application. */
+export type BackendProxyMode = 'INHERIT' | 'NONE' | 'CUSTOM'
+
+/** Mot de passe vide en modification = mot de passe enregistré conservé (jamais renvoyé). */
+export interface BackendNetworkRequest {
+  proxyMode: BackendProxyMode
+  proxyHost: string | null
+  proxyPort: number | null
+  proxyUsername: string | null
+  proxyPassword: string | null
+  /** Autorité(s) de certification (PEM) ajoutées à la confiance de la JVM pour cette application ;
+   * absent ou vide = confiance de la JVM seule. */
+  tlsCaCertificate?: string | null
+}
+
+/** Résumé d'un certificat d'autorité enregistré. */
+export interface BackendCertificateInfo {
+  subject: string
+  issuer: string
+  notAfter: string
+  expired: boolean
+}
+
+export interface BackendNetworkResponse {
+  proxyMode: BackendProxyMode
+  proxyHost: string | null
+  proxyPort: number | null
+  proxyUsername: string | null
+  proxyPasswordConfigured: boolean
+  tlsCaCertificate?: string | null
+  tlsCaCertificates?: BackendCertificateInfo[]
 }
 
 export type BackendMonitoringType = 'NONE' | 'PROMETHEUS' | 'ACTUATOR'
@@ -207,6 +253,8 @@ export interface BackendMonitoringRequest {
   headerName: string | null
   secret: string | null
   intervalSeconds: number
+  /** Lecture en direct, sans le proxy de l'application (URL de monitoring souvent interne). */
+  withoutProxy?: boolean
 }
 
 export interface BackendMonitoringResponse {
@@ -216,6 +264,7 @@ export interface BackendMonitoringResponse {
   headerName: string | null
   secretConfigured: boolean
   intervalSeconds: number
+  withoutProxy?: boolean
 }
 
 /** « Tester le monitoring » : CPU en % d'un cœur, RAM en Mo. */
@@ -235,6 +284,8 @@ export interface BackendApplicationResponse {
   auth: BackendApplicationAuthResponse
   /** Monitoring CPU / RAM (absent : serveur antérieur, équivaut à NONE). */
   monitoring?: BackendMonitoringResponse
+  /** Proxy pour joindre l'application, sans le mot de passe (absent : serveur antérieur, proxy du serveur). */
+  network?: BackendNetworkResponse
   /** Archivage logique : masquée des listes par défaut, restaurable. */
   archived: boolean
   archivedAt: string | null
@@ -299,6 +350,15 @@ export interface BackendScenarioRequest {
   /** Seuils de réussite : taux d'erreurs maximal (%) ; P95 maximal (ms, 0 = aucun). */
   maxErrorRatePercent?: number | null
   maxP95Ms?: number | null
+  /** Frein automatique : taux d'erreurs (%) sur la fenêtre glissante, 0 = désactivé ; fenêtre (s, 5 à 300) ; null/absent = inchangé. */
+  errorBrakeRatePercent?: number | null
+  errorBrakeWindowSeconds?: number | null
+  /** Ralentissement sur 429 : false = désactivé (test de résilience) ; attente sans Retry-After (1 à 300 s) ; rejeux (0 à 10). null/absent = inchangé. */
+  throttleOn429?: boolean | null
+  throttleDefaultDelaySeconds?: number | null
+  throttleMaxRetries?: number | null
+  /** Variation aléatoire du think time (± %, 0 à 100) : 0 = fixe ; null/absent = inchangée. */
+  thinkTimeVariationPercent?: number | null
 }
 
 /** PUT /api/scenarios/{id}/full : informations + étapes (avec id = modifiée, sans id = créée, absente = supprimée ; ordre = position). */
@@ -353,6 +413,17 @@ export interface BackendScenarioResponse {
   /** Seuils de réussite : taux d'erreurs maximal (%, défaut 1) et P95 maximal (ms, null = aucun). */
   maxErrorRatePercent?: number | null
   maxP95Ms?: number | null
+  /** Frein automatique : taux d'erreurs (%) sur la fenêtre glissante (null = désactivé) et fenêtre (s, null = 30). */
+  errorBrakeRatePercent?: number | null
+  errorBrakeWindowSeconds?: number | null
+  /** Ralentissement sur 429 : actif (null = actif), attente sans Retry-After (s, null = 5), rejeux par étape (null = 3). */
+  throttleOn429?: boolean | null
+  throttleDefaultDelaySeconds?: number | null
+  throttleMaxRetries?: number | null
+  /** Variation aléatoire du think time (± %) ; null = fixe. */
+  thinkTimeVariationPercent?: number | null
+  /** Avertissements de charge, jamais bloquants (ex. beaucoup d'utilisateurs sans débit cible). */
+  loadWarnings?: string[]
 }
 
 // ---- Steps ----
@@ -379,6 +450,14 @@ export interface BackendStepRequest {
    * virtuel uniquement (jamais partage entre VUs). */
   captureVariableName?: string | null
   captureJsonPath?: string | null
+  /** Source de la capture : JSON (défaut, null) ou HEADER (captureJsonPath = nom de l'en-tête, ou « Set-Cookie:NOM »). */
+  captureSource?: BackendCaptureSource | null
+  /** Temps de réponse maximal (ms) : au-delà, l'étape échoue. null = aucun contrôle. */
+  maxResponseTimeMs?: number | null
+  /** Assertion JSON simple : le champ (même syntaxe que la capture) égale / contient la valeur. */
+  assertionJsonPath?: string | null
+  assertionJsonOperator?: BackendJsonAssertionOperator | null
+  assertionJsonValue?: string | null
   /** Variables de chemin (:nom / {nom}) : objet JSON {"nom": "valeur ou ${variable}"}. */
   pathParams?: string | null
   /** Paramètres de requête : tableau JSON [{"key","value","enabled"}] (l'URL finale est construite par le backend). */
@@ -432,6 +511,9 @@ export interface BackendTestRunStepResult {
     status: { expected: string; actual: number | null; ok: boolean }
     assertion: { expectedContent: string; ok: boolean | null } | null
     capture: { variableName: string; jsonPath: string; found: boolean; value: string | null; masked: boolean; message: string } | null
+    /** Absents (ou null) si le contrôle n'est pas configuré sur l'étape. */
+    responseTime?: { maxMs: number; actualMs: number | null; ok: boolean | null } | null
+    json?: { path: string; operator: BackendJsonAssertionOperator; expected: string; ok: boolean | null; message: string | null } | null
   } | null
   urlWarning: { message: string; suggestedPath: string } | null
   warnings: string[]
@@ -482,9 +564,15 @@ export interface BackendStepResponse {
   assertionBodyContains: string | null
   captureVariableName: string | null
   captureJsonPath: string | null
+  /** null ou absent = JSON. */
+  captureSource?: BackendCaptureSource | null
   /** Variables de chemin (objet JSON {"nom": "valeur"}) et paramètres de requête (tableau JSON). */
   pathParams: string | null
   queryParams: string | null
+  maxResponseTimeMs?: number | null
+  assertionJsonPath?: string | null
+  assertionJsonOperator?: BackendJsonAssertionOperator | null
+  assertionJsonValue?: string | null
   status: BackendStepStatus
   createdAt: string
   updatedAt: string
@@ -522,6 +610,20 @@ export interface BackendExecutionResponse {
  * QUEUED/RUNNING. `progressPercent` est `null` tant qu'il n'est pas
  * reellement calculable (voir ExecutionServiceImpl.computeProgressPercent —
  * jamais fabrique en mode iterations/1-passe sans durationSeconds). */
+/** LoadPilot lui-même (l'injecteur) : CPU en % de la machine (null si indisponible), mémoire en Mo. */
+export interface BackendInjectorStatus {
+  cpuPercent: number | null
+  cpuMaxPercent: number | null
+  machineCpuPercent: number | null
+  heapUsedMb: number
+  heapMaxMb: number
+  activeVirtualThreads: number
+  platformThreads: number
+  cpuWarningPercent: number
+  overloaded: boolean
+  warning: string | null
+}
+
 export interface BackendExecutionStatusResponse {
   id: string
   status: BackendExecutionStatus
@@ -551,6 +653,8 @@ export interface BackendExecutionStatusResponse {
   activeElapsedMs: number | null
   /** CPU / RAM du processus de l'application testée ; null/absent sans monitoring. */
   resources?: BackendExecutionResources | null
+  /** LoadPilot lui-même pendant le test (CPU, mémoire, threads, saturation) ; null hors exécution en cours. */
+  injector?: BackendInjectorStatus | null
 }
 
 /**
@@ -799,6 +903,9 @@ export interface BackendExecutionDetailResponse extends BackendExecutionResponse
   detailedFailures?: number
   detailedSamples?: number
   retention?: BackendResultsRetention | null
+  /** Débit (req/s, pauses exclues) et taux d'erreurs (%), mêmes formules que les métriques ; null : rien à mesurer. */
+  throughputRps?: number | null
+  errorRatePercent?: number | null
 }
 
 

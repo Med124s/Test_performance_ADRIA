@@ -5,6 +5,8 @@ import com.loadpilot.backend.service.auth.ApplicationAuthConfig;
 import com.loadpilot.backend.service.auth.ApplicationAuthSpec;
 import com.loadpilot.backend.service.execution.ApplicationAuthenticationException.Kind;
 import com.loadpilot.backend.service.http.NetworkErrors;
+import com.loadpilot.backend.service.http.HttpClients;
+import com.loadpilot.backend.service.http.NetworkProfile;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -32,12 +34,26 @@ public class ApplicationAuthenticator {
     private static final Logger log = LoggerFactory.getLogger(ApplicationAuthenticator.class);
 
     private final ObjectMapper objectMapper;
+    /** Identifiant du proxy d'entreprise pour la requete de connexion (voir ProxyAuthorization). */
+    private final com.loadpilot.backend.service.http.ProxyAuthorization proxyAuthorization;
 
     public ApplicationAuthenticator(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+        this(objectMapper, com.loadpilot.backend.service.http.ProxyAuthorization.current());
     }
 
+    public ApplicationAuthenticator(ObjectMapper objectMapper, com.loadpilot.backend.service.http.ProxyAuthorization proxyAuthorization) {
+        this.objectMapper = objectMapper;
+        this.proxyAuthorization = proxyAuthorization;
+    }
+
+    /** Compatibilite : proxy du serveur. */
     public ResolvedAuth authenticate(ApplicationAuthSpec spec, String applicationBaseUrl, long timeoutSeconds) {
+        return authenticate(spec, applicationBaseUrl, timeoutSeconds, NetworkProfile.inherit());
+    }
+
+    /** "network" : proxy pour joindre l'application (Connexion automatique), voir NetworkProfile. */
+    public ResolvedAuth authenticate(ApplicationAuthSpec spec, String applicationBaseUrl, long timeoutSeconds, NetworkProfile network) {
+        if (network == null) network = NetworkProfile.inherit();
         if (spec == null || spec.isNone()) {
             return ResolvedAuth.none();
         }
@@ -52,27 +68,27 @@ public class ApplicationAuthenticator {
                 String encoded = Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
                 yield new ResolvedAuth(Map.of("Authorization", "Basic " + encoded), Map.of(), null);
             }
-            case LOGIN_TOKEN -> login(c, applicationBaseUrl, timeoutSeconds);
+            case LOGIN_TOKEN -> login(c, applicationBaseUrl, timeoutSeconds, network);
             case NONE -> ResolvedAuth.none();
         };
     }
 
-    private ResolvedAuth login(ApplicationAuthConfig c, String applicationBaseUrl, long timeoutSeconds) {
+    private ResolvedAuth login(ApplicationAuthConfig c, String applicationBaseUrl, long timeoutSeconds, NetworkProfile network) {
         String loginUrl = UrlResolver.resolve(applicationBaseUrl, c.loginPath());
-        HttpClient client = HttpClient.newBuilder()
+        HttpClient client = network.configure(HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(timeoutSeconds))
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NORMAL))
                 .build();
         String body = c.loginBody() == null ? "" : c.loginBody();
         HttpResponse<String> response;
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(loginUrl))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(loginUrl))
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
+                    .POST(HttpRequest.BodyPublishers.ofString(body));
+            HttpRequest request = network.applyTo(builder, URI.create(loginUrl), proxyAuthorization).build();
             response = client.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
             // Jamais le message brut ni le corps envoye (identifiants).
@@ -84,11 +100,23 @@ public class ApplicationAuthenticator {
             throw new ApplicationAuthenticationException(Kind.UNREACHABLE, "login interrompu");
         } catch (IllegalArgumentException e) {
             throw new ApplicationAuthenticationException(Kind.UNREACHABLE, "URL de login invalide (" + c.loginPath() + ")");
+        } finally {
+            // Reponse deja lue en entier (ofString) : client ferme tout de suite, succes ou echec.
+            HttpClients.shutdownQuietly(client);
         }
 
         int status = response.statusCode();
         if (status < 200 || status >= 300) {
             throw new ApplicationAuthenticationException(Kind.REJECTED, "login refusé (" + status + ")", status);
+        }
+        // Jeton dans un en-tete de reponse : le corps (JSON ou non) n'est pas lu.
+        if (c.tokenFromHeader()) {
+            String token = ResponseHeaderExtractor.extract(response.headers(), c.tokenJsonPath());
+            if (token == null) {
+                throw new ApplicationAuthenticationException(Kind.TOKEN_NOT_FOUND,
+                        "token introuvable : " + ResponseHeaderExtractor.explain(response.headers(), c.tokenJsonPath()), status);
+            }
+            return resolvedWith(c, token);
         }
         // Distingue "reponse non JSON" de "jeton absent" - jamais le corps
         // lui-meme dans le message (il contient le jeton ou des donnees).
@@ -99,9 +127,16 @@ public class ApplicationAuthenticator {
         }
         String token = JsonPathExtractor.extract(objectMapper, response.body(), c.tokenJsonPath());
         if (token == null || token.isBlank()) {
+            // Raison precise (index hors limites, tableau attendu…) : construite depuis le chemin, jamais depuis le jeton.
+            String reason = JsonPathExtractor.explain(objectMapper, response.body(), c.tokenJsonPath());
             throw new ApplicationAuthenticationException(Kind.TOKEN_NOT_FOUND,
-                    "token introuvable à " + c.tokenJsonPath(), status);
+                    "token introuvable à " + c.tokenJsonPath() + (reason != null ? " : " + reason : ""), status);
         }
+        return resolvedWith(c, token);
+    }
+
+    /** Jeton obtenu : envoye dans l'en-tete configure, avec son prefixe. */
+    private static ResolvedAuth resolvedWith(ApplicationAuthConfig c, String token) {
         String headerName = c.tokenHeaderName() == null || c.tokenHeaderName().isBlank()
                 ? ApplicationAuthConfig.DEFAULT_TOKEN_HEADER : c.tokenHeaderName();
         // null = prefixe par defaut ; chaine vide = jeton envoye brut (choix explicite).

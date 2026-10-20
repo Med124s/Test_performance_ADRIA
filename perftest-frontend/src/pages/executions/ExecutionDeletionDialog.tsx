@@ -105,7 +105,8 @@ export default function ExecutionDeletionDialog({ ids, onConfirm, onClose }: {
                 <ul style={{ fontSize: '13.5px' }} aria-label="Impact">
                   <li><strong>{deletable}</strong> {deletable > 1 ? 'exécutions' : 'exécution'}</li>
                   <li><strong>{impact.results}</strong> {impact.results > 1 ? 'résultats de requêtes' : 'résultat de requête'}</li>
-                  <li><strong>{impact.metrics}</strong> {impact.metrics > 1 ? 'métriques' : 'métrique'}</li>
+                  {/* Anciennes lignes de la table metric seulement (plus aucune copie aujourd'hui) : affichees s'il en reste. */}
+                  {impact.metrics > 0 && <li><strong>{impact.metrics}</strong> {impact.metrics > 1 ? 'métriques' : 'métrique'}</li>}
                 </ul>
                 {impact.active > 0 && (
                   <div className="pt-alert-banner warning mb-2" role="alert" style={{ fontSize: '12.5px' }}>

@@ -46,6 +46,13 @@
             <artifactId>openpdf</artifactId>
             <version>1.3.39</version>
         </dependency>
+        <!-- Capture d'une valeur dans une page HTML (selecteur CSS) : jsoup, licence MIT, sans dependance.
+             Version fixee : les versions anterieures a 1.14.2 sont concernees par la CVE-2021-37714. -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.23.2</version>
+        </dependency>
         <!-- Envoi d'e-mails (notifications, e-mail de test) : SMTP via Jakarta Mail (Angus). -->
         <dependency>
             <groupId>org.eclipse.angus</groupId>

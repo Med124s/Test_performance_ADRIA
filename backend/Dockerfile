@@ -22,7 +22,10 @@ WORKDIR /app
 # Utilisateur non-root (bonne pratique standard, aucune dependance ajoutee).
 RUN useradd --system --create-home --shell /usr/sbin/nologin loadpilot
 COPY --from=build /build/target/*.jar app.jar
-RUN chown loadpilot:loadpilot app.jar
+# Script de demarrage : options Java optionnelles (memoire, certificats, proxy) lues dans
+# l'environnement (voir start.sh). Fins de ligne Windows retirees (checkout avec autocrlf).
+COPY start.sh /app/start.sh
+RUN sed -i 's/\r$//' /app/start.sh && chmod 755 /app/start.sh && chown loadpilot:loadpilot app.jar
 USER loadpilot
 
 EXPOSE 8080
@@ -31,4 +34,4 @@ EXPOSE 8080
 # KEYCLOAK_ADMIN_CLIENT_SECRET, FRONTEND_ORIGIN...) sont fournies par
 # l'environnement du conteneur (voir docker-compose.yml), jamais bakees
 # dans l'image.
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["/app/start.sh"]

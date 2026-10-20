@@ -14,6 +14,15 @@ spring:
       # jamais creer/modifier de tables, seulement valider que les entites
       # correspondent au schema deja migre.
       ddl-auto: validate
+    properties:
+      hibernate:
+        # Insertions regroupees en lots JDBC (fin d'execution : des milliers de resultats ecrits en une
+        # transaction, voir ExecutionTransactionHelper.finalizeExecution). Identifiants UUID generes en
+        # Java : aucun aller-retour par ligne. order_inserts : les insertions alternees resultat / detail
+        # sont regroupees par table (sinon chaque changement de table couperait le lot).
+        jdbc:
+          batch_size: 50
+        order_inserts: true
   liquibase:
     enabled: true
     change-log: classpath:db/changelog/db.changelog-master.xml
@@ -80,14 +89,25 @@ app:
     max-duration-seconds: ${LOADPILOT_MAX_DURATION_SECONDS:3600}
     max-iterations: ${LOADPILOT_MAX_ITERATIONS:10000}
     max-target-rps: ${LOADPILOT_MAX_TARGET_RPS:500}
+    # Au-dela de ce nombre d'utilisateurs virtuels sans debit cible : avertissement (jamais un refus)
+    # a l'enregistrement du scenario et dans l'assistant. 0 = jamais d'avertissement.
+    target-rps-advised-above-virtual-users: ${LOADPILOT_TARGET_RPS_ADVISED_ABOVE_VUS:50}
     # Limite du nombre d'executions QUEUED/RUNNING simultanees.
     max-concurrent-executions: ${LOADPILOT_MAX_CONCURRENT_EXECUTIONS:10}
     # Une execution restee en pause plus longtemps est annulee automatiquement.
     max-pause-minutes: ${LOADPILOT_MAX_PAUSE_MINUTES:15}
+    # Garde-fou memoire (voir ResultsMemoryGuard) : nombre de resultats gardes en memoire, toutes
+    # executions confondues, avant l'arret automatique de la plus grosse. 0 = calcule sur la memoire
+    # de la JVM (-Xmx / 2,5 Ko : ~1,6 M avec 4 Go).
+    max-results-in-memory: ${LOADPILOT_MAX_RESULTS_IN_MEMORY:0}
     # Detail des requetes (echecs + echantillon) : plafond memoire par execution. Au-dela,
     # l'echantillon des requetes reussies s'arrete ; les echecs continuent d'etre enregistres.
     request-detail:
       max-memory-mb: ${LOADPILOT_REQUEST_DETAIL_MAX_MEMORY_MB:50}
+  # LoadPilot lui-meme pendant un test (voir InjectorMonitor) : au-dela de ce CPU du processus (% de la
+  # machine), le suivi en direct signale un injecteur sature (temps de reponse possiblement faux).
+  injector:
+    cpu-warning-percent: ${LOADPILOT_INJECTOR_CPU_WARNING_PERCENT:85}
   keycloak:
     admin:
       # Phase 25 - compte de service DEDIE a l'administration des

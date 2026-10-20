@@ -108,7 +108,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                     .target(AuditTargetType.SCENARIO, saved.getId(), saved.getName())
                     .diff(Map.of(), AuditSnapshots.of(saved))
                     .description(draft ? "Brouillon de scénario créé" : "Scénario créé"));
-            return scenarioMapper.toResponse(saved);
+            return withLoadWarnings(scenarioMapper.toResponse(saved));
         } catch (RuntimeException e) {
             auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.SCENARIO)
                     .target(AuditTargetType.SCENARIO, null, request.name())
@@ -178,9 +178,20 @@ public class ScenarioServiceImpl implements ScenarioService {
     private List<ScenarioResponse> withPausedSchedules(List<ScenarioResponse> responses) {
         Map<UUID, Long> counts = scenarioStatusService.pausedSchedulesCount(
                 responses.stream().map(r -> UUID.fromString(r.id())).toList());
+        com.loadpilot.backend.service.validation.LoadLimits limits = executionLimits.loadLimits();
         return responses.stream()
-                .map(r -> r.withPausedSchedules(counts.getOrDefault(UUID.fromString(r.id()), 0L)))
+                .map(r -> withLoadWarnings(r.withPausedSchedules(counts.getOrDefault(UUID.fromString(r.id()), 0L)), limits))
                 .toList();
+    }
+
+    /** Avertissements de charge (jamais bloquants), avec les limites en vigueur : voir LoadRules.warnings. */
+    private ScenarioResponse withLoadWarnings(ScenarioResponse response) {
+        return withLoadWarnings(response, executionLimits.loadLimits());
+    }
+
+    private static ScenarioResponse withLoadWarnings(ScenarioResponse response, com.loadpilot.backend.service.validation.LoadLimits limits) {
+        return response.withLoadWarnings(com.loadpilot.backend.service.validation.LoadRules.warnings(
+                response.virtualUsers(), response.targetRps(), limits));
     }
 
     @Override
@@ -211,7 +222,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                     .target(AuditTargetType.SCENARIO, saved.getId(), saved.getName())
                     .diff(before, AuditSnapshots.of(saved));
             auditLogService.record(audit.description(audit.changes().isEmpty() ? "Scénario enregistré sans changement de ses réglages" : "Scénario modifié"));
-            return scenarioMapper.toResponse(saved);
+            return withLoadWarnings(scenarioMapper.toResponse(saved));
         } catch (RuntimeException e) {
             auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.SCENARIO)
                     .target(AuditTargetType.SCENARIO, id, scenarioName(id))
@@ -241,7 +252,7 @@ public class ScenarioServiceImpl implements ScenarioService {
     public ScenarioResponse publish(UUID id) {
         Scenario scenario = findOrThrow(id);
         if (scenario.getStatus() != ScenarioStatus.DRAFT) {
-            return scenarioMapper.toResponse(scenario);
+            return withLoadWarnings(scenarioMapper.toResponse(scenario));
         }
         if (scenario.isArchived() || scenario.getApplication().isArchived()) {
             throw new ConflictException("Ce brouillon ou son application est archivé : restaurez-le avant de l'enregistrer.");
@@ -253,8 +264,12 @@ public class ScenarioServiceImpl implements ScenarioService {
         for (int i = 0; i < steps.size(); i++) {
             Step step = steps.get(i);
             String problem = StepRules.validate(step.getUrl(), step.getHeaders(), step.getBody(),
-                    step.getCaptureVariableName(), step.getCaptureJsonPath());
+                    step.getCaptureVariableName(), step.getCaptureJsonPath(), step.getCaptureSource());
             if (problem == null) problem = StepRules.validateParams(step.getPathParams(), step.getQueryParams());
+            if (problem == null) {
+                problem = com.loadpilot.backend.service.execution.StepChecks.configurationProblem(step.getAssertionJsonPath(),
+                        step.getAssertionJsonOperator(), step.getAssertionJsonValue());
+            }
             if (problem != null) {
                 throw new BadRequestException("Étape " + (i + 1) + " « " + step.getName() + " » : " + problem);
             }
@@ -275,7 +290,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                 .target(AuditTargetType.SCENARIO, saved.getId(), saved.getName())
                 .change("Statut", "Brouillon", "Actif")
                 .description("Brouillon publié : le scénario peut être lancé"));
-        return scenarioMapper.toResponse(saved);
+        return withLoadWarnings(scenarioMapper.toResponse(saved));
     }
 
     @Override
@@ -380,6 +395,27 @@ public class ScenarioServiceImpl implements ScenarioService {
         }
         if (request.maxP95Ms() != null) {
             scenario.setMaxP95Ms(request.maxP95Ms() > 0 ? request.maxP95Ms() : null);
+        }
+        // Frein automatique en direct : null = inchange ; 0 = desactive (jamais active par defaut).
+        if (request.errorBrakeRatePercent() != null) {
+            scenario.setErrorBrakeRatePercent(request.errorBrakeRatePercent() > 0 ? request.errorBrakeRatePercent() : null);
+        }
+        if (request.errorBrakeWindowSeconds() != null) {
+            scenario.setErrorBrakeWindowSeconds(request.errorBrakeWindowSeconds());
+        }
+        // Ralentissement sur 429 : null = inchange (actif par defaut, voir ThrottlePolicy).
+        if (request.throttleOn429() != null) {
+            scenario.setThrottleOn429(request.throttleOn429());
+        }
+        if (request.throttleDefaultDelaySeconds() != null) {
+            scenario.setThrottleDefaultDelaySeconds(request.throttleDefaultDelaySeconds());
+        }
+        if (request.throttleMaxRetries() != null) {
+            scenario.setThrottleMaxRetries(request.throttleMaxRetries());
+        }
+        // Variation du think time : null = inchange ; 0 = think time fixe (enregistre comme absent).
+        if (request.thinkTimeVariationPercent() != null) {
+            scenario.setThinkTimeVariationPercent(request.thinkTimeVariationPercent() > 0 ? request.thinkTimeVariationPercent() : null);
         }
     }
 

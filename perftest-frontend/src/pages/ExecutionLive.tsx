@@ -8,6 +8,7 @@ import { liveStatusLabel, isTerminal, progressOf, useExecutionMonitor } from '..
 import { executionStatusMeta } from '../utils/executionStatus'
 import { NoFailedSteps, OnlyFailedToggle, StepPagerFooter, useStepPaging } from '../components/StepTablePager'
 import LiveResources from '../components/application-monitoring/LiveResources'
+import LiveInjector from '../components/LiveInjector'
 
 // ============================================================
 // Suivi en direct d'une exécution (/executions/live/:id) : statut, progression,
@@ -188,6 +189,7 @@ function ExecutionLive() {
         <div className="em-kpi"><strong>{avg != null ? `${Math.round(avg)} ms` : '—'}</strong><span>temps de réponse moyen</span></div>
       </div>
 
+      {!finished && <LiveInjector injector={status?.injector} />}
       <LiveResources resources={status?.resources} finished={finished} />
 
       <div className="pt-card" style={{ padding: 0 }}>

@@ -1,9 +1,7 @@
 package com.loadpilot.backend.service.execution;
 
 import com.loadpilot.backend.enums.ExecutionStatus;
-import com.loadpilot.backend.service.report.PercentileCalculator;
 import java.text.NumberFormat;
-import java.util.List;
 import java.util.Locale;
 
 /**
@@ -32,20 +30,21 @@ public final class ExecutionVerdict {
                                 Double maxErrorRatePercent, Long maxP95Ms) {
         if (cancelled) return new Result(ExecutionStatus.CANCELLED, cancelMessage);
         if (maxErrorRatePercent == null) return new Result(outcome.finalStatus(), outcome.errorMessage());
-        List<StepOutcome> all = outcome.stepOutcomes();
-        if (all.isEmpty()) {
+        // Totaux de TOUTES les requetes, deja ecrites en base pendant le test ou non (voir ResultSummary).
+        ResultSummary all = outcome.summary();
+        if (all.total() == 0) {
             return new Result(ExecutionStatus.FAILED,
                     outcome.errorMessage() != null ? outcome.errorMessage() : "Aucune requête n'a été exécutée.");
         }
 
-        if (all.stream().noneMatch(o -> o.httpStatus() != null)) {
-            String first = all.get(0).error();
+        if (!all.anyResponse()) {
+            String first = all.firstOutcomeError();
             return new Result(ExecutionStatus.FAILED, UNREACHABLE + (first != null ? " (" + first + ")" : "") + ".");
         }
 
-        long failures = all.stream().filter(o -> !o.success()).count();
-        double errorRate = failures * 100.0 / all.size();
-        Long p95 = PercentileCalculator.percentile(all.stream().map(StepOutcome::responseTimeMs).toList(), 95);
+        long failures = all.failures();
+        double errorRate = failures * 100.0 / all.total();
+        Long p95 = all.percentile(95);
         boolean errorsExceeded = errorRate > maxErrorRatePercent;
         boolean p95Exceeded = maxP95Ms != null && p95 != null && p95 > maxP95Ms;
         if (!errorsExceeded && !p95Exceeded) return new Result(ExecutionStatus.SUCCESS, null);

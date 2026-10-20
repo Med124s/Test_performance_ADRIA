@@ -17,12 +17,11 @@ import {
 } from 'chart.js'
 import TopBar from '../components/TopBar'
 import { useAuth } from '../context/AuthContext'
-import { BackendExecutionDetailResponse, BackendMetricResponse, BackendStepReportEntry } from '../types/backendContracts'
+import { BackendExecutionDetailResponse, BackendStepReportEntry } from '../types/backendContracts'
 import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
 import StepRequestsExplorer from './execution-detail/StepRequestsExplorer'
 import { RetentionNotice } from './execution-report/Retention'
 import { executionsBackendApi } from '../services/api/executionsBackend'
-import { metricsBackendApi } from '../services/api/metricsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { executionStatusMeta } from '../utils/executionStatus'
 
@@ -85,10 +84,9 @@ function formatDurationMs(ms: number | null): string {
 // VU/graphiques de bucket de temps de réponse/corps de requête-réponse
 // capturés/CPU-RAM historique par étape : aucun de ces éléments n'existe
 // dans le contrat backend (ExecutionResponse/ExecutionStepResultResponse),
-// jamais simulés. Les métriques (débit/taux d'erreur/CPU/RAM/disque/
-// réseau) proviennent de GET /api/metrics?executionId={id} (Phase 21,
-// "si nécessaire et réellement utile" — utile ici car ExecutionResponse
-// n'expose ni throughput/errorRate ni les mesures serveur).
+// jamais simulés. Débit et taux d'erreurs : portés par l'exécution elle-même
+// (throughputRps, errorRatePercent), jamais en rechargeant ses Metric — une par
+// requête, des millions pour un long test.
 // ------------------------------------------------------------
 function SpringExecutionDetail({ id }: { id: string }) {
   const navigate = useNavigate()
@@ -100,7 +98,6 @@ function SpringExecutionDetail({ id }: { id: string }) {
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
 
   const [execution, setExecution] = useState<BackendExecutionDetailResponse | null>(null)
-  const [metrics, setMetrics] = useState<BackendMetricResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
@@ -113,14 +110,8 @@ function SpringExecutionDetail({ id }: { id: string }) {
     // Résumé sans la liste complète des requêtes (des milliers en test de charge) :
     // les requêtes s'affichent par étape, paginées côté serveur (StepRequestsExplorer).
     executionsBackendApi.getSummary(id)
-      .then(async (exec) => {
-        if (cancelled) return
-        setExecution(exec)
-        // Les Metric sont supplémentaires (débit/erreur/monitoring) : un
-        // échec de ce second appel ne doit jamais empêcher l'affichage du
-        // détail réel de l'exécution déjà chargée.
-        const m = await metricsBackendApi.search({ executionId: id }).catch(() => [])
-        if (!cancelled) setMetrics(m)
+      .then((exec) => {
+        if (!cancelled) setExecution(exec)
       })
       .catch((err) => setError(describeApiError(err, 'Exécution introuvable.')))
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -210,10 +201,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
   // recalculé depuis les résultats bruts, jamais une valeur inventée.
   const successRateDisplay = executedSteps > 0 ? (execution.successfulSteps / executedSteps) * 100 : null
 
-  // Le débit/taux d'erreur d'exécution sont des champs de Metric (niveau
-  // exécution, dupliqués sur chaque ligne — voir Phase 21) : n'importe
-  // quelle ligne suffit pour throughput/errorRate.
-  const anyMetric = metrics[0]
+  // Débit et taux d'erreurs : calculés par le serveur sur l'exécution (mêmes formules que ses Metric).
   const fmt = (v: number | null | undefined, unit = ''): string => (v == null ? 'N/D' : `${Math.round(v * 100) / 100}${unit}`)
 
   return (
@@ -279,8 +267,8 @@ function SpringExecutionDetail({ id }: { id: string }) {
           { label: 'Durée totale', value: formatDurationMs(execution.duration), icon: 'bi-clock-history', color: 'blue' },
           { label: 'Étapes exécutées', value: `${executedSteps} / ${execution.totalSteps}`, icon: 'bi-list-check', color: 'purple' },
           { label: 'Taux réussite', value: fmt(successRateDisplay, '%'), icon: 'bi-check-circle', color: 'green' },
-          { label: 'Débit', value: fmt(anyMetric?.throughput ?? null, ' req/s'), icon: 'bi-speedometer2', color: 'blue' },
-          { label: "Taux d'erreur", value: fmt(anyMetric?.errorRate ?? null, '%'), icon: 'bi-exclamation-triangle', color: 'red' },
+          { label: 'Débit', value: fmt(execution.throughputRps ?? null, ' req/s'), icon: 'bi-speedometer2', color: 'blue' },
+          { label: "Taux d'erreur", value: fmt(execution.errorRatePercent ?? null, '%'), icon: 'bi-exclamation-triangle', color: 'red' },
         ].map((kpi, idx) => (
           <div className="col-12 col-sm-6 col-md-4 col-xl" key={idx}>
             <div className="pt-stat-card">

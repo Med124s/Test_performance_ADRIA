@@ -7,9 +7,11 @@ import com.loadpilot.backend.dto.response.ApplicationAuthResponse;
 import com.loadpilot.backend.entity.Application;
 import com.loadpilot.backend.enums.ApiKeyLocation;
 import com.loadpilot.backend.enums.ApplicationAuthType;
+import com.loadpilot.backend.enums.CaptureSource;
 import com.loadpilot.backend.exception.LoadConfigurationException;
 import com.loadpilot.backend.service.execution.ApplicationAuthenticator;
 import com.loadpilot.backend.service.execution.ResolvedAuth;
+import com.loadpilot.backend.service.validation.StepRules;
 import java.util.regex.Pattern;
 import org.mapstruct.Named;
 import org.springframework.stereotype.Component;
@@ -27,8 +29,9 @@ public class ApplicationAuthSupport {
     private static final Pattern HEADER_NAME = Pattern.compile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$");
     /** Nom de parametre de requete : ni espace ni separateur d'URL. */
     private static final Pattern QUERY_NAME = Pattern.compile("^[^\\s&=?#]+$");
-    /** Sous-ensemble supporte par JsonPathExtractor : segments separes par des points. */
-    private static final Pattern JSON_PATH = Pattern.compile("^(\\$\\.?)?[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$");
+    /** Sous-ensemble supporte par JsonPathExtractor : segments separes par des points, index de tableau [n] optionnels. */
+    private static final Pattern JSON_PATH = Pattern.compile(
+            "^(\\$\\.?)?(?:[A-Za-z0-9_-]+|\\[\\d{1,9}])(?:\\[\\d{1,9}])*(\\.[A-Za-z0-9_-]+(?:\\[\\d{1,9}])*)*$");
     private static final Pattern WHITESPACE = Pattern.compile("\\s");
     private static final Pattern LINE_BREAK = Pattern.compile("[\\r\\n\\x00]");
 
@@ -109,10 +112,25 @@ public class ApplicationAuthSupport {
                 }
                 String loginBody = keep(request.loginBody(), previous.loginBody());
                 require(loginBody, "Indiquez les identifiants envoyés (JSON).");
+                // Source du jeton : corps JSON (defaut) ou en-tete de reponse (tokenJsonPath = nom de l'en-tete).
+                // Jamais HTML : la connexion automatique envoie du JSON, pas un formulaire HTML.
+                if (request.tokenSource() == CaptureSource.HTML) {
+                    throw new LoadConfigurationException("La connexion automatique ne lit pas le jeton dans une page HTML : "
+                            + "pour un formulaire de connexion, faites de la connexion une étape du scénario.");
+                }
+                CaptureSource tokenSource = request.tokenSource() == CaptureSource.HEADER ? CaptureSource.HEADER : null;
                 String tokenJsonPath = trim(request.tokenJsonPath());
-                require(tokenJsonPath, "Indiquez où lire le jeton (ex : $.token).");
-                if (!JSON_PATH.matcher(tokenJsonPath).matches()) {
-                    throw new LoadConfigurationException("Chemin invalide (ex : $.token ou $.data.accessToken).");
+                if (tokenSource == CaptureSource.HEADER) {
+                    require(tokenJsonPath, "Indiquez l'en-tête qui contient le jeton (ex : X-Auth-Token).");
+                    String problem = StepRules.headerCaptureProblem(tokenJsonPath);
+                    if (problem != null) {
+                        throw new LoadConfigurationException("Jeton : " + problem + ".");
+                    }
+                } else {
+                    require(tokenJsonPath, "Indiquez où lire le jeton (ex : $.token).");
+                    if (!JSON_PATH.matcher(tokenJsonPath).matches()) {
+                        throw new LoadConfigurationException("Chemin invalide (ex : $.token ou $.data.accessToken).");
+                    }
                 }
                 String headerName = trim(request.tokenHeaderName());
                 if (headerName == null) headerName = ApplicationAuthConfig.DEFAULT_TOKEN_HEADER;
@@ -122,7 +140,8 @@ public class ApplicationAuthSupport {
                 // null = prefixe par defaut "Bearer " ; "" = jeton envoye brut.
                 String prefix = request.tokenPrefix();
                 if (prefix != null) requireSingleLine(prefix, "Le préfixe ne doit pas contenir de retour à la ligne.");
-                yield new ApplicationAuthConfig(null, null, null, null, null, null, loginPath, loginBody, tokenJsonPath, headerName, prefix);
+                yield new ApplicationAuthConfig(null, null, null, null, null, null, loginPath, loginBody, tokenJsonPath, headerName, prefix,
+                        null, tokenSource);
             }
             case NONE -> throw new IllegalStateException("NONE traite plus haut.");
         };
@@ -151,6 +170,7 @@ public class ApplicationAuthSupport {
                 c.username(),
                 c.loginPath(),
                 c.tokenJsonPath(),
+                c.tokenSource(),
                 c.tokenHeaderName(),
                 c.tokenPrefix(),
                 c.verificationPath(),
@@ -170,7 +190,8 @@ public class ApplicationAuthSupport {
     /** Resolution reelle (connexion comprise pour LOGIN_TOKEN) - voir
      * ApplicationAuthenticator. Leve ApplicationAuthenticationException. */
     public ResolvedAuth resolve(Application application, long timeoutSeconds) {
-        return authenticator.authenticate(toSpec(application), application.getUrl(), timeoutSeconds);
+        return authenticator.authenticate(toSpec(application), application.getUrl(), timeoutSeconds,
+                com.loadpilot.backend.service.http.NetworkProfile.of(application));
     }
 
     private ApplicationAuthConfig read(String json) {

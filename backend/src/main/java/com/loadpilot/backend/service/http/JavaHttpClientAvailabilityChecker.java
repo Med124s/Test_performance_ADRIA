@@ -29,17 +29,30 @@ public class JavaHttpClientAvailabilityChecker implements HttpAvailabilityChecke
 
     @Override
     public HttpAvailabilityResult check(String url, Map<String, String> headers, Duration timeout) {
+        return check(url, headers, timeout, NetworkProfile.inherit());
+    }
+
+    @Override
+    public HttpAvailabilityResult check(String url, Duration timeout, NetworkProfile network) {
+        return check(url, Map.of(), timeout, network);
+    }
+
+    @Override
+    public HttpAvailabilityResult check(String url, Map<String, String> headers, Duration timeout, NetworkProfile network) {
         long startedAt = System.nanoTime();
+        HttpClient client = null;
         try {
-            HttpClient client = HttpClient.newBuilder()
+            // Proxy de l'application (ou du serveur, ou aucun) : voir NetworkProfile.
+            client = network.configure(HttpClient.newBuilder()
                     .connectTimeout(timeout)
-                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .followRedirects(HttpClient.Redirect.NORMAL))
                     .build();
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                     .timeout(timeout)
                     .GET();
             headers.forEach(builder::header);
-            HttpRequest request = builder.build();
+            // Proxy avec identifiant : en-tete ajoute seulement si la requete passe par lui.
+            HttpRequest request = network.applyTo(builder, URI.create(url), ProxyAuthorization.current()).build();
 
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
             return new HttpAvailabilityResult(true, response.statusCode(), elapsedMs(startedAt), null);
@@ -55,6 +68,9 @@ public class JavaHttpClientAvailabilityChecker implements HttpAvailabilityChecke
         } catch (IllegalArgumentException e) {
             // URI.create()/HttpRequest.newBuilder() rejette une URL malformee.
             return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), "URL invalide");
+        } finally {
+            // Corps jamais lu (discarding) : rien n'est plus attendu, client ferme tout de suite.
+            HttpClients.shutdownQuietly(client);
         }
     }
 

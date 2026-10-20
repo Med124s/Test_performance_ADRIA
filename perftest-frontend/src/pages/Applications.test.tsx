@@ -82,6 +82,7 @@ const renderPage = (url = '/') =>
 const fillNewApplication = () => {
   fireEvent.change(screen.getByPlaceholderText('ex: Mon Application Web'), { target: { value: 'Banking' } })
   fireEvent.change(screen.getByPlaceholderText('ex: https://app.monsite.com'), { target: { value: 'http://localhost:8888' } })
+  fireEvent.click(screen.getByRole('tab', { name: /Authentification/ }))
   fireEvent.click(screen.getByRole('radio', { name: /Jeton Bearer/ }))
   fireEvent.change(screen.getByPlaceholderText(/TEST-TOKEN-123/), { target: { value: 'bad-token' } })
   fireEvent.change(screen.getByLabelText(/Endpoint de vérification/), { target: { value: '/api/account/balance' } })
@@ -304,5 +305,90 @@ describe('Applications — suppression, sélection et pagination', () => {
 
     expect(await screen.findByText('Affichage de 6 à 6 sur 6 applications')).toBeInTheDocument()
     expect(listCalls().map(([q]) => (q as ApplicationPageQuery).page)).toEqual([2, 1])
+  })
+})
+
+describe('Applications — onglets de la modale', () => {
+  const tab = (name: RegExp) => screen.getByRole('tab', { name })
+  const marker = (id: string) => screen.queryByTestId(`tab-marker-${id}`)
+
+  it('création : « Général » ouvert, navigation entre onglets, saisies conservées, bouton final toujours visible', async () => {
+    serveApps([])
+    renderPage()
+    await screen.findByText(/Aucune application/)
+    fireEvent.click(screen.getByRole('button', { name: /Ajouter une application/ }))
+
+    expect(screen.getAllByRole('tab').map((t) => t.textContent?.trim())).toEqual(['Général', 'Authentification', 'Réseau', 'Monitoring'])
+    expect(tab(/Général/)).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByPlaceholderText('ex: Mon Application Web')).toBeVisible()
+    // Valeurs par défaut : aucun point sur les onglets.
+    expect(marker('auth')).toBeNull()
+    expect(marker('network')).toBeNull()
+
+    fireEvent.change(screen.getByPlaceholderText('ex: Mon Application Web'), { target: { value: 'Banking' } })
+    fireEvent.click(tab(/Réseau/))
+    expect(tab(/Réseau/)).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByPlaceholderText('ex: Mon Application Web')).not.toBeVisible()
+    fireEvent.click(screen.getByRole('radio', { name: 'Proxy de l’application' }))
+    fireEvent.change(screen.getByLabelText(/Hôte du proxy/), { target: { value: 'proxy.banque.local' } })
+    expect(screen.getByRole('button', { name: /Tester et ajouter/ })).toBeVisible()
+    // Proxy personnalisé : point « configuré » sur l'onglet Réseau.
+    expect(marker('network')).toHaveClass('configured')
+
+    fireEvent.click(tab(/Monitoring/))
+    expect(screen.getByRole('button', { name: /Tester et ajouter/ })).toBeVisible()
+    fireEvent.click(tab(/Général/))
+    expect(screen.getByPlaceholderText('ex: Mon Application Web')).toHaveValue('Banking')
+    fireEvent.click(tab(/Réseau/))
+    expect(screen.getByLabelText(/Hôte du proxy/)).toHaveValue('proxy.banque.local')
+    expect(screen.getByRole('radio', { name: 'Proxy de l’application' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('clavier : flèches gauche / droite pour passer d’un onglet à l’autre', async () => {
+    serveApps([])
+    renderPage()
+    await screen.findByText(/Aucune application/)
+    fireEvent.click(screen.getByRole('button', { name: /Ajouter une application/ }))
+    fireEvent.keyDown(tab(/Général/), { key: 'ArrowRight' })
+    expect(tab(/Authentification/)).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(tab(/Authentification/), { key: 'ArrowLeft' })
+    expect(tab(/Général/)).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(tab(/Général/), { key: 'End' })
+    expect(tab(/Monitoring/)).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('modification : points sur les onglets configurés, visibles sans les ouvrir', async () => {
+    serveApps([app({
+      network: { proxyMode: 'CUSTOM', proxyHost: 'proxy.banque.local', proxyPort: 8080, proxyUsername: 'agent', proxyPasswordConfigured: true },
+      monitoring: { type: 'PROMETHEUS', url: 'http://localhost:8888/metrics', authType: 'NONE', headerName: null, secretConfigured: false, intervalSeconds: 5 },
+    })])
+    renderPage()
+    fireEvent.click(await screen.findByTitle('Modifier'))
+
+    expect(tab(/Général/)).toHaveAttribute('aria-selected', 'true')
+    expect(marker('general')).toBeNull()
+    expect(marker('auth')).toHaveClass('configured') // Jeton Bearer
+    expect(marker('network')).toHaveClass('configured')
+    expect(marker('monitoring')).toHaveClass('configured')
+    fireEvent.click(tab(/Réseau/))
+    expect(screen.getByLabelText(/Hôte du proxy/)).toHaveValue('proxy.banque.local')
+  })
+
+  it('enregistrement avec un champ invalide dans un autre onglet : point d’erreur et bascule sur cet onglet', async () => {
+    serveApps([])
+    renderPage()
+    await screen.findByText(/Aucune application/)
+    fireEvent.click(screen.getByRole('button', { name: /Ajouter une application/ }))
+    fireEvent.change(screen.getByPlaceholderText('ex: Mon Application Web'), { target: { value: 'Banking' } })
+    fireEvent.change(screen.getByPlaceholderText('ex: https://app.monsite.com'), { target: { value: 'http://localhost:8888' } })
+    fireEvent.click(tab(/Réseau/))
+    fireEvent.click(screen.getByRole('radio', { name: 'Proxy de l’application' })) // hôte et port manquants
+    fireEvent.click(tab(/Général/))
+
+    fireEvent.click(screen.getByRole('button', { name: /Tester et ajouter/ }))
+    expect(api.create).not.toHaveBeenCalled()
+    expect(tab(/Réseau/)).toHaveAttribute('aria-selected', 'true')
+    expect(marker('network')).toHaveClass('error')
+    expect(screen.getByText(/Indiquez l’hôte du proxy/)).toBeVisible()
   })
 })

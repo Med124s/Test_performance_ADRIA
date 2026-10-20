@@ -6,14 +6,16 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('react-chartjs-2', () => ({ Bar: () => <div />, Line: () => <div />, Doughnut: () => <div /> }))
 vi.mock('../components/TopBar', () => ({ default: () => <div /> }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ authProvider: 'keycloak', rawRoles: ['ROLE_VIEWER'] }) }))
-vi.mock('../services/api/metricsBackend', () => ({ metricsBackendApi: { search: () => Promise.resolve([]) } }))
+// Les métriques d'une exécution (une par requête) ne doivent plus être chargées par cette page.
+const metricsSearch = vi.hoisted(() => vi.fn(() => Promise.resolve([])))
+vi.mock('../services/api/metricsBackend', () => ({ metricsBackendApi: { search: metricsSearch } }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: {
   getSummary: () => Promise.resolve({
     id: '11111111-2222-4333-8444-555555555555', scenarioId: 'sc-1', scenarioName: 'Parcours bancaire', status: 'FAILED',
     startedAt: '2026-10-04T10:00:00Z', finishedAt: '2026-10-04T10:01:00Z', duration: 60_000, virtualUsers: 10, rampUpSeconds: 5,
     durationSeconds: 60, iterations: null, totalSteps: 9, successfulSteps: 2115, failedSteps: 37,
     errorMessage: 'Reponse HTTP 409 (attendu 201)', results: [], requestDetailMode: 'FAILURES_AND_SAMPLE',
-    detailSampleCapReached: false, detailedFailures: 37, detailedSamples: 120,
+    detailSampleCapReached: false, detailedFailures: 37, detailedSamples: 120, throughputRps: 35.867, errorRatePercent: 1.72,
   }),
   getReport: () => Promise.resolve({ steps: [] }),
 } }))
@@ -37,5 +39,18 @@ describe('Détail d’une exécution échouée', () => {
     expect(screen.getByText(/Durée 60s/)).toBeTruthy()
     expect(screen.queryByText(/données réelles Spring Boot/)).toBeNull()
     expect(screen.getByText('PERFORMANCE')).toBeTruthy()
+  })
+})
+
+describe('Détail d’une exécution : débit et taux d’erreurs', () => {
+  it('lus sur l’exécution, sans recharger ses métriques', async () => {
+    render(
+      <MemoryRouter initialEntries={['/executions/detail/11111111-2222-4333-8444-555555555555']}>
+        <Routes><Route path="/executions/detail/:id" element={<ExecutionDetail />} /></Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('35.87 req/s')).toBeTruthy()
+    expect(screen.getByText('1.72%')).toBeTruthy()
+    expect(metricsSearch).not.toHaveBeenCalled()
   })
 })

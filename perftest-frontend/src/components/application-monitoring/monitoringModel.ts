@@ -17,10 +17,12 @@ export interface MonitoringForm {
   headerName: string
   secret: string
   intervalSeconds: string
+  /** Lecture en direct, sans le proxy de l'application. */
+  withoutProxy: boolean
 }
 
 export const EMPTY_MONITORING_FORM: MonitoringForm = {
-  type: 'NONE', url: '', authType: 'NONE', headerName: '', secret: '', intervalSeconds: '5',
+  type: 'NONE', url: '', authType: 'NONE', headerName: '', secret: '', intervalSeconds: '5', withoutProxy: false,
 }
 
 export const MONITORING_TYPE_LABELS: Record<BackendMonitoringType, string> = {
@@ -40,7 +42,7 @@ export function monitoringFormFromResponse(m: BackendMonitoringResponse | undefi
   if (!m) return EMPTY_MONITORING_FORM
   return {
     type: m.type, url: m.url ?? '', authType: m.authType, headerName: m.headerName ?? '', secret: '',
-    intervalSeconds: String(m.intervalSeconds || 5),
+    intervalSeconds: String(m.intervalSeconds || 5), withoutProxy: !!m.withoutProxy,
   }
 }
 
@@ -52,6 +54,7 @@ export function monitoringFormToRequest(f: MonitoringForm): BackendMonitoringReq
     headerName: f.authType === 'HEADER' ? f.headerName.trim() || null : null,
     secret: f.secret.trim() || null,
     intervalSeconds: Number(f.intervalSeconds) || 5,
+    withoutProxy: f.withoutProxy,
   }
 }
 

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Frein automatique sur taux d'erreurs (voir ErrorRateBrake) : colonnes ADDITIONNELLES et NULLABLES.
+
+        scenario.error_brake_rate_percent   : taux d'erreurs (%) au-dela duquel le test est arrete en direct ;
+                                              NULL = frein desactive (tous les scenarios existants).
+        scenario.error_brake_window_seconds : fenetre glissante (secondes) sur laquelle ce taux est mesure.
+    -->
+    <changeSet id="035-scenario-error-rate-brake" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="error_brake_rate_percent" type="DOUBLE PRECISION"/>
+            <column name="error_brake_window_seconds" type="INT"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

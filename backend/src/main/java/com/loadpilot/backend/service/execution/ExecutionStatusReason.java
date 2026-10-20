@@ -11,6 +11,9 @@ import com.loadpilot.backend.enums.ExecutionStatus;
  */
 public final class ExecutionStatusReason {
 
+    /** Debut du message d'arret du garde-fou memoire (voir ResultsMemoryGuard). */
+    public static final String MEMORY_LIMIT_PREFIX = "Arrêt automatique : trop de résultats en mémoire";
+
     private ExecutionStatusReason() {
     }
 
@@ -23,6 +26,11 @@ public final class ExecutionStatusReason {
         return switch (e.getStatus()) {
             case CANCELLED -> {
                 if (e.getCancelledBy() != null) yield "Annulée par " + e.getCancelledBy();
+                // Avant le frein : les deux messages commencent par « Arrêt automatique : ».
+                if (message.startsWith(MEMORY_LIMIT_PREFIX)) {
+                    yield "Arrêt automatique : limite mémoire";
+                }
+                if (message.startsWith(ErrorRateBrake.REASON_PREFIX)) yield "Arrêt automatique : trop d’erreurs";
                 if (message.toLowerCase().contains("pause")) yield "Annulée : pause trop longue";
                 yield "Annulée";
             }

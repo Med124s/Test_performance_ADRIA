@@ -54,6 +54,17 @@ public interface ExecutionEngine {
      * Contrat complet : sources de variables (CSV et sa distribution, variables du scenario).
      * Chaque VU a son propre contexte (VariableContext) ; captures videes a chaque iteration.
      */
+    default ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
+            LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableSources sources) {
+        return execute(steps, applicationBaseUrl, auth, loadSpec, handle, sources,
+                com.loadpilot.backend.service.http.NetworkProfile.inherit());
+    }
+
+    /**
+     * Contrat complet : reglages reseau de l'application (proxy, voir NetworkProfile) appliques a
+     * chaque client et a la Connexion automatique ; null = proxy du serveur.
+     */
     ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
-            LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableSources sources);
+            LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableSources sources,
+            com.loadpilot.backend.service.http.NetworkProfile network);
 }

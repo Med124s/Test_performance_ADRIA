@@ -21,10 +21,10 @@ describe('monitoringModel', () => {
     expect(suggestedMonitoringUrl('ACTUATOR', 'http://localhost:8080')).toBe('http://localhost:8080/actuator')
     const existing = { type: 'PROMETHEUS' as const, url: 'http://h/metrics', authType: 'BEARER' as const, headerName: null, secretConfigured: true, intervalSeconds: 10 }
     const form = monitoringFormFromResponse(existing)
-    expect(form).toEqual({ type: 'PROMETHEUS', url: 'http://h/metrics', authType: 'BEARER', headerName: '', secret: '', intervalSeconds: '10' })
+    expect(form).toEqual({ type: 'PROMETHEUS', url: 'http://h/metrics', authType: 'BEARER', headerName: '', secret: '', intervalSeconds: '10', withoutProxy: false })
     expect(validateMonitoringForm(form, existing)).toEqual({})
     expect(validateMonitoringForm(form, null).secret).toBe('Indiquez le jeton.')
-    expect(monitoringFormToRequest(form)).toEqual({ type: 'PROMETHEUS', url: 'http://h/metrics', authType: 'BEARER', headerName: null, secret: null, intervalSeconds: 10 })
+    expect(monitoringFormToRequest(form)).toEqual({ type: 'PROMETHEUS', url: 'http://h/metrics', authType: 'BEARER', headerName: null, secret: null, intervalSeconds: 10, withoutProxy: false })
     expect(validateMonitoringForm({ ...EMPTY_MONITORING_FORM, type: 'ACTUATOR', url: 'ftp://x', intervalSeconds: '0' })).toEqual({
       url: 'URL invalide : elle doit commencer par http:// ou https://.', intervalSeconds: 'Entre 1 et 60 secondes.',
     })
@@ -47,15 +47,15 @@ describe('section Monitoring du formulaire', () => {
   it('Prometheus propose /metrics, « Tester le monitoring » affiche le CPU et la RAM lus, puis une erreur claire', async () => {
     render(<Harness />)
     expect(screen.queryByLabelText('URL du monitoring *')).toBeNull()
-    fireEvent.click(screen.getByRole('radio', { name: /Prometheus/ }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Prometheus' }))
     expect((screen.getByLabelText('URL du monitoring *') as HTMLInputElement).value).toBe('http://localhost:8888/metrics')
-    expect(screen.getByText(/ni la machine entière, ni LoadPilot/)).toBeTruthy()
+    expect(screen.getByRole('img', { name: /ni la machine entière, ni LoadPilot/ })).toBeTruthy()
 
     api.testMonitoring.mockResolvedValueOnce({ success: true, message: 'Monitoring opérationnel : CPU 12.5 % d’un cœur, RAM 64.2 Mo.', cpuPercent: 12.5, memoryMb: 64.2, memoryMetric: 'process_resident_memory_bytes' })
     fireEvent.click(screen.getByRole('button', { name: /Tester le monitoring/ }))
     expect((await screen.findByRole('status')).textContent).toMatch(/CPU 12,5\s%.*RAM 64\sMo/)
     expect(api.testMonitoring).toHaveBeenCalledWith(
-      { type: 'PROMETHEUS', url: 'http://localhost:8888/metrics', authType: 'NONE', headerName: null, secret: null, intervalSeconds: 5 }, undefined)
+      { type: 'PROMETHEUS', url: 'http://localhost:8888/metrics', authType: 'NONE', headerName: null, secret: null, intervalSeconds: 5, withoutProxy: false }, undefined, undefined)
 
     api.testMonitoring.mockResolvedValueOnce({ success: false, message: 'Monitoring injoignable (connexion refusée) : http://localhost:8888/metrics.', cpuPercent: null, memoryMb: null, memoryMetric: null })
     fireEvent.click(screen.getByRole('button', { name: /Tester le monitoring/ }))

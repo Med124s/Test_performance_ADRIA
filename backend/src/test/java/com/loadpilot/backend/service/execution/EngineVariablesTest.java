@@ -99,6 +99,18 @@ class EngineVariablesTest {
             useCalls.incrementAndGet();
         } else if (path.equals("/echo")) {
             bodies.add(body);
+        } else if (path.equals("/csrf")) {
+            // Valeurs dans les en-tetes seulement ; corps non JSON (inutile pour une capture d'en-tete).
+            ex.getResponseHeaders().add("X-CSRF-Token", "csrf-" + seq.incrementAndGet());
+            ex.getResponseHeaders().add("Set-Cookie", "theme=dark; Path=/");
+            ex.getResponseHeaders().add("Set-Cookie", "SESSIONID=sess-42; Path=/; HttpOnly");
+            response = "<html>pas du JSON</html>";
+        } else if (path.equals("/page")) {
+            // Page de formulaire : jeton propre a chaque appel, dans un champ cache.
+            response = "<html><form><input type=\"hidden\" name=\"csrf_token\" value=\"html-" + seq.incrementAndGet()
+                    + "\"></form></html>";
+        } else if (path.equals("/check")) {
+            bodies.add(ex.getRequestHeaders().getFirst("X-CSRF") + "|" + ex.getRequestHeaders().getFirst("X-Session"));
         }
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
         ex.sendResponseHeaders(status, bytes.length);
@@ -141,6 +153,62 @@ class EngineVariablesTest {
         });
         assertThat(creatorsByVu).hasSize(5);
         creatorsByVu.values().forEach(markers -> assertThat(markers).hasSize(1));
+    }
+
+    /** Capture lue dans un en-tete de reponse (source HEADER). */
+    private static StepExecutionSpec headerCapture(String name, String url, String captureName, String headerSpec) {
+        return new StepExecutionSpec(UUID.randomUUID(), name, HttpMethod.GET, url, null, null, null, null, null, null, null,
+                captureName, headerSpec, null, null, com.loadpilot.backend.enums.CaptureSource.HEADER);
+    }
+
+    @Test
+    void headerCapture_caseInsensitiveName_andNamedCookie_areReusedByTheNextStep() {
+        List<StepExecutionSpec> steps = List.of(
+                // Declare en minuscules, renvoye "X-CSRF-Token" par le serveur.
+                headerCapture("csrf", "/csrf", "csrf", "x-csrf-token"),
+                headerCapture("session", "/csrf", "sid", "Set-Cookie:SESSIONID"),
+                spec("check", HttpMethod.GET, "/check", "{\"X-CSRF\":\"${csrf}\",\"X-Session\":\"${sid}\"}", null, null, null));
+
+        ScenarioExecutionOutcome outcome = engine.execute(steps, baseUrl, ApplicationAuthSpec.none(),
+                new LoadTestSpec(1, 0, null, 1, 0, null), new RunningExecutionHandle(),
+                new VariableSources(List.of(), null, Map.of(), steps));
+
+        assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.SUCCESS);
+        // Valeur du 1er appel a /csrf (capture csrf), et valeur du cookie SESSIONID parmi les deux Set-Cookie.
+        assertThat(bodies).hasSize(1);
+        assertThat(bodies.get(0)).matches("csrf-\\d+\\|sess-42");
+    }
+
+    @Test
+    void htmlCapture_hiddenFieldToken_isReusedByTheNextStep_ofEachVirtualUser() {
+        List<StepExecutionSpec> steps = List.of(
+                new StepExecutionSpec(UUID.randomUUID(), "page", HttpMethod.GET, "/page", null, null, null, null, null, null, null,
+                        "csrf", "input[name=csrf_token]::attr(value)", null, null, com.loadpilot.backend.enums.CaptureSource.HTML),
+                spec("check", HttpMethod.GET, "/check", "{\"X-CSRF\":\"${csrf}\"}", null, null, null));
+
+        ScenarioExecutionOutcome outcome = engine.execute(steps, baseUrl, ApplicationAuthSpec.none(),
+                new LoadTestSpec(3, 0, null, 2, 0, null), new RunningExecutionHandle(),
+                new VariableSources(List.of(), null, Map.of(), steps));
+
+        assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.SUCCESS);
+        // 3 VUs x 2 iterations : chaque /check recoit un jeton distinct, lu dans la page juste avant.
+        assertThat(bodies).hasSize(6).allMatch(b -> b.matches("html-\\d+\\|null")).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void headerCapture_absentHeader_producesNoVariable_andTheNextStepFailsBeforeSending() {
+        List<StepExecutionSpec> steps = List.of(
+                headerCapture("csrf", "/once", "csrf", "X-CSRF-Token"),
+                spec("check", HttpMethod.GET, "/check", "{\"X-CSRF\":\"${csrf}\"}", null, null, null));
+
+        ScenarioExecutionOutcome outcome = engine.execute(steps, baseUrl, ApplicationAuthSpec.none(),
+                new LoadTestSpec(1, 0, null, 1, 0, null), new RunningExecutionHandle(),
+                new VariableSources(List.of(), null, Map.of(), steps));
+
+        assertThat(bodies).isEmpty();
+        assertThat(outcome.stepOutcomes()).hasSize(2);
+        assertThat(outcome.stepOutcomes().get(1).error())
+                .isEqualTo("Variable ${csrf} introuvable : vérifiez la capture de l'étape 1 ou le CSV.");
     }
 
     @Test

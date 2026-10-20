@@ -337,6 +337,72 @@ class StepControllerTest {
     }
 
     @Test
+    void headerCapture_persistsItsSource_rejectsAnInvalidHeader_andFallsBackToJsonWhenOmitted() throws Exception {
+        String appId = createApplicationAndGetId("header-capture-app");
+        String scenarioId = createScenarioAndGetId(appId, "header-capture-scenario");
+
+        var node = objectMapper.createObjectNode();
+        node.put("scenarioId", scenarioId);
+        node.put("name", "csrf");
+        node.put("method", "GET");
+        node.put("url", "/form");
+        node.put("order", 1);
+        node.put("captureVariableName", "sid");
+        node.put("captureJsonPath", "Set-Cookie:SESSIONID");
+        node.put("captureSource", "HEADER");
+        String response = mockMvc.perform(post("/api/steps").with(AS_ENGINEER).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(node)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.captureSource").value("HEADER"))
+                .andExpect(jsonPath("$.captureJsonPath").value("Set-Cookie:SESSIONID"))
+                .andReturn().getResponse().getContentAsString();
+        String stepId = objectMapper.readTree(response).get("id").asText();
+
+        // Un nom de cookie ne s'indique que pour Set-Cookie.
+        node.put("captureJsonPath", "X-CSRF-Token:abc");
+        mockMvc.perform(put("/api/steps/" + stepId).with(AS_ENGINEER).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(node)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Capture : un nom de cookie ne s'indique que pour Set-Cookie (ex. Set-Cookie:SESSIONID)."));
+
+        // Source absente (client existant) : retour a la capture JSON.
+        node.remove("captureSource");
+        node.put("captureJsonPath", "$.token");
+        mockMvc.perform(put("/api/steps/" + stepId).with(AS_ENGINEER).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(node)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.captureSource").doesNotExist())
+                .andExpect(jsonPath("$.captureJsonPath").value("$.token"));
+    }
+
+    @Test
+    void htmlCapture_persistsItsSource_andAnInvalidCssSelectorIsRejected() throws Exception {
+        String appId = createApplicationAndGetId("html-capture-app");
+        String scenarioId = createScenarioAndGetId(appId, "html-capture-scenario");
+
+        var node = objectMapper.createObjectNode();
+        node.put("scenarioId", scenarioId);
+        node.put("name", "formulaire");
+        node.put("method", "GET");
+        node.put("url", "/login");
+        node.put("order", 1);
+        node.put("captureVariableName", "csrf");
+        node.put("captureJsonPath", "input[name=csrf_token]::attr(value)");
+        node.put("captureSource", "HTML");
+        mockMvc.perform(post("/api/steps").with(AS_ENGINEER).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(node)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.captureSource").value("HTML"))
+                .andExpect(jsonPath("$.captureJsonPath").value("input[name=csrf_token]::attr(value)"));
+
+        node.put("captureJsonPath", "input[name=");
+        mockMvc.perform(post("/api/steps").with(AS_ENGINEER).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(node)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Capture : sélecteur CSS invalide « input[name= »."));
+    }
+
+    @Test
     void create_withoutEngineOptions_defaultsAreAllNull_historicalBehaviorUnchanged() throws Exception {
         String appId = createApplicationAndGetId("engine-options-default-app");
         String scenarioId = createScenarioAndGetId(appId, "engine-options-default-scenario");

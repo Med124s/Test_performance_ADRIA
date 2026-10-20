@@ -16,7 +16,6 @@ import com.loadpilot.backend.exception.ResourceNotFoundException;
 import com.loadpilot.backend.repository.ApplicationRepository;
 import com.loadpilot.backend.repository.ExecutionRepository;
 import com.loadpilot.backend.repository.ExecutionStepResultRepository;
-import com.loadpilot.backend.repository.MetricRepository;
 import com.loadpilot.backend.repository.ScenarioAverageResponseTimeProjection;
 import com.loadpilot.backend.repository.ScenarioExecutionCountProjection;
 import com.loadpilot.backend.repository.ScenarioRepository;
@@ -50,7 +49,8 @@ public class DashboardServiceImpl implements DashboardService {
     private final ScenarioRepository scenarioRepository;
     private final ExecutionRepository executionRepository;
     private final ExecutionStepResultRepository executionStepResultRepository;
-    private final MetricRepository metricRepository;
+    /** Moyennes de performance par agregats sur les resultats (plus de table metric). */
+    private final PerformanceAggregates performanceAggregates;
 
     /** Nombre de scenarios retenus pour le widget "Top scenarios" (voir
      * prompt P1-C, section 9) - une petite constante, jamais une valeur
@@ -109,14 +109,8 @@ public class DashboardServiceImpl implements DashboardService {
                         executionStepResultRepository.countBySuccess(false));
 
         PerformanceSummaryResponse performance = rangeApplied
-                ? buildPerformanceSummary(
-                        metricRepository.averageResponseTimeBetween(effectiveFrom, effectiveTo),
-                        metricRepository.averageThroughputBetween(effectiveFrom, effectiveTo),
-                        metricRepository.averageErrorRateBetween(effectiveFrom, effectiveTo))
-                : buildPerformanceSummary(
-                        metricRepository.averageResponseTime(),
-                        metricRepository.averageThroughput(),
-                        metricRepository.averageErrorRate());
+                ? buildPerformanceSummary(performanceAggregates.between(effectiveFrom, effectiveTo))
+                : buildPerformanceSummary(performanceAggregates.overall());
 
         List<TopScenarioResponse> topScenarios = buildTopScenarios(effectiveFrom, effectiveTo);
 
@@ -140,7 +134,7 @@ public class DashboardServiceImpl implements DashboardService {
 
         List<UUID> scenarioIds = topByCount.stream().map(ScenarioExecutionCountProjection::getScenarioId).toList();
         Map<UUID, Double> avgResponseTimeByScenario = new HashMap<>();
-        for (ScenarioAverageResponseTimeProjection row : metricRepository.averageResponseTimeByScenarioIn(scenarioIds, from, to)) {
+        for (ScenarioAverageResponseTimeProjection row : executionStepResultRepository.averageResponseTimeByScenarioIn(PerformanceAggregates.ACTIVE, scenarioIds, from, to)) {
             avgResponseTimeByScenario.put(row.getScenarioId(), row.getAverageResponseTime());
         }
 
@@ -181,10 +175,7 @@ public class DashboardServiceImpl implements DashboardService {
                 executionStepResultRepository.countByApplicationIdAndSuccess(applicationId, true),
                 executionStepResultRepository.countByApplicationIdAndSuccess(applicationId, false));
 
-        PerformanceSummaryResponse performance = buildPerformanceSummary(
-                metricRepository.averageResponseTimeByApplication(applicationId),
-                metricRepository.averageThroughputByApplication(applicationId),
-                metricRepository.averageErrorRateByApplication(applicationId));
+        PerformanceSummaryResponse performance = buildPerformanceSummary(performanceAggregates.forApplication(applicationId));
 
         return new ApplicationDashboardResponse(identity, scenarios, executions, performance);
     }
@@ -208,6 +199,10 @@ public class DashboardServiceImpl implements DashboardService {
         return BigDecimal.valueOf(part)
                 .multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+    }
+
+    private PerformanceSummaryResponse buildPerformanceSummary(PerformanceAggregates.Averages averages) {
+        return buildPerformanceSummary(averages.responseTime(), averages.throughput(), averages.errorRate());
     }
 
     private PerformanceSummaryResponse buildPerformanceSummary(Double averageResponseTime, Double averageThroughput,

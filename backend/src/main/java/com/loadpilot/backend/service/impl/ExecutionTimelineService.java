@@ -37,6 +37,7 @@ public class ExecutionTimelineService {
     private final RunningExecutionRegistry registry;
     private final ObjectMapper objectMapper;
     private final ReportSnapshots reportSnapshots;
+    private final ResultLoadGuard resultLoadGuard;
 
     private final Map<UUID, ExecutionTimelineResponse> cache = java.util.Collections.synchronizedMap(
             new LinkedHashMap<>(16, 0.75f, true) {
@@ -64,6 +65,14 @@ public class ExecutionTimelineService {
             }
         }
 
+        // Calcul sur toutes les lignes de resultats : memoire reservee pendant l'appel (voir ResultLoadGuard).
+        try (ResultLoadGuard.Reservation r = resultLoadGuard.reserve(ResultLoadGuard.Load.TIMELINE,
+                resultRepository.countAllByExecutionId(executionId))) {
+            return compute(executionId, execution);
+        }
+    }
+
+    private ExecutionTimelineResponse compute(UUID executionId, Execution execution) {
         List<Sample> samples = new ArrayList<>();
         for (Object[] row : resultRepository.findTimelineRows(executionId)) {
             Instant end = (Instant) row[0];

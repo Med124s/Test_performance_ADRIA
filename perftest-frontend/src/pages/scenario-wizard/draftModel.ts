@@ -9,7 +9,7 @@ import { BackendScenarioFullRequest, BackendScenarioResponse, BackendStepRespons
 import { analyzeCsv } from './csvModel'
 import { QueryParamRow, parseQueryString, splitUrl, urlWithQuery, variablesFromJson, variablesToJson } from './variablesModel'
 import {
-  DEFAULT_LOAD, DraftStep, LoadConfig, ScenarioInfo, loadToRequest, newStep, stepToRequest, thresholdsFromScenario, thresholdsToRequest,
+  DEFAULT_LOAD, DraftStep, LoadConfig, ScenarioInfo, loadToRequest, newStep, stepToRequest, thresholdsFromScenario, thresholdsToRequest, errorBrakeFromScenario, errorBrakeToRequest, throttleFromScenario, throttleToRequest, thinkVariationFromScenario, thinkVariationToRequest,
 } from './wizardModel'
 
 export interface WizardDraftState {
@@ -74,11 +74,16 @@ export function stepFromBackend(step: BackendStepResponse): DraftStep {
     assertionBodyContains: step.assertionBodyContains ?? '',
     captureVariableName: step.captureVariableName ?? '',
     captureJsonPath: step.captureJsonPath ?? '',
+    ...(step.captureSource === 'HEADER' || step.captureSource === 'HTML' ? { captureSource: step.captureSource } : {}),
     thinkTimeMs: str(step.thinkTimeMs),
     timeoutSeconds: str(step.timeoutSeconds),
     followRedirects: step.followRedirects == null ? '' : step.followRedirects ? 'true' : 'false',
     pathParams: parseJson<Record<string, string>>(step.pathParams, {}),
     queryParams,
+    ...(step.maxResponseTimeMs != null ? { maxResponseTimeMs: String(step.maxResponseTimeMs) } : {}),
+    ...(step.assertionJsonPath
+      ? { assertionJsonPath: step.assertionJsonPath, assertionJsonOperator: step.assertionJsonOperator ?? 'EQUALS', assertionJsonValue: step.assertionJsonValue ?? '' }
+      : {}),
   })
 }
 
@@ -91,6 +96,9 @@ export function stateFromBackend(scenario: BackendScenarioResponse, steps: Backe
       variables: variablesFromJson(scenario.variables), csvDistribution: scenario.csvDistribution ?? 'PER_VIRTUAL_USER',
       requestDetailMode: scenario.requestDetailMode ?? 'FAILURES_AND_SAMPLE',
       ...thresholdsFromScenario(scenario),
+      ...errorBrakeFromScenario(scenario),
+      ...throttleFromScenario(scenario),
+      ...thinkVariationFromScenario(scenario),
     },
     steps: steps.map(stepFromBackend),
     load: loadFromScenario(scenario),
@@ -128,6 +136,9 @@ export function fullRequest(scenarioId: string, info: ScenarioInfo, steps: Draft
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
       ...thresholdsToRequest(info),
+      ...errorBrakeToRequest(info),
+      ...throttleToRequest(info),
+      ...thinkVariationToRequest(info),
     },
     steps: steps.map((s, i) => ({ id: s.backendId, step: stepToRequest(s, scenarioId, i + 1) })),
   }
@@ -140,6 +151,9 @@ export function savedInfo(scenario: BackendScenarioResponse): ScenarioInfo {
     variables: variablesFromJson(scenario.variables), csvDistribution: scenario.csvDistribution ?? 'PER_VIRTUAL_USER',
     requestDetailMode: scenario.requestDetailMode ?? 'FAILURES_AND_SAMPLE',
     ...thresholdsFromScenario(scenario),
+    ...errorBrakeFromScenario(scenario),
+    ...throttleFromScenario(scenario),
+    ...thinkVariationFromScenario(scenario),
   }
 }
 
@@ -151,6 +165,7 @@ export const isBlankStep = (s: DraftStep) => {
   const blank = newStep()
   return s.name === blank.name && s.method === blank.method && s.url === blank.url && s.headers.length === 0 && s.body === ''
     && (s.expectedStatus === '' || s.expectedStatus === blank.expectedStatus) && s.assertionBodyContains === '' && s.captureVariableName === '' && s.captureJsonPath === ''
+    && !s.maxResponseTimeMs?.trim() && !s.assertionJsonPath?.trim()
 }
 
 /** Empreinte du travail saisi (étapes vides ajoutées automatiquement ignorées) pour « modifications non enregistrées ». */
@@ -158,7 +173,7 @@ export function workSnapshot(info: ScenarioInfo, steps: DraftStep[], load: LoadC
   return JSON.stringify([info, steps.filter((s) => !isBlankStep(s)).map(({ uid, backendId, ...rest }) => rest), load])
 }
 
-export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', maxErrorRatePercent: '1', maxP95Ms: '' }
+export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', maxErrorRatePercent: '1', maxP95Ms: '', errorBrakeRatePercent: '', errorBrakeWindowSeconds: '30', throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3', thinkTimeVariationPercent: '' }
 
 function parseJson<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback

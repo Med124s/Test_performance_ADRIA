@@ -23,6 +23,11 @@ import ApplicationAuthFields, {
 import AuthTestProgress, { PHASE_LABELS, TestPhase, phasesFor, testPhasesFor } from '../components/application-auth/AuthTestProgress'
 import DeletionDialog, { DeletionMode } from '../components/deletion/DeletionDialog'
 import MonitoringFields from '../components/application-monitoring/MonitoringFields'
+import NetworkFields from '../components/application-network/NetworkFields'
+import FormTabs from '../components/FormTabs'
+import {
+  EMPTY_NETWORK_FORM, NetworkForm, PROXY_MODE_LABELS, networkFormFromResponse, networkFormToRequest, validateNetworkForm,
+} from '../components/application-network/networkModel'
 import {
   EMPTY_MONITORING_FORM, MONITORING_TYPE_LABELS, MonitoringForm, monitoringFormFromResponse, monitoringFormToRequest, validateMonitoringForm,
 } from '../components/application-monitoring/monitoringModel'
@@ -66,6 +71,10 @@ const emptyForm = {
 }
 
 type StatusKey = BackendApplicationStatus | 'UNTESTED'
+
+/** Onglets de la modale d'application, dans l'ordre d'affichage. */
+const APP_TABS = ['general', 'auth', 'network', 'monitoring'] as const
+type AppTab = typeof APP_TABS[number]
 
 const PAGE_SIZES = [5, 10, 25, 50]
 const DEFAULT_SORT = 'createdAt,desc'
@@ -318,6 +327,9 @@ function Applications() {
   const [authForm, setAuthForm] = useState<AuthForm>(EMPTY_AUTH_FORM)
   const [showAuthErrors, setShowAuthErrors] = useState(false)
   const [monitoringForm, setMonitoringForm] = useState<MonitoringForm>(EMPTY_MONITORING_FORM)
+  const [networkForm, setNetworkForm] = useState<NetworkForm>(EMPTY_NETWORK_FORM)
+  /** Onglet affiché dans la modale (toujours « Général » à l'ouverture). */
+  const [activeTab, setActiveTab] = useState<AppTab>('general')
 
   const nameError = firstError(
     validateRequired(form.name, "Le nom de l'application"),
@@ -327,8 +339,25 @@ function Applications() {
   const descriptionError = validateMaxLength(form.description, DESCRIPTION_MAX_LENGTH, 'La description')
   const authErrors = validateAuthForm(authForm, editingApp?.auth)
   const monitoringErrors = validateMonitoringForm(monitoringForm, editingApp?.monitoring)
+  const networkErrors = validateNetworkForm(networkForm)
   const isFormValid = !nameError && !urlError && !descriptionError && Object.keys(authErrors).length === 0
-    && Object.keys(monitoringErrors).length === 0
+    && Object.keys(monitoringErrors).length === 0 && Object.keys(networkErrors).length === 0
+  // Onglets : point d'erreur (après une tentative d'enregistrement, ou champ déjà touché pour « Général »),
+  // sinon point « configuré » si le réglage n'est pas la valeur par défaut — visible sans ouvrir l'onglet.
+  const tabErrors: Record<AppTab, boolean> = {
+    general: (showAuthErrors || !!touched.name || !!touched.url) && (!!nameError || !!urlError || !!descriptionError),
+    auth: showAuthErrors && Object.keys(authErrors).length > 0,
+    network: showAuthErrors && Object.keys(networkErrors).length > 0,
+    monitoring: showAuthErrors && Object.keys(monitoringErrors).length > 0,
+  }
+  const tabConfigured: Record<AppTab, boolean> = {
+    general: false,
+    auth: authForm.type !== 'NONE',
+    network: networkForm.proxyMode !== 'INHERIT',
+    monitoring: monitoringForm.type !== 'NONE' || monitoringForm.withoutProxy,
+  }
+  const tabMarkers = Object.fromEntries(APP_TABS.map((t) => [t, tabErrors[t] ? 'error' : tabConfigured[t] ? 'configured' : null])) as
+    Record<AppTab, 'error' | 'configured' | null>
 
   const totalItems = pageData.totalElements
   const totalPages = Math.max(1, pageData.totalPages)
@@ -413,6 +442,8 @@ function Applications() {
     setForm(emptyForm)
     setAuthForm(EMPTY_AUTH_FORM)
     setMonitoringForm(EMPTY_MONITORING_FORM)
+    setNetworkForm(EMPTY_NETWORK_FORM)
+    setActiveTab('general')
     setShowAuthErrors(false)
     resetFlow()
     setActionError(null)
@@ -431,6 +462,8 @@ function Applications() {
     })
     setAuthForm(authFormFromResponse(app.auth))
     setMonitoringForm(monitoringFormFromResponse(app.monitoring))
+    setNetworkForm(networkFormFromResponse(app.network))
+    setActiveTab('general')
     setShowAuthErrors(false)
     resetFlow()
     setActionError(null)
@@ -475,6 +508,7 @@ function Applications() {
     url: form.url.trim(),
     auth: authFormToRequest(authForm),
     monitoring: monitoringFormToRequest(monitoringForm),
+    network: networkFormToRequest(networkForm),
   })
 
   // "Tester et ajouter" (création) ou "Enregistrer et tester" (modification) :
@@ -486,7 +520,17 @@ function Applications() {
     if (!canWrite || flow.running) return
     setTouched({ name: true, url: true })
     setShowAuthErrors(true)
-    if (!isFormValid) return
+    if (!isFormValid) {
+      // Champ invalide dans un autre onglet : on l'affiche, sinon le refus resterait inexpliqué.
+      const invalid: Record<AppTab, boolean> = {
+        general: !!nameError || !!urlError || !!descriptionError,
+        auth: Object.keys(authErrors).length > 0,
+        network: Object.keys(networkErrors).length > 0,
+        monitoring: Object.keys(monitoringErrors).length > 0,
+      }
+      if (!invalid[activeTab]) setActiveTab(APP_TABS.find((t) => invalid[t]) ?? activeTab)
+      return
+    }
 
     const startedAt = Date.now()
     const phases = phasesFor(authForm.type)
@@ -926,6 +970,16 @@ function Applications() {
                     )}
                   </div>
                 </div>
+                <div className="col-12">
+                  <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Réseau</div>
+                  <div style={{ fontSize: '13.5px', fontWeight: 500 }}>
+                    <i className="bi bi-diagram-3 me-1"></i>{PROXY_MODE_LABELS[editingApp.network?.proxyMode ?? 'INHERIT']}
+                    {editingApp.network?.proxyMode === 'CUSTOM' && (
+                      <span style={{ color: 'var(--pt-text-muted)' }}> — {editingApp.network.proxyHost}:{editingApp.network.proxyPort}
+                        {editingApp.network.proxyUsername ? `, identifiant ${editingApp.network.proxyUsername}` : ''}</span>
+                    )}
+                  </div>
+                </div>
                 {editingApp.statusMessage && (
                   <div className="col-12">
                     <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>
@@ -940,81 +994,102 @@ function Applications() {
                 </div>
               </div>
             ) : (
-            <fieldset disabled={!canWrite || flow.running} className="row g-3" style={{ border: 'none', padding: 0, margin: 0 }}>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Nom de l'application *</label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.name && nameError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: Mon Application Web"
-                  value={form.name}
-                  onChange={e => setForm(p => ({...p, name: e.target.value}))}
-                  onBlur={() => setTouched(t => ({ ...t, name: true }))}
-                />
-                {touched.name && nameError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{nameError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>URL *</label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%', borderColor: touched.url && urlError ? 'var(--pt-danger)' : undefined }}
-                  placeholder="ex: https://app.monsite.com"
-                  value={form.url}
-                  onChange={e => setForm(p => ({...p, url: e.target.value}))}
-                  onBlur={() => setTouched(t => ({ ...t, url: true }))}
-                />
-                {touched.url && urlError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{urlError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
-                  Description <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
-                </label>
-                <input
-                  className="pt-form-control"
-                  style={{ width: '100%' }}
-                  placeholder="ex: Application de test"
-                  value={form.description}
-                  onChange={e => setForm(p => ({...p, description: e.target.value}))}
-                />
-                {descriptionError && (
-                  <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{descriptionError}</div>
-                )}
-              </div>
-              <div className="col-12">
-                <div style={{ borderTop: '1px solid var(--pt-border)', paddingTop: '1rem', marginTop: '0.25rem' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '8px', display: 'block' }}>
-                    <i className="bi bi-shield-lock me-2"></i>Authentification
-                  </label>
-                  <ApplicationAuthFields
-                    value={authForm}
-                    onChange={setAuthForm}
-                    errors={authErrors}
-                    showErrors={showAuthErrors}
-                    existing={editingApp?.auth}
-                    baseUrl={form.url}
-                  />
-                </div>
-              </div>
-              <div className="col-12">
-                <div style={{ borderTop: '1px solid var(--pt-border)', paddingTop: '1rem', marginTop: '0.25rem' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '8px', display: 'block' }}>
-                    <i className="bi bi-cpu me-2"></i>Monitoring <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel — CPU et RAM de l’application pendant les exécutions</span>
-                  </label>
-                  <MonitoringFields
-                    value={monitoringForm}
-                    onChange={setMonitoringForm}
-                    errors={monitoringErrors}
-                    showErrors={showAuthErrors}
-                    existing={editingApp?.monitoring}
-                    appUrl={form.url}
-                    applicationId={editingApp?.id}
-                  />
-                </div>
-              </div>
+            <fieldset disabled={!canWrite || flow.running} style={{ border: 'none', padding: 0, margin: 0 }}>
+              <FormTabs label="Sections de l’application" active={activeTab} onChange={(id) => setActiveTab(id as AppTab)} tabs={[
+                {
+                  id: 'general', label: 'Général', icon: 'bi-app', marker: tabMarkers.general,
+                  content: (
+                    <div className="row g-3">
+                      <div className="col-12">
+                        <label htmlFor="app-name" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Nom de l'application *</label>
+                        <input
+                          id="app-name"
+                          className="pt-form-control"
+                          style={{ width: '100%', borderColor: touched.name && nameError ? 'var(--pt-danger)' : undefined }}
+                          placeholder="ex: Mon Application Web"
+                          value={form.name}
+                          onChange={e => setForm(p => ({...p, name: e.target.value}))}
+                          onBlur={() => setTouched(t => ({ ...t, name: true }))}
+                        />
+                        {touched.name && nameError && (
+                          <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{nameError}</div>
+                        )}
+                      </div>
+                      <div className="col-12">
+                        <label htmlFor="app-url" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>URL *</label>
+                        <input
+                          id="app-url"
+                          className="pt-form-control"
+                          style={{ width: '100%', borderColor: touched.url && urlError ? 'var(--pt-danger)' : undefined }}
+                          placeholder="ex: https://app.monsite.com"
+                          value={form.url}
+                          onChange={e => setForm(p => ({...p, url: e.target.value}))}
+                          onBlur={() => setTouched(t => ({ ...t, url: true }))}
+                        />
+                        {touched.url && urlError && (
+                          <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{urlError}</div>
+                        )}
+                      </div>
+                      <div className="col-12">
+                        <label htmlFor="app-description" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>
+                          Description <span style={{ color: 'var(--pt-text-muted)', fontWeight: 400 }}>optionnel</span>
+                        </label>
+                        <input
+                          id="app-description"
+                          className="pt-form-control"
+                          style={{ width: '100%' }}
+                          placeholder="ex: Application de test"
+                          value={form.description}
+                          onChange={e => setForm(p => ({...p, description: e.target.value}))}
+                        />
+                        {descriptionError && (
+                          <div style={{ color: 'var(--pt-danger)', fontSize: '12px', marginTop: '4px' }}>{descriptionError}</div>
+                        )}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  id: 'auth', label: 'Authentification', icon: 'bi-shield-lock', marker: tabMarkers.auth,
+                  content: (
+                    <ApplicationAuthFields
+                      value={authForm}
+                      onChange={setAuthForm}
+                      errors={authErrors}
+                      showErrors={showAuthErrors}
+                      existing={editingApp?.auth}
+                      baseUrl={form.url}
+                    />
+                  ),
+                },
+                {
+                  id: 'network', label: 'Réseau', icon: 'bi-diagram-3', marker: tabMarkers.network,
+                  content: (
+                    <NetworkFields
+                      value={networkForm}
+                      onChange={setNetworkForm}
+                      errors={networkErrors}
+                      showErrors={showAuthErrors}
+                      existing={editingApp?.network}
+                    />
+                  ),
+                },
+                {
+                  id: 'monitoring', label: 'Monitoring', icon: 'bi-cpu', marker: tabMarkers.monitoring,
+                  content: (
+                    <MonitoringFields
+                      value={monitoringForm}
+                      onChange={setMonitoringForm}
+                      errors={monitoringErrors}
+                      showErrors={showAuthErrors}
+                      existing={editingApp?.monitoring}
+                      appUrl={form.url}
+                      applicationId={editingApp?.id}
+                      network={networkFormToRequest(networkForm)}
+                    />
+                  ),
+                },
+              ]} />
             </fieldset>
             )}
 

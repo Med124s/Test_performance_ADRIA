@@ -43,7 +43,7 @@ public record TestRunResponse(
             boolean success,
             String error,
             /** TIMEOUT, CONNECTION_REFUSED, DNS, TLS, NETWORK, INVALID_REQUEST, UNRESOLVED_VARIABLE,
-             * HTTP_STATUS, ASSERTION, AUTH_FAILED, GLOBAL_TIMEOUT, PREVIOUS_FAILED, INTERRUPTED. */
+             * HTTP_STATUS, ASSERTION (contenu ou JSON), RESPONSE_TIME, AUTH_FAILED, GLOBAL_TIMEOUT, PREVIOUS_FAILED, INTERRUPTED. */
             String errorKind,
             SentRequest request,
             ReceivedResponse response,
@@ -61,7 +61,20 @@ public record TestRunResponse(
             String contentType, Map<String, String> headers, String body, boolean truncated, boolean json) {
     }
 
-    public record Checks(StatusCheck status, AssertionCheck assertion, CaptureCheck capture) {
+    /** responseTime / json : null si le controle n'est pas configure sur l'etape. */
+    public record Checks(StatusCheck status, AssertionCheck assertion, CaptureCheck capture,
+            ResponseTimeCheck responseTime, JsonCheck json) {
+        public Checks(StatusCheck status, AssertionCheck assertion, CaptureCheck capture) {
+            this(status, assertion, capture, null, null);
+        }
+    }
+
+    /** Temps de reponse maximal ; actualMs et ok null : non evalue (aucune reponse recue). */
+    public record ResponseTimeCheck(int maxMs, Long actualMs, Boolean ok) {
+    }
+
+    /** Assertion JSON ; operator EQUALS / CONTAINS ; ok null : non evaluee ; message : raison de l'echec. */
+    public record JsonCheck(String path, String operator, String expected, Boolean ok, String message) {
     }
 
     /** expected : code exact attendu, ou "2xx-3xx" sans code configure. */

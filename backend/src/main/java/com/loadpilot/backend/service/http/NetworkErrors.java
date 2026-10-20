@@ -28,6 +28,12 @@ public final class NetworkErrors {
         if (hasCause(e, UnknownHostException.class) || hasCause(e, UnresolvedAddressException.class)) {
             return "hôte introuvable (DNS)";
         }
+        if (hasCause(e, java.security.cert.CertPathValidatorException.class)
+                || hasCause(e, java.security.cert.CertPathBuilderException.class)) {
+            // Autorite inconnue (certificat interne, autosigne...) : piste concrete, sans detail brut.
+            return "certificat du serveur non reconnu (autorité de certification inconnue) : ajoutez-la dans "
+                    + "l'onglet Réseau de l'application";
+        }
         if (hasCause(e, SSLException.class)) {
             return "erreur TLS/SSL lors de la connexion";
         }

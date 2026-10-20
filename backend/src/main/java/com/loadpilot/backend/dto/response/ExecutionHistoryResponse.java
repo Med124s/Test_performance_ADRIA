@@ -15,7 +15,7 @@ import java.time.Instant;
  * toute Execution anterieure a P1-B (jamais reconstruit retroactivement) ou
  * dont l'origine n'a pu etre associee a aucun utilisateur. "throughput" est
  * calcule avec EXACTEMENT la meme formule que
- * PerformanceStatisticsService/MetricGenerationService (requetes reellement
+ * PerformanceStatisticsService/PerformanceAggregates (requetes reellement
  * executees / duree en secondes) - jamais recalcule differemment cote
  * frontend (prompt P1-C, section 4 : colonne "Throughput" de l'Historique).
  */

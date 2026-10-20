@@ -2,6 +2,7 @@ package com.loadpilot.backend.dto.request;
 
 import com.loadpilot.backend.enums.ApiKeyLocation;
 import com.loadpilot.backend.enums.ApplicationAuthType;
+import com.loadpilot.backend.enums.CaptureSource;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -56,7 +57,11 @@ public record ApplicationAuthRequest(
          * (relatif a l'URL de l'application ou absolu) sur lequel le test de
          * connectivite verifie reellement les identifiants. */
         @Size(max = 1000, message = "L'endpoint de verification ne doit pas depasser 1000 caracteres.")
-        String verificationPath
+        String verificationPath,
+
+        /** LOGIN_TOKEN : JSON (defaut, null) = tokenJsonPath est un chemin dans le corps ; HEADER =
+         * tokenJsonPath est le nom de l'en-tete de reponse qui contient le jeton. */
+        CaptureSource tokenSource
 ) {
 
     /** Compatibilite : requete sans endpoint de verification. */
@@ -64,6 +69,14 @@ public record ApplicationAuthRequest(
             ApiKeyLocation apiKeyLocation, String username, String password, String loginPath, String loginBody,
             String tokenJsonPath, String tokenHeaderName, String tokenPrefix) {
         this(type, token, apiKeyName, apiKeyValue, apiKeyLocation, username, password, loginPath, loginBody,
-                tokenJsonPath, tokenHeaderName, tokenPrefix, null);
+                tokenJsonPath, tokenHeaderName, tokenPrefix, null, null);
+    }
+
+    /** Compatibilite : jeton lu dans le corps JSON (source non precisee). */
+    public ApplicationAuthRequest(ApplicationAuthType type, String token, String apiKeyName, String apiKeyValue,
+            ApiKeyLocation apiKeyLocation, String username, String password, String loginPath, String loginBody,
+            String tokenJsonPath, String tokenHeaderName, String tokenPrefix, String verificationPath) {
+        this(type, token, apiKeyName, apiKeyValue, apiKeyLocation, username, password, loginPath, loginBody,
+                tokenJsonPath, tokenHeaderName, tokenPrefix, verificationPath, null);
     }
 }

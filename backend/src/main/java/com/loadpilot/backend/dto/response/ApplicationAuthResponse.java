@@ -14,6 +14,8 @@ public record ApplicationAuthResponse(
         String username,
         String loginPath,
         String tokenJsonPath,
+        /** null = JSON. */
+        com.loadpilot.backend.enums.CaptureSource tokenSource,
         String tokenHeaderName,
         String tokenPrefix,
         String verificationPath,

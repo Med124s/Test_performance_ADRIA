@@ -198,7 +198,8 @@ class ExecutionListAndDeletionTest {
         JsonNode impact = call(post("/api/executions/deletion-impact"), Map.of("ids", List.of(executionId)));
         assertThat(impact.get("executions").asLong()).isEqualTo(1);
         assertThat(impact.get("results").asLong()).isEqualTo(2);
-        assertThat(impact.get("metrics").asLong()).isPositive();
+        // Plus de copie dans metric : seules d'anciennes lignes y seraient comptees (voir DeletionArchivingPagingTest).
+        assertThat(impact.get("metrics").asLong()).isZero();
         assertThat(impact.get("active").asLong()).isZero();
 
         assertThat(perform(delete("/api/executions/" + executionId), null, AS_VIEWER).getResponse().getStatus()).isEqualTo(403);

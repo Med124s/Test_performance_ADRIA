@@ -342,7 +342,8 @@ class SettingsPagesTest {
             assertThat(limits.get("maxDurationSeconds").asInt()).isEqualTo(3600);
             assertThat(limits.get("maxIterations").asInt()).isEqualTo(10000);
             assertThat(limits.get("maxTargetRps").asInt()).isEqualTo(500);
-            assertThat(limits.size()).as("seulement les 4 limites").isEqualTo(4);
+            assertThat(limits.get("targetRpsAdvisedAboveVirtualUsers").asInt()).as("seuil de l'avertissement sans debit cible").isEqualTo(50);
+            assertThat(limits.size()).as("les 4 limites et le seuil de l'avertissement").isEqualTo(5);
         }
         assertThat(mockMvc.perform(get("/api/settings/load-limits")).andReturn().getResponse().getStatus()).isEqualTo(401);
         // « Charge par défaut » retiree : plus de route.
@@ -360,6 +361,31 @@ class SettingsPagesTest {
 
     private static String message(MvcResult r) throws Exception {
         return new ObjectMapper().readTree(r.getResponse().getContentAsString(StandardCharsets.UTF_8)).get("message").asText();
+    }
+
+    @Test
+    void manyVirtualUsersWithoutTargetRps_warnedNeverRefused() throws Exception {
+        String appId = json(perform(post("/api/applications"), Map.of("name", "debit-" + UUID.randomUUID(), "url", baseUrl), ENGINEER)).get("id").asText();
+        String warning = "Plus de 50 utilisateurs sans débit cible : le débit n’est pas borné. "
+                + "Fixez un débit cible pour maîtriser la charge envoyée et la mémoire de LoadPilot.";
+
+        // Sous le seuil, sans debit cible : rien a signaler.
+        MvcResult few = saveScenario(appId, Map.of("virtualUsers", 50));
+        assertThat(few.getResponse().getStatus()).isEqualTo(201);
+        assertThat(json(few).get("loadWarnings")).isEmpty();
+
+        // Au-dessus du seuil, sans debit cible : enregistre (jamais bloquant), avec l'avertissement.
+        MvcResult many = saveScenario(appId, Map.of("virtualUsers", 51));
+        assertThat(many.getResponse().getStatus()).isEqualTo(201);
+        assertThat(json(many).get("loadWarnings").get(0).asText()).isEqualTo(warning);
+        // Relu (liste et detail) : toujours signale.
+        String id = json(many).get("id").asText();
+        assertThat(json(perform(get("/api/scenarios/" + id), null, ENGINEER)).get("loadWarnings").get(0).asText()).isEqualTo(warning);
+
+        // Au-dessus du seuil, avec debit cible : rien a signaler.
+        MvcResult paced = saveScenario(appId, Map.of("virtualUsers", 120, "targetRps", 50));
+        assertThat(paced.getResponse().getStatus()).isEqualTo(201);
+        assertThat(json(paced).get("loadWarnings")).isEmpty();
     }
 
     @Test

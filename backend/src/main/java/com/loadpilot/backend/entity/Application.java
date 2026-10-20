@@ -120,6 +120,34 @@ public class Application {
     @Builder.Default
     private int monitoringIntervalSeconds = 5;
 
+    /** Lecture CPU / RAM sans proxy (URL de monitoring souvent interne) ; null = avec le proxy de l'application. */
+    @Column(name = "monitoring_without_proxy")
+    private Boolean monitoringWithoutProxy;
+
+    /** Proxy pour joindre l'application (voir service.http.NetworkProfile) ; null = INHERIT (proxy global). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "proxy_mode")
+    private com.loadpilot.backend.enums.ProxyMode proxyMode;
+
+    @Column(name = "proxy_host")
+    private String proxyHost;
+
+    @Column(name = "proxy_port")
+    private Integer proxyPort;
+
+    @Column(name = "proxy_username")
+    private String proxyUsername;
+
+    /** Mot de passe du proxy : secret, jamais expose par l'API, chiffre en base (voir security.SecretCipher). */
+    /** Autorite(s) de certification (PEM) ajoutees a la confiance de la JVM pour cette application
+     * seulement (voir service.http.TlsTrust) ; null = magasin global de la JVM, comme avant. */
+    @Column(name = "tls_ca_certificate", length = 65536)
+    private String tlsCaCertificate;
+
+    @Column(name = "proxy_password")
+    @Convert(converter = EncryptedStringConverter.class)
+    private String proxyPassword;
+
     /** Utilisateur (projection locale, voir AppUser) ayant cree cette application. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false, updatable = false)

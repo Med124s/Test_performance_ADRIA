@@ -31,6 +31,14 @@ public record ApplicationMonitoringRequest(
 
         @Min(value = 1, message = "L'intervalle de lecture doit etre d'au moins 1 seconde.")
         @Max(value = 60, message = "L'intervalle de lecture ne doit pas depasser 60 secondes.")
-        Integer intervalSeconds
+        Integer intervalSeconds,
+
+        /** true = lecture en direct, sans proxy (URL de monitoring souvent interne) ; null = inchange (avec le proxy). */
+        Boolean withoutProxy
 ) {
+    /** Compatibilite : sans reglage du proxy du monitoring. */
+    public ApplicationMonitoringRequest(MonitoringType type, String url, MonitoringAuthType authType, String headerName,
+            String secret, Integer intervalSeconds) {
+        this(type, url, authType, headerName, secret, intervalSeconds, null);
+    }
 }

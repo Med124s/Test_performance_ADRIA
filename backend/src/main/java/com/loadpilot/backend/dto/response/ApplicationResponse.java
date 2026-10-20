@@ -22,6 +22,8 @@ public record ApplicationResponse(
         ApplicationAuthResponse auth,
         boolean archived,
         Instant archivedAt,
-        ApplicationMonitoringResponse monitoring
+        ApplicationMonitoringResponse monitoring,
+        /** Proxy pour joindre l'application, sans le mot de passe. */
+        ApplicationNetworkResponse network
 ) {
 }

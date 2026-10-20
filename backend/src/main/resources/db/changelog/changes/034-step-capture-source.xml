@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Source de la capture d'une etape : colonne ADDITIONNELLE et NULLABLE uniquement.
+
+        step.capture_source : JSON (corps de la reponse, chemin dans capture_json_path) ou HEADER
+                              (en-tete de reponse : capture_json_path contient le nom de l'en-tete,
+                              ou "Set-Cookie:NOM" pour la valeur du cookie NOM). NULL = JSON : toutes
+                              les etapes existantes gardent exactement leur comportement.
+    -->
+    <changeSet id="034-step-capture-source" author="loadpilot">
+        <addColumn tableName="step">
+            <column name="capture_source" type="VARCHAR(20)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

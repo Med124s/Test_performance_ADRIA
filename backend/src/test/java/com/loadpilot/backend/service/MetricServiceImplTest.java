@@ -7,7 +7,7 @@ import com.loadpilot.backend.dto.response.MetricResponse;
 import com.loadpilot.backend.entity.AppUser;
 import com.loadpilot.backend.entity.Application;
 import com.loadpilot.backend.entity.Execution;
-import com.loadpilot.backend.entity.Metric;
+import com.loadpilot.backend.entity.ExecutionStepResult;
 import com.loadpilot.backend.entity.Scenario;
 import com.loadpilot.backend.entity.Step;
 import com.loadpilot.backend.enums.ExecutionStatus;
@@ -18,10 +18,8 @@ import com.loadpilot.backend.exception.ResourceNotFoundException;
 import com.loadpilot.backend.repository.AppUserRepository;
 import com.loadpilot.backend.repository.ApplicationRepository;
 import com.loadpilot.backend.repository.ExecutionRepository;
-import com.loadpilot.backend.repository.MetricRepository;
 import com.loadpilot.backend.repository.ScenarioRepository;
 import com.loadpilot.backend.repository.StepRepository;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -65,13 +63,13 @@ class MetricServiceImplTest {
     @Autowired
     private ExecutionRepository executionRepository;
     @Autowired
-    private MetricRepository metricRepository;
+    private com.loadpilot.backend.repository.ExecutionStepResultRepository resultRepository;
 
     private Application application;
     private Scenario scenario;
     private Step step;
     private Execution execution;
-    private Metric metric;
+    private ExecutionStepResult metric;
 
     @BeforeEach
     void setUp() {
@@ -106,16 +104,16 @@ class MetricServiceImplTest {
                 .totalSteps(1)
                 .successfulSteps(1)
                 .failedSteps(0)
+                .duration(500L)
                 .build());
-        metric = metricRepository.saveAndFlush(Metric.builder()
-                .application(application)
-                .scenario(scenario)
-                .step(step)
+        // Une « metric » = une requete d'une execution terminee, lue dans execution_step_result.
+        metric = resultRepository.saveAndFlush(ExecutionStepResult.builder()
                 .execution(execution)
-                .responseTime(150)
-                .statusCode(200)
-                .throughput(BigDecimal.valueOf(2))
-                .errorRate(BigDecimal.ZERO)
+                .step(step)
+                .stepName(step.getName())
+                .responseTime(150L)
+                .httpStatus(200)
+                .success(true)
                 .timestamp(Instant.now())
                 .build());
     }

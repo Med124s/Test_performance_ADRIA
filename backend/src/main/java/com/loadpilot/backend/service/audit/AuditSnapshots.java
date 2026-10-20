@@ -39,6 +39,22 @@ public final class AuditSnapshots {
             case NONE -> "Aucune";
             default -> a.getMonitoringType().name().charAt(0) + a.getMonitoringType().name().substring(1).toLowerCase();
         });
+        // Proxy : jamais le mot de passe.
+        com.loadpilot.backend.enums.ProxyMode proxy = a.getProxyMode() == null ? com.loadpilot.backend.enums.ProxyMode.INHERIT : a.getProxyMode();
+        m.put("Proxy", switch (proxy) {
+            case INHERIT -> "Proxy du serveur";
+            case NONE -> "Aucun proxy";
+            case CUSTOM -> "Proxy de l’application";
+        });
+        m.put("Hôte du proxy", a.getProxyHost());
+        m.put("Port du proxy", a.getProxyPort());
+        m.put("Identifiant du proxy", a.getProxyUsername());
+        m.put("Supervision sans proxy", Boolean.TRUE.equals(a.getMonitoringWithoutProxy()) ? "Oui" : null);
+        // Autorites TLS : leurs sujets (le PEM complet n'apporte rien au journal).
+        java.util.List<com.loadpilot.backend.service.http.TlsTrust.CertificateInfo> cas =
+                com.loadpilot.backend.service.http.TlsTrust.describe(a.getTlsCaCertificate());
+        m.put("Autorités de certification TLS", cas.isEmpty() ? null
+                : String.join(" ; ", cas.stream().map(com.loadpilot.backend.service.http.TlsTrust.CertificateInfo::subject).toList()));
         return m;
     }
 
@@ -51,9 +67,16 @@ public final class AuditSnapshots {
         m.put("Durée (s)", s.getDurationSeconds());
         m.put("Itérations", s.getIterations());
         m.put("Temps de réflexion (ms)", s.getThinkTimeMs());
+        m.put("Variation du temps de réflexion (± %)", s.getThinkTimeVariationPercent());
         m.put("Débit cible (req/s)", s.getTargetRps());
         m.put("Taux d’erreurs maximal (%)", s.getMaxErrorRatePercent());
         m.put("P95 maximal (ms)", s.getMaxP95Ms());
+        m.put("Frein automatique : taux d’erreurs (%)", s.getErrorBrakeRatePercent());
+        m.put("Frein automatique : fenêtre (s)", s.getErrorBrakeRatePercent() == null ? null : s.getErrorBrakeWindowSeconds());
+        boolean throttleOn = !Boolean.FALSE.equals(s.getThrottleOn429());
+        m.put("Ralentissement sur 429", throttleOn ? "Actif" : "Désactivé");
+        m.put("Attente après un 429 sans Retry-After (s)", throttleOn ? s.getThrottleDefaultDelaySeconds() : null);
+        m.put("Rejeux après un 429", throttleOn ? s.getThrottleMaxRetries() : null);
         m.put("Statut", s.getStatus() == null ? null : switch (s.getStatus().name()) {
             case "ACTIVE" -> "Actif";
             case "INACTIVE" -> "Inactif";
@@ -71,6 +94,11 @@ public final class AuditSnapshots {
         m.put("Statut HTTP attendu", s.getExpectedStatus());
         m.put("Délai maximal (s)", s.getTimeoutSeconds());
         m.put("Temps de réflexion de l’étape (ms)", s.getThinkTimeMs());
+        m.put("Temps de réponse maximal (ms)", s.getMaxResponseTimeMs());
+        // Champ et comparaison seulement : la valeur attendue peut provenir d'une donnee de test.
+        m.put("Assertion JSON", s.getAssertionJsonPath() == null || s.getAssertionJsonPath().isBlank() ? null
+                : s.getAssertionJsonPath() + (s.getAssertionJsonOperator() == com.loadpilot.backend.enums.JsonAssertionOperator.CONTAINS
+                        ? " contient…" : " égale…"));
         return m;
     }
 
