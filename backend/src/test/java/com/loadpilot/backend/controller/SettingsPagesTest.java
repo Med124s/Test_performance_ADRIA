@@ -115,8 +115,12 @@ class SettingsPagesTest {
         settings.set(AppSettingsService.DEFAULT_MAX_P95_MS, "0", "test");
         settings.set(AppSettingsService.REGRESSION_PERCENT, "20.0", "test");
         for (String key : List.of("limits.virtual-users-per-test", "limits.virtual-users-total", "limits.concurrent-tests", "limits.max-duration-seconds",
-                "limits.max-iterations", "limits.max-target-rps")) {
-            settingsRepository.deleteById(key);
+                "limits.max-iterations", "limits.max-target-rps",
+                AppSettingsService.DEFAULT_ERROR_BRAKE_ENABLED, AppSettingsService.DEFAULT_ERROR_BRAKE_RATE,
+                AppSettingsService.DEFAULT_ERROR_BRAKE_WINDOW, AppSettingsService.DEFAULT_THROTTLE_ON_429,
+                AppSettingsService.DEFAULT_THROTTLE_DELAY, AppSettingsService.DEFAULT_THROTTLE_RETRIES,
+                AppSettingsService.DEFAULT_REQUEST_DETAIL_MODE)) {
+            if (settingsRepository.existsById(key)) settingsRepository.deleteById(key);
         }
         settings.clearCache();
     }
@@ -247,6 +251,89 @@ class SettingsPagesTest {
         assertThat(com.loadpilot.backend.service.impl.ScheduleNotifier.decide("N", com.loadpilot.backend.enums.ExecutionStatus.SUCCESS,
                 115L, 0.0, 16.0, com.loadpilot.backend.enums.ScheduleNotifyMode.PROBLEMS, settings.regressionPercent()).type())
                 .isEqualTo(com.loadpilot.backend.enums.NotificationType.SCHEDULE_REGRESSION);
+    }
+
+    @Test
+    void newScenarioDefaults_readWrite_adminOnly_audited_writtenExplicitlyAtCreation_existingScenariosUnchanged() throws Exception {
+        // Valeurs initiales = celles codees jusqu'ici.
+        JsonNode defaults = json(perform(get("/api/settings/thresholds"), null, VIEWER));
+        assertThat(defaults.get("errorBrakeEnabled").asBoolean()).isFalse();
+        assertThat(defaults.get("errorBrakeRatePercent").asDouble()).isEqualTo(20.0);
+        assertThat(defaults.get("errorBrakeWindowSeconds").asInt()).isEqualTo(30);
+        assertThat(defaults.get("throttleOn429").asBoolean()).isTrue();
+        assertThat(defaults.get("throttleDefaultDelaySeconds").asInt()).isEqualTo(5);
+        assertThat(defaults.get("throttleMaxRetries").asInt()).isEqualTo(3);
+        assertThat(defaults.get("requestDetailMode").asText()).isEqualTo("FAILURES_AND_SAMPLE");
+
+        // Scenarios crees AVANT le changement : l'un avec les valeurs de l'epoque ecrites, l'autre
+        // enregistre sans ces valeurs (NULL en base, repli de l'execution).
+        String appId = json(perform(post("/api/applications"), Map.of("name", "defauts-" + UUID.randomUUID(), "url", baseUrl), ENGINEER))
+                .get("id").asText();
+        String before = json(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Avant"), ENGINEER)).get("id").asText();
+        String legacy = json(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Ancien"), ENGINEER)).get("id").asText();
+        jdbc.update("UPDATE scenario SET throttle_on_429 = NULL, throttle_default_delay_seconds = NULL, throttle_max_retries = NULL, "
+                + "error_brake_rate_percent = NULL, error_brake_window_seconds = NULL WHERE id = ?", UUID.fromString(legacy));
+
+        Map<String, Object> body = new HashMap<>(Map.of("maxErrorRatePercent", 1, "maxP95Ms", 0, "regressionPercent", 20));
+        body.putAll(Map.of("errorBrakeEnabled", true, "errorBrakeRatePercent", 35, "errorBrakeWindowSeconds", 60, "throttleOn429", false,
+                "throttleDefaultDelaySeconds", 12, "throttleMaxRetries", 1, "requestDetailMode", "FAILURES"));
+        assertThat(perform(put("/api/settings/thresholds"), body, ENGINEER).getResponse().getStatus()).as("Super admin seulement").isEqualTo(403);
+        Map<String, Object> invalid = new HashMap<>(body);
+        invalid.put("errorBrakeWindowSeconds", 2);
+        assertThat(perform(put("/api/settings/thresholds"), invalid, ADMIN).getResponse().getStatus()).isEqualTo(400);
+        invalid.put("errorBrakeWindowSeconds", 60);
+        invalid.put("throttleMaxRetries", 11);
+        assertThat(perform(put("/api/settings/thresholds"), invalid, ADMIN).getResponse().getStatus()).isEqualTo(400);
+
+        JsonNode updated = json(perform(put("/api/settings/thresholds"), body, ADMIN));
+        assertThat(updated.get("errorBrakeEnabled").asBoolean()).isTrue();
+        assertThat(updated.get("errorBrakeRatePercent").asDouble()).isEqualTo(35.0);
+        assertThat(updated.get("throttleOn429").asBoolean()).isFalse();
+        assertThat(updated.get("requestDetailMode").asText()).isEqualTo("FAILURES");
+        assertThat(json(perform(get("/api/settings/thresholds"), null, VIEWER)).get("throttleDefaultDelaySeconds").asInt()).isEqualTo(12);
+        AuditLog entry = audits(AuditAction.UPDATE, "thresholds").get(0);
+        assertThat(entry.getChanges()).contains("Frein automatique proposé").contains("Activé").contains("35 %")
+                .contains("Ralentissement sur 429 proposé").contains("Désactivé").contains("12 s").contains("Échecs + échantillon");
+
+        // Ancien client (seuils seulement) : les reglages des nouveaux scenarios restent inchanges.
+        json(perform(put("/api/settings/thresholds"), Map.of("maxErrorRatePercent", 1, "maxP95Ms", 0, "regressionPercent", 20), ADMIN));
+        assertThat(settings.defaultErrorBrakeRate()).isEqualTo(35.0);
+
+        // Nouveau scenario sans ces champs : valeurs systeme ECRITES dans le scenario.
+        JsonNode created = json(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Nouveau"), ENGINEER));
+        assertThat(created.get("errorBrakeRatePercent").asDouble()).isEqualTo(35.0);
+        assertThat(created.get("errorBrakeWindowSeconds").asInt()).isEqualTo(60);
+        assertThat(created.get("throttleOn429").asBoolean()).isFalse();
+        assertThat(created.get("throttleDefaultDelaySeconds").asInt()).isEqualTo(12);
+        assertThat(created.get("throttleMaxRetries").asInt()).isEqualTo(1);
+        assertThat(created.get("requestDetailMode").asText()).isEqualTo("FAILURES");
+        assertThat(jdbc.queryForObject("SELECT throttle_on_429 FROM scenario WHERE id = ?", Boolean.class,
+                UUID.fromString(created.get("id").asText()))).as("valeur explicite, pas NULL").isFalse();
+
+        // Choix explicites de la requete (formulaire) : toujours gardes, frein a 0 = desactive.
+        JsonNode explicit = json(perform(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Explicite",
+                "errorBrakeRatePercent", 0, "throttleOn429", true, "throttleDefaultDelaySeconds", 7, "requestDetailMode", "NONE"), ENGINEER));
+        assertThat(explicit.get("errorBrakeRatePercent").isNull()).isTrue();
+        assertThat(explicit.get("throttleOn429").asBoolean()).isTrue();
+        assertThat(explicit.get("throttleDefaultDelaySeconds").asInt()).isEqualTo(7);
+        assertThat(explicit.get("throttleMaxRetries").asInt()).as("champ absent : valeur systeme").isEqualTo(1);
+        assertThat(explicit.get("requestDetailMode").asText()).isEqualTo("NONE");
+
+        // Scenarios existants : inchanges (valeurs de l'epoque, ou NULL toujours NULL), meme apres une modification.
+        JsonNode beforeNow = json(perform(get("/api/scenarios/" + before), null, ENGINEER));
+        assertThat(beforeNow.get("throttleOn429").asBoolean()).isTrue();
+        assertThat(beforeNow.get("throttleDefaultDelaySeconds").asInt()).isEqualTo(5);
+        assertThat(beforeNow.get("throttleMaxRetries").asInt()).isEqualTo(3);
+        assertThat(beforeNow.get("errorBrakeRatePercent").isNull()).isTrue();
+        assertThat(beforeNow.get("requestDetailMode").asText()).isEqualTo("FAILURES_AND_SAMPLE");
+        json(perform(put("/api/scenarios/" + legacy), Map.of("applicationId", appId, "name", "Ancien modifié"), ENGINEER));
+        Map<String, Object> legacyRow = jdbc.queryForMap("SELECT throttle_on_429, throttle_default_delay_seconds, throttle_max_retries, "
+                + "error_brake_rate_percent, request_detail_mode FROM scenario WHERE id = ?", UUID.fromString(legacy));
+        assertThat(legacyRow.get("THROTTLE_ON_429")).isNull();
+        assertThat(legacyRow.get("THROTTLE_DEFAULT_DELAY_SECONDS")).isNull();
+        assertThat(legacyRow.get("THROTTLE_MAX_RETRIES")).isNull();
+        assertThat(legacyRow.get("ERROR_BRAKE_RATE_PERCENT")).isNull();
+        assertThat(legacyRow.get("REQUEST_DETAIL_MODE")).isEqualTo("FAILURES_AND_SAMPLE");
     }
 
     // ---------------------------------------------------------------- stockage

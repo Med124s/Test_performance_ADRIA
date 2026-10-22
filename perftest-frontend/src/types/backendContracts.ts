@@ -113,12 +113,20 @@ export interface BackendExecutionLimits {
   notices?: string[]
 }
 
-/** GET/PUT /api/settings/thresholds : seuils proposés aux nouveaux scénarios et seuil de régression. */
+/** GET/PUT /api/settings/thresholds : valeurs proposées aux nouveaux scénarios et seuil de régression. */
 export interface BackendThresholdSettings {
   maxErrorRatePercent: number
   /** 0 = aucun seuil de P95 proposé. */
   maxP95Ms: number
   regressionPercent: number
+  /** Réglages proposés aux NOUVEAUX scénarios (absents = valeurs initiales, voir DEFAULT_THRESHOLDS). */
+  errorBrakeEnabled?: boolean
+  errorBrakeRatePercent?: number
+  errorBrakeWindowSeconds?: number
+  throttleOn429?: boolean
+  throttleDefaultDelaySeconds?: number
+  throttleMaxRetries?: number
+  requestDetailMode?: BackendRequestDetailMode
 }
 
 /** GET /api/settings/storage : taille de la base et purges automatiques. */

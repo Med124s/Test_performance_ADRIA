@@ -24,7 +24,9 @@ import CsvPanel from './CsvPanel'
 import ScenarioVariablesPanel from './ScenarioVariablesPanel'
 import { availableVariables, laterCaptures, validateScenarioVariables, variablesToJson } from './variablesModel'
 import { analyzeCsv } from './csvModel'
-import { EMPTY_INFO, defaultDraftName, fullRequest, isBlankStep, parseDraft, serializeDraft, stateFromBackend, workSnapshot } from './draftModel'
+import {
+  EMPTY_INFO, applySuggestions, defaultDraftName, fullRequest, isBlankStep, parseDraft, serializeDraft, stateFromBackend, suggestedInfo, workSnapshot,
+} from './draftModel'
 import {
   DEFAULT_LOAD,
   DraftStep,
@@ -199,20 +201,21 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
 
   // ------------------------------------------------------------ seuils proposés (nouveau scénario)
 
-  // Nouveau scénario : seuils de réussite pré-remplis avec les « Seuils par défaut » (Paramètres >
-  // Système), tant que l'utilisateur ne les a pas modifiés. Jamais pour un brouillon ni une modification.
+  // Nouveau scénario : seuils de réussite, frein automatique, ralentissement sur 429 et détail des
+  // requêtes pré-remplis avec les valeurs de Paramètres > Système, bloc par bloc tant que l'utilisateur
+  // ne les a pas modifiés (voir applySuggestions). Jamais pour un brouillon ni une modification : un
+  // scénario existant garde ses propres valeurs.
   useEffect(() => {
     if (isEdit || draftId) return
     let cancelled = false
     loadThresholds().then((t) => {
       if (cancelled) return
-      const suggested = { maxErrorRatePercent: String(t.maxErrorRatePercent).replace('.', ','), maxP95Ms: t.maxP95Ms > 0 ? String(t.maxP95Ms) : '' }
-      const untouched = (p: ScenarioInfo) => p.maxErrorRatePercent === EMPTY_INFO.maxErrorRatePercent && p.maxP95Ms === EMPTY_INFO.maxP95Ms
-      setInfo((p) => (untouched(p) ? { ...p, ...suggested } : p))
+      const suggested = suggestedInfo(t)
+      setInfo((p) => applySuggestions(p, suggested))
       // Référence « rien à enregistrer » : workSnapshot = [info, étapes, charge].
       setBaseline((b) => {
         const [baseInfo, ...rest] = JSON.parse(b) as [ScenarioInfo, ...unknown[]]
-        return baseInfo && untouched(baseInfo) ? JSON.stringify([{ ...baseInfo, ...suggested }, ...rest]) : b
+        return baseInfo ? JSON.stringify([applySuggestions(baseInfo, suggested), ...rest]) : b
       })
     })
     return () => { cancelled = true }

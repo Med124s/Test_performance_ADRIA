@@ -5,7 +5,8 @@
 // ============================================================
 
 import { inUserZone } from '../../utils/userTimezone'
-import { BackendScenarioFullRequest, BackendScenarioResponse, BackendStepResponse } from '../../types/backendContracts'
+import { BackendScenarioFullRequest, BackendScenarioResponse, BackendStepResponse, BackendThresholdSettings } from '../../types/backendContracts'
+import { withDefaults } from '../../utils/thresholds'
 import { analyzeCsv } from './csvModel'
 import { QueryParamRow, parseQueryString, splitUrl, urlWithQuery, variablesFromJson, variablesToJson } from './variablesModel'
 import {
@@ -171,6 +172,44 @@ export const isBlankStep = (s: DraftStep) => {
 /** Empreinte du travail saisi (étapes vides ajoutées automatiquement ignorées) pour « modifications non enregistrées ». */
 export function workSnapshot(info: ScenarioInfo, steps: DraftStep[], load: LoadConfig): string {
   return JSON.stringify([info, steps.filter((s) => !isBlankStep(s)).map(({ uid, backendId, ...rest }) => rest), load])
+}
+
+/**
+ * Valeurs proposées par Paramètres > Système pour un NOUVEAU scénario, au format du formulaire :
+ * seuils, frein automatique (désactivé = taux vide ; la fenêtre reste celle proposée pour qui l'active),
+ * ralentissement sur 429, détail des requêtes.
+ */
+export function suggestedInfo(raw: BackendThresholdSettings): Partial<ScenarioInfo> {
+  const t = withDefaults(raw)
+  return {
+    maxErrorRatePercent: String(t.maxErrorRatePercent).replace('.', ','),
+    maxP95Ms: t.maxP95Ms > 0 ? String(t.maxP95Ms) : '',
+    errorBrakeRatePercent: t.errorBrakeEnabled ? String(t.errorBrakeRatePercent).replace('.', ',') : '',
+    errorBrakeWindowSeconds: String(t.errorBrakeWindowSeconds),
+    throttleOn429: t.throttleOn429,
+    throttleDefaultDelaySeconds: String(t.throttleDefaultDelaySeconds),
+    throttleMaxRetries: String(t.throttleMaxRetries),
+    requestDetailMode: t.requestDetailMode,
+  }
+}
+
+/** Blocs pré-remplis ensemble : un bloc déjà modifié par l'utilisateur n'est jamais écrasé. */
+const SUGGESTED_GROUPS: (keyof ScenarioInfo)[][] = [
+  ['maxErrorRatePercent', 'maxP95Ms'],
+  ['errorBrakeRatePercent', 'errorBrakeWindowSeconds'],
+  ['throttleOn429', 'throttleDefaultDelaySeconds', 'throttleMaxRetries'],
+  ['requestDetailMode'],
+]
+
+/** Applique les valeurs proposées aux seuls blocs encore à leur valeur initiale (EMPTY_INFO). */
+export function applySuggestions(info: ScenarioInfo, suggested: Partial<ScenarioInfo>): ScenarioInfo {
+  const next = { ...info }
+  for (const group of SUGGESTED_GROUPS) {
+    if (group.every((k) => info[k] === EMPTY_INFO[k])) {
+      for (const k of group) if (k in suggested) (next as Record<string, unknown>)[k] = suggested[k]
+    }
+  }
+  return next
 }
 
 export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', maxErrorRatePercent: '1', maxP95Ms: '', errorBrakeRatePercent: '', errorBrakeWindowSeconds: '30', throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3', thinkTimeVariationPercent: '' }

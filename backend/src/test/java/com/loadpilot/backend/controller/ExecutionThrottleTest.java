@@ -130,7 +130,10 @@ class ExecutionThrottleTest {
     void throttleSetting_activeByDefault_savedKeptAndValidated() throws Exception {
         String appId = app();
         JsonNode created = call(post("/api/scenarios"), Map.of("applicationId", appId, "name", "Reglage 429"));
-        assertThat(created.get("throttleOn429").isNull()).as("null = actif par defaut").isTrue();
+        // Actif par defaut : valeurs de Parametres > Systeme (initiales : actif, 5 s, 3 rejeux) ecrites dans le scenario.
+        assertThat(created.get("throttleOn429").asBoolean()).as("actif par defaut").isTrue();
+        assertThat(created.get("throttleDefaultDelaySeconds").asInt()).isEqualTo(5);
+        assertThat(created.get("throttleMaxRetries").asInt()).isEqualTo(3);
         String id = created.get("id").asText();
 
         JsonNode off = call(put("/api/scenarios/" + id), Map.of("applicationId", appId, "name", "Reglage 429",

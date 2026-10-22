@@ -28,6 +28,7 @@ vi.mock('../../services/api/settingsBackend', () => ({ settingsBackendApi: setti
 
 import ScenarioWizard from './ScenarioWizard'
 import { resetLoadLimitsCache } from '../../utils/loadLimits'
+import { resetThresholdsCache } from '../../utils/thresholds'
 
 function renderWizard(entry = '/scenarios/new') {
   const router = createMemoryRouter([
@@ -161,6 +162,29 @@ describe('Assistant « Nouveau scénario »', () => {
       presetId: 'smoke', virtualUsers: '1', rampUpSeconds: '0', durationSeconds: '', iterations: '1', thinkTimeMs: '0', targetRps: '' })
     // Seuils de réussite toujours pré-remplis avec « Seuils par défaut ».
     expect(draft.info).toMatchObject({ maxErrorRatePercent: '2,5', maxP95Ms: '800' })
+  })
+
+  it('nouveau scénario : frein, 429 et détail des requêtes pré-remplis avec Paramètres > Système, modifiables', async () => {
+    resetThresholdsCache()
+    settingsApi.thresholds.mockResolvedValueOnce({
+      maxErrorRatePercent: 2.5, maxP95Ms: 800, regressionPercent: 20, errorBrakeEnabled: true, errorBrakeRatePercent: 35,
+      errorBrakeWindowSeconds: 60, throttleOn429: false, throttleDefaultDelaySeconds: 12, throttleMaxRetries: 1, requestDetailMode: 'FAILURES',
+    } as never)
+    renderWizard()
+    await fillInfo()
+    await waitFor(() => expect(settingsApi.thresholds).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: /Scénarios/ }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(dialog.querySelector('.pt-btn-primary') as HTMLElement)
+    expect(await screen.findByText('Liste des scénarios')).toBeTruthy()
+    const request = scenarios.create.mock.calls[0][0]
+    expect(JSON.parse(request.draftState).info).toMatchObject({
+      maxErrorRatePercent: '2,5', errorBrakeRatePercent: '35', errorBrakeWindowSeconds: '60', throttleOn429: false,
+      throttleDefaultDelaySeconds: '12', throttleMaxRetries: '1', requestDetailMode: 'FAILURES',
+    })
+    // Envoyés tels quels au serveur : enregistrés dans le scénario (override possible avant).
+    expect(request).toMatchObject({ errorBrakeRatePercent: 35, errorBrakeWindowSeconds: 60, throttleOn429: false, requestDetailMode: 'FAILURES' })
+    resetThresholdsCache()
   })
 
   it('« Reprendre » rouvre le brouillon à la bonne étape avec ses données', async () => {

@@ -102,6 +102,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                 scenario.setMaxP95Ms(p95 > 0 ? p95 : null);
             }
             applyVariables(scenario, request);
+            applyCreationDefaults(scenario, request);
 
             Scenario saved = scenarioRepository.saveAndFlush(scenario);
             auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.SCENARIO)
@@ -369,6 +370,27 @@ public class ScenarioServiceImpl implements ScenarioService {
                 .change("Nombre d’étapes", existing.size(), saved.size())
                 .description("Étapes enregistrées : " + created + " ajoutée(s), " + modified + " conservée(s), " + removed.size() + " supprimée(s)"));
         return new ScenarioFullResponse(getById(id), stepMapper.toResponseList(saved));
+    }
+
+    /**
+     * NOUVEAU scenario : frein automatique, ralentissement sur 429 et detail des requetes non fournis par
+     * la requete = valeurs de Parametres > Systeme, ecrites EXPLICITEMENT dans le scenario. Ainsi :
+     *   - un scenario existant n'est jamais modifie quand ces valeurs changent ;
+     *   - l'execution garde son repli actuel (null = ThrottlePolicy.DEFAULT, fenetre de 30 s...) pour
+     *     les scenarios deja enregistres sans ces valeurs.
+     * Un choix explicite de la requete est toujours garde (frein a 0 = desactive, 429 desactive...).
+     */
+    private void applyCreationDefaults(Scenario scenario, ScenarioRequest request) {
+        if (request.errorBrakeRatePercent() == null && settings.defaultErrorBrakeEnabled()) {
+            scenario.setErrorBrakeRatePercent(settings.defaultErrorBrakeRate());
+        }
+        if (request.errorBrakeWindowSeconds() == null && scenario.getErrorBrakeRatePercent() != null) {
+            scenario.setErrorBrakeWindowSeconds(settings.defaultErrorBrakeWindow());
+        }
+        if (request.throttleOn429() == null) scenario.setThrottleOn429(settings.defaultThrottleOn429());
+        if (request.throttleDefaultDelaySeconds() == null) scenario.setThrottleDefaultDelaySeconds(settings.defaultThrottleDelay());
+        if (request.throttleMaxRetries() == null) scenario.setThrottleMaxRetries(settings.defaultThrottleRetries());
+        if (request.requestDetailMode() == null) scenario.setRequestDetailMode(settings.defaultRequestDetailMode());
     }
 
     /** Variables du scenario et distribution du CSV : null = inchange ("{}" pour tout effacer). */

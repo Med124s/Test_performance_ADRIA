@@ -332,6 +332,11 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
   - **Désactivé** (test de résilience, pour voir comment la cible tient sous un mur de 429) : un 429 est un échec ordinaire. Pas d'attente ni de rejeu, l'itération s'arrête, et le frein le compte.
   - Pourquoi activé par défaut : insister malgré un 429 peut faire bloquer l'adresse de LoadPilot par le pare-feu applicatif de la cible. Le frein reste désactivé par défaut, car il arrête tout le test.
   - Le test de validation de l'assistant n'est pas concerné : il envoie chaque étape une seule fois et montre le 429 tel quel.
+- **Valeurs par défaut des nouveaux scénarios** (Paramètres > Système, carte « Seuils par défaut », Super administrateur) : en plus des seuils de réussite, la carte propose le frein automatique (activé ou non, taux, fenêtre), le ralentissement sur 429 (activé ou non, attente sans `Retry-After`, rejeux) et le détail des requêtes.
+  - Valeurs initiales : celles décrites ci-dessus (frein désactivé, 20 % sur 30 s s'il est activé ; 429 activé, 5 s, 3 rejeux ; « Échecs + échantillon »).
+  - L'assistant les pré-remplit pour un **nouveau** scénario, bloc par bloc, sans écraser ce que l'utilisateur a déjà saisi. Elles restent modifiables pour ce scénario seulement.
+  - Elles sont **enregistrées dans le scénario** à sa création, y compris par l'API quand la requête ne les précise pas. Un scénario existant n'est donc jamais modifié quand elles changent, même s'il avait été enregistré sans ces valeurs : l'exécution garde alors les valeurs d'origine.
+  - Lecture pour tout utilisateur connecté (l'assistant en a besoin), modification par le Super administrateur seulement, chaque changement est inscrit au journal d'audit.
 - **Variation aléatoire du think time** (réglage du scénario, étape « Charge & résumé », **désactivée par défaut**) : chaque pause est tirée uniformément autour du think time configuré. Par exemple, avec ± 20 % et 1 000 ms, chaque pause dure entre 800 et 1 200 ms.
   - Les utilisateurs virtuels ne se synchronisent plus sur le même rythme. La moyenne, donc la charge moyenne, ne change pas.
   - S'applique au think time du scénario et à celui de chaque étape.

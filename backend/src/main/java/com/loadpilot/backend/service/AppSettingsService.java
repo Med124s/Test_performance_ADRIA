@@ -31,6 +31,15 @@ public class AppSettingsService {
     public static final String DEFAULT_MAX_ERROR_RATE = "thresholds.default-max-error-rate";
     public static final String DEFAULT_MAX_P95_MS = "thresholds.default-max-p95-ms";
     public static final String REGRESSION_PERCENT = "thresholds.regression-percent";
+    // Valeurs proposees aux NOUVEAUX scenarios (Parametres > Systeme), ecrites explicitement dans le
+    // scenario a sa creation : changer ces valeurs ne modifie jamais un scenario existant.
+    public static final String DEFAULT_ERROR_BRAKE_ENABLED = "scenario-defaults.error-brake-enabled";
+    public static final String DEFAULT_ERROR_BRAKE_RATE = "scenario-defaults.error-brake-rate-percent";
+    public static final String DEFAULT_ERROR_BRAKE_WINDOW = "scenario-defaults.error-brake-window-seconds";
+    public static final String DEFAULT_THROTTLE_ON_429 = "scenario-defaults.throttle-on-429";
+    public static final String DEFAULT_THROTTLE_DELAY = "scenario-defaults.throttle-default-delay-seconds";
+    public static final String DEFAULT_THROTTLE_RETRIES = "scenario-defaults.throttle-max-retries";
+    public static final String DEFAULT_REQUEST_DETAIL_MODE = "scenario-defaults.request-detail-mode";
 
     public static final boolean DEFAULT_LOG_READS = false;
     public static final int DEFAULT_RETENTION_DAYS = 365;
@@ -40,6 +49,15 @@ public class AppSettingsService {
     /** 0 = aucun seuil de P95 propose. */
     public static final long DEFAULT_DEFAULT_MAX_P95_MS = 0;
     public static final double DEFAULT_REGRESSION_PERCENT = 20.0;
+    /** Valeurs initiales = celles codees jusqu'ici (assistant de scenario, ErrorRateBrake, ThrottlePolicy). */
+    public static final boolean DEFAULT_DEFAULT_ERROR_BRAKE_ENABLED = false;
+    public static final double DEFAULT_DEFAULT_ERROR_BRAKE_RATE = 20.0;
+    public static final int DEFAULT_DEFAULT_ERROR_BRAKE_WINDOW = 30;
+    public static final boolean DEFAULT_DEFAULT_THROTTLE_ON_429 = true;
+    public static final int DEFAULT_DEFAULT_THROTTLE_DELAY = 5;
+    public static final int DEFAULT_DEFAULT_THROTTLE_RETRIES = 3;
+    public static final com.loadpilot.backend.enums.RequestDetailMode DEFAULT_DEFAULT_REQUEST_DETAIL_MODE =
+            com.loadpilot.backend.enums.RequestDetailMode.FAILURES_AND_SAMPLE;
 
     private final AppSettingRepository repository;
     /** Valeur en cache (Optional.empty() = reglage absent en base). */
@@ -128,6 +146,47 @@ public class AppSettingsService {
     /** Hausse du P95 (%) au-dela de laquelle une execution est une regression (Dashboard, listes, notifications). */
     public double regressionPercent() {
         return getDouble(REGRESSION_PERCENT, DEFAULT_REGRESSION_PERCENT);
+    }
+
+    /** Frein automatique active pour un nouveau scenario. */
+    public boolean defaultErrorBrakeEnabled() {
+        return getBoolean(DEFAULT_ERROR_BRAKE_ENABLED, DEFAULT_DEFAULT_ERROR_BRAKE_ENABLED);
+    }
+
+    /** Taux d'erreurs (%) du frein propose (utilise s'il est active, ou quand on l'active dans l'assistant). */
+    public double defaultErrorBrakeRate() {
+        return getDouble(DEFAULT_ERROR_BRAKE_RATE, DEFAULT_DEFAULT_ERROR_BRAKE_RATE);
+    }
+
+    /** Fenetre glissante (s) du frein proposee. */
+    public int defaultErrorBrakeWindow() {
+        return getInt(DEFAULT_ERROR_BRAKE_WINDOW, DEFAULT_DEFAULT_ERROR_BRAKE_WINDOW);
+    }
+
+    /** Ralentissement sur 429 actif pour un nouveau scenario. */
+    public boolean defaultThrottleOn429() {
+        return getBoolean(DEFAULT_THROTTLE_ON_429, DEFAULT_DEFAULT_THROTTLE_ON_429);
+    }
+
+    /** Attente (s) apres un 429 sans Retry-After, proposee. */
+    public int defaultThrottleDelay() {
+        return getInt(DEFAULT_THROTTLE_DELAY, DEFAULT_DEFAULT_THROTTLE_DELAY);
+    }
+
+    /** Rejeux au plus d'une etape apres un 429, proposes. */
+    public int defaultThrottleRetries() {
+        return getInt(DEFAULT_THROTTLE_RETRIES, DEFAULT_DEFAULT_THROTTLE_RETRIES);
+    }
+
+    /** Detail des requetes propose ; valeur illisible en base = valeur initiale. */
+    public com.loadpilot.backend.enums.RequestDetailMode defaultRequestDetailMode() {
+        return get(DEFAULT_REQUEST_DETAIL_MODE).map(v -> {
+            try {
+                return com.loadpilot.backend.enums.RequestDetailMode.valueOf(v.trim());
+            } catch (IllegalArgumentException e) {
+                return DEFAULT_DEFAULT_REQUEST_DETAIL_MODE;
+            }
+        }).orElse(DEFAULT_DEFAULT_REQUEST_DETAIL_MODE);
     }
 
     /** Pour les tests : oublie le cache (la base reste la source de verite). */

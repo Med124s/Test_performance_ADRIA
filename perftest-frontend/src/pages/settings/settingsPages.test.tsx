@@ -301,8 +301,45 @@ describe('Système', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /P95 maximal/ }), { target: { value: '800' } })
     fireEvent.change(screen.getByRole('textbox', { name: /Taux d’erreurs maximal/ }), { target: { value: '2,5' } })
     fireEvent.click(save())
-    await waitFor(() => expect(settingsApi.updateThresholds).toHaveBeenCalledWith({ maxErrorRatePercent: 2.5, maxP95Ms: 800, regressionPercent: 15 }))
+    await waitFor(() => expect(settingsApi.updateThresholds).toHaveBeenCalledWith(
+      expect.objectContaining({ maxErrorRatePercent: 2.5, maxP95Ms: 800, regressionPercent: 15 })))
     expect(toast.showToast).toHaveBeenCalledWith('Seuils par défaut enregistrés.', 'success')
+  })
+
+  it('nouveaux scénarios : frein, 429 et détail des requêtes, valeurs initiales, validation et enregistrement', async () => {
+    renderSystem()
+    const card = (await screen.findByRole('heading', { name: 'Seuils par défaut' })).closest('section')!
+    // Serveur sans ces champs (réponse à 3 valeurs) : valeurs initiales, celles codées jusqu'ici.
+    const brake = within(card).getByRole('switch', { name: /Arrêter le test si trop d’erreurs/ }) as HTMLInputElement
+    const throttle = within(card).getByRole('switch', { name: /Ralentir quand l’application demande d’attendre/ }) as HTMLInputElement
+    expect(brake.checked).toBe(false)
+    expect(throttle.checked).toBe(true)
+    expect((within(card).getByRole('textbox', { name: /Taux d’erreurs du frein/ }) as HTMLInputElement).value).toBe('20')
+    expect((within(card).getByRole('textbox', { name: /Fenêtre du frein/ }) as HTMLInputElement).value).toBe('30')
+    expect((within(card).getByRole('textbox', { name: /Attente sans Retry-After/ }) as HTMLInputElement).value).toBe('5')
+    expect((within(card).getByRole('textbox', { name: /Rejeux de l’étape au plus/ }) as HTMLInputElement).value).toBe('3')
+    expect((within(card).getByRole('combobox', { name: /Détail des requêtes/ }) as HTMLSelectElement).value).toBe('FAILURES_AND_SAMPLE')
+
+    const save = () => within(card).getByRole('button', { name: 'Enregistrer' }) as HTMLButtonElement
+    fireEvent.change(within(card).getByRole('textbox', { name: /Fenêtre du frein/ }), { target: { value: '2' } })
+    expect(within(card).getByText('Fenêtre du frein automatique : entre 5 et 300 secondes.')).toBeTruthy()
+    expect(save().disabled).toBe(true)
+    fireEvent.change(within(card).getByRole('textbox', { name: /Fenêtre du frein/ }), { target: { value: '60' } })
+    fireEvent.change(within(card).getByRole('textbox', { name: /Rejeux de l’étape au plus/ }), { target: { value: '11' } })
+    expect(within(card).getByText('Rejeux après un 429 : entre 0 et 10.')).toBeTruthy()
+    fireEvent.change(within(card).getByRole('textbox', { name: /Rejeux de l’étape au plus/ }), { target: { value: '1' } })
+
+    fireEvent.click(brake)
+    fireEvent.change(within(card).getByRole('textbox', { name: /Taux d’erreurs du frein/ }), { target: { value: '35,5' } })
+    fireEvent.click(throttle)
+    fireEvent.change(within(card).getByRole('textbox', { name: /Attente sans Retry-After/ }), { target: { value: '12' } })
+    fireEvent.change(within(card).getByRole('combobox', { name: /Détail des requêtes/ }), { target: { value: 'FAILURES' } })
+    fireEvent.click(save())
+    await waitFor(() => expect(settingsApi.updateThresholds).toHaveBeenCalledWith({
+      maxErrorRatePercent: 1, maxP95Ms: 0, regressionPercent: 20,
+      errorBrakeEnabled: true, errorBrakeRatePercent: 35.5, errorBrakeWindowSeconds: 60,
+      throttleOn429: false, throttleDefaultDelaySeconds: 12, throttleMaxRetries: 1, requestDetailMode: 'FAILURES',
+    }))
   })
 
   it('plus de carte « Charge par défaut » : Limites, Seuils par défaut, Conservation, Journal d’audit', async () => {

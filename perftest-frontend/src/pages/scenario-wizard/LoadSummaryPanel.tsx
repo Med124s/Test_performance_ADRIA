@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BackendApplicationResponse, BackendRequestDetailMode } from '../../types/backendContracts'
 import { TestRunState } from './TestRunPanel'
+import { useThresholds } from '../../utils/thresholds'
 import {
   DraftStep,
   ERROR_BRAKE_DEFAULT_RATE,
@@ -91,6 +92,9 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
   // Interrupteur actif = taux renseigné ; reste ouvert si on vide le champ pour le ressaisir (vide = désactivé).
   const [brakeSwitch, setBrakeSwitch] = useState<boolean | null>(null)
   const brakeOn = brakeSwitch ?? !!info.errorBrakeRatePercent?.trim()
+  const systemDefaults = useThresholds()
+  const suggestedBrakeRate = systemDefaults.errorBrakeRatePercent != null
+    ? String(systemDefaults.errorBrakeRatePercent).replace('.', ',') : ERROR_BRAKE_DEFAULT_RATE
   const throttleOn = info.throttleOn429 !== false
 
   return (
@@ -197,8 +201,9 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                     checked={brakeOn}
                     onChange={(e) => {
                       setBrakeSwitch(e.target.checked)
+                      // Activation : taux proposé par Paramètres > Système (20 % tant qu'il n'est pas chargé).
                       onThresholdsChange(e.target.checked
-                        ? { errorBrakeRatePercent: ERROR_BRAKE_DEFAULT_RATE, errorBrakeWindowSeconds: info.errorBrakeWindowSeconds || String(ERROR_BRAKE_WINDOW.default) }
+                        ? { errorBrakeRatePercent: suggestedBrakeRate, errorBrakeWindowSeconds: info.errorBrakeWindowSeconds || String(ERROR_BRAKE_WINDOW.default) }
                         : { errorBrakeRatePercent: '' })
                     }} />
                   <label className="form-check-label" htmlFor="load-error-brake">
