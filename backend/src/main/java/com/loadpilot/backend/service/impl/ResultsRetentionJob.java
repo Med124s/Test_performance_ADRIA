@@ -6,9 +6,9 @@ import com.loadpilot.backend.enums.ExecutionStatus;
 import com.loadpilot.backend.repository.ExecutionRepository;
 import com.loadpilot.backend.service.AppSettingsService;
 import com.loadpilot.backend.service.AuditLogService;
+import com.loadpilot.backend.service.RetentionOverrides;
 import com.loadpilot.backend.service.audit.AuditEvent;
 import com.loadpilot.backend.service.execution.RunningExecutionRegistry;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +27,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *  - resultats (une ligne par requete, et les metriques qui en sont tirees) des executions
  *    terminees depuis plus de N jours (90 par defaut), avec leurs en-tetes et corps ;
  *  - en-tetes et corps des requetes conservees, apres M jours (30 par defaut).
+ * En local, LOADPILOT_RESULTS_RETENTION_OVERRIDE / LOADPILOT_REQUEST_DETAILS_RETENTION_OVERRIDE
+ * remplacent ces durees pour tester la purge (voir RetentionOverrides).
  * Jamais purgees : executions en cours (ou dont l'enregistrement n'est pas fini) et executions
  * « Conserver ». Le rapport fige est calcule avant toute suppression (sinon l'execution est
  * laissee intacte). Par lots : quelques executions a la fois, une transaction par execution
@@ -48,6 +50,7 @@ public class ResultsRetentionJob {
     private final RunningExecutionRegistry registry;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
+    private final RetentionOverrides overrides;
 
     /** Bilan d'une purge. */
     public record Outcome(int resultExecutions, long results, int detailExecutions, long requestDetails, int skipped) {
@@ -69,8 +72,9 @@ public class ResultsRetentionJob {
     }
 
     public Outcome purge(Instant now) {
-        int resultsDays = settings.resultsRetentionDays();
-        int detailsDays = settings.requestDetailsRetentionDays();
+        // Durees de Parametres, ou durees de test LOADPILOT_*_RETENTION_OVERRIDE (local uniquement).
+        RetentionOverrides.Retention resultsRetention = overrides.results(settings.resultsRetentionDays());
+        RetentionOverrides.Retention detailsRetention = overrides.requestDetails(settings.requestDetailsRetentionDays());
         int resultExecutions = 0;
         int detailExecutions = 0;
         int skipped = 0;
@@ -78,7 +82,7 @@ public class ResultsRetentionJob {
         long details = 0;
 
         // 1. Resultats complets (et leurs en-tetes / corps) au-dela de la duree de conservation.
-        Instant resultsCutoff = now.minus(Duration.ofDays(resultsDays));
+        Instant resultsCutoff = now.minus(resultsRetention.duration());
         java.util.Set<UUID> tried = new java.util.HashSet<>();
         List<UUID> batch;
         while (!(batch = next(executionRepository.findResultsToPurge(resultsCutoff, PageRequest.of(0, EXECUTIONS_PER_BATCH + tried.size())), tried)).isEmpty()) {
@@ -99,7 +103,7 @@ public class ResultsRetentionJob {
         }
 
         // 2. En-tetes et corps seuls, au-dela de leur propre duree (plus courte).
-        Instant detailsCutoff = now.minus(Duration.ofDays(detailsDays));
+        Instant detailsCutoff = now.minus(detailsRetention.duration());
         tried.clear();
         while (!(batch = next(executionRepository.findRequestDetailsToPurge(detailsCutoff, PageRequest.of(0, EXECUTIONS_PER_BATCH + tried.size())), tried)).isEmpty()) {
             for (UUID id : batch) {
@@ -126,7 +130,7 @@ public class ResultsRetentionJob {
                     resultExecutions, results, detailExecutions, details);
             auditLogService.record(AuditEvent.of(AuditAction.PURGE, AuditModule.EXECUTION)
                     .system("Purge automatique quotidienne")
-                    .description(describe(outcome, resultsDays, detailsDays)));
+                    .description(describe(outcome, resultsRetention.label(), detailsRetention.label())));
         }
         if (skipped > 0) log.warn("Purge des resultats detailles : {} execution(s) laissee(s) intacte(s)", skipped);
         return outcome;
@@ -137,17 +141,18 @@ public class ResultsRetentionJob {
         return candidates.stream().filter(tried::add).toList();
     }
 
-    static String describe(Outcome o, int resultsDays, int detailsDays) {
+    /** resultsAge / detailsAge : « 90 jours », ou la duree de test (« 10 minutes (durée de test …) »). */
+    static String describe(Outcome o, String resultsAge, String detailsAge) {
         StringBuilder text = new StringBuilder();
         if (o.resultExecutions() > 0) {
             text.append("Résultats détaillés de ").append(plural(o.resultExecutions(), "exécution", "exécutions"))
-                    .append(" de plus de ").append(resultsDays).append(" jours supprimés (")
+                    .append(" de plus de ").append(resultsAge).append(" supprimés (")
                     .append(plural(o.results(), "requête", "requêtes")).append(")");
         }
         if (o.detailExecutions() > 0) {
             if (!text.isEmpty()) text.append(" ; ");
             text.append("en-têtes et corps des requêtes de ").append(plural(o.detailExecutions(), "exécution", "exécutions"))
-                    .append(" de plus de ").append(detailsDays).append(" jours supprimés");
+                    .append(" de plus de ").append(detailsAge).append(" supprimés");
         }
         if (!text.isEmpty()) text.setCharAt(0, Character.toUpperCase(text.charAt(0)));
         return text + ". Rapports conservés.";

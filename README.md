@@ -135,6 +135,11 @@ Aucune valeur ci-dessous n'est une valeur réelle — uniquement les noms et rô
 | `LOADPILOT_TARGET_RPS_ADVISED_ABOVE_VUS` | Non | 50 | Au-delà de ce nombre d'utilisateurs virtuels sans débit cible : avertissement, jamais un refus (0 = jamais) |
 | `LOADPILOT_MAX_RESULTS_IN_MEMORY` | Non | calculée : mémoire de la JVM ÷ 2,5 Ko (~1,6 M avec 4 Go) | Garde-fou mémoire : résultats gardés en mémoire, toutes exécutions confondues (voir section 17) |
 | `LOADPILOT_SCHEDULER_POLL_INTERVAL_MS` | Non | 5000 | Intervalle du poller de planification |
+| `LOADPILOT_AUDIT_PURGE_CRON` | Non | `0 30 3 * * *` | Heure de la purge du journal d'audit (cron Spring, 6 champs, secondes d'abord) |
+| `LOADPILOT_RESULTS_PURGE_CRON` | Non | `0 45 3 * * *` | Heure de la purge des résultats détaillés |
+| `LOADPILOT_AUDIT_RETENTION_OVERRIDE` | Non (tests locaux) | vide = Paramètres | Durée de conservation utilisée par la purge du journal à la place de Paramètres > Système, avec son unité (`10m`, `2h`, `3d`). Démarrage refusé en profil `prod` |
+| `LOADPILOT_RESULTS_RETENTION_OVERRIDE` | Non (tests locaux) | vide = Paramètres | Idem pour les résultats détaillés |
+| `LOADPILOT_REQUEST_DETAILS_RETENTION_OVERRIDE` | Non (tests locaux) | vide = Paramètres | Idem pour les en-têtes et corps des requêtes |
 
 **Frontend** (`perftest-frontend/.env`) :
 

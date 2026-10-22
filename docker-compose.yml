@@ -141,6 +141,13 @@ services:
       LOADPILOT_HTTPS_PROXY_PORT: ${LOADPILOT_HTTPS_PROXY_PORT:-}
       LOADPILOT_HTTPS_PROXY_USERNAME: ${LOADPILOT_HTTPS_PROXY_USERNAME:-}
       LOADPILOT_HTTPS_PROXY_PASSWORD: ${LOADPILOT_HTTPS_PROXY_PASSWORD:-}
+      # Purges (tests locaux, voir README) : vides = valeurs de application.yml (03:30 / 03:45) et
+      # durees de Parametres > Systeme. Les *_RETENTION_OVERRIDE sont refuses en profil prod.
+      LOADPILOT_AUDIT_PURGE_CRON: ${LOADPILOT_AUDIT_PURGE_CRON:-}
+      LOADPILOT_RESULTS_PURGE_CRON: ${LOADPILOT_RESULTS_PURGE_CRON:-}
+      LOADPILOT_AUDIT_RETENTION_OVERRIDE: ${LOADPILOT_AUDIT_RETENTION_OVERRIDE:-}
+      LOADPILOT_RESULTS_RETENTION_OVERRIDE: ${LOADPILOT_RESULTS_RETENTION_OVERRIDE:-}
+      LOADPILOT_REQUEST_DETAILS_RETENTION_OVERRIDE: ${LOADPILOT_REQUEST_DETAILS_RETENTION_OVERRIDE:-}
     # Certificats de l'application cible : decommenter et placer les fichiers dans ./certs (dossier
     # ignore par Git), puis renseigner par exemple LOADPILOT_TLS_TRUSTSTORE_PATH=/opt/loadpilot/certs/truststore.p12.
     # volumes:

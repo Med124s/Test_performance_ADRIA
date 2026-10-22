@@ -133,6 +133,9 @@ app:
     trusted-proxies: ${LOADPILOT_AUDIT_TRUSTED_PROXIES:}
     # Purge quotidienne des entrees plus anciennes que la duree de conservation (Parametres).
     purge-cron: ${LOADPILOT_AUDIT_PURGE_CRON:0 30 3 * * *}
+    # Tests locaux uniquement : duree de conservation utilisee par la purge a la place de celle de
+    # Parametres (ex. 10m, 2h, 3d ; unite obligatoire). Vide = Parametres. Refuse en profil "prod".
+    retention-override: ${LOADPILOT_AUDIT_RETENTION_OVERRIDE:}
     security-events:
       # Import periodique des evenements de connexion du systeme d'authentification
       # (connexion, echec, blocage, deconnexion, mot de passe) vers le journal.
@@ -157,6 +160,10 @@ app:
     # Purge quotidienne du detail des executions (durees reglables dans Parametres > Systeme :
     # 90 jours pour les resultats, 30 jours pour les en-tetes / corps). "-" = desactivee.
     purge-cron: ${LOADPILOT_RESULTS_PURGE_CRON:0 45 3 * * *}
+    # Tests locaux uniquement (meme principe que app.audit.retention-override) : resultats, et
+    # en-tetes / corps des requetes. Vide = Parametres. Refuse en profil "prod".
+    retention-override: ${LOADPILOT_RESULTS_RETENTION_OVERRIDE:}
+    request-details-retention-override: ${LOADPILOT_REQUEST_DETAILS_RETENTION_OVERRIDE:}
     snapshot-backfill:
       # Au demarrage : rapport fige des executions terminees qui n'en ont pas encore.
       enabled: ${LOADPILOT_RESULTS_SNAPSHOT_BACKFILL:true}

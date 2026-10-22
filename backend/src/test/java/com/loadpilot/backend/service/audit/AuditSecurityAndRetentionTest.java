@@ -122,6 +122,32 @@ class AuditSecurityAndRetentionTest {
         assertThat(purge.getDescription()).contains("de plus de 30 jours supprimée");
     }
 
+    /**
+     * Chemin reel du cron : scheduledPurge() (et non purge() appele directement). Regression : l'appel
+     * interne ignorait @Transactional, la suppression etait refusee (TransactionRequiredException) et
+     * rien n'etait jamais purge.
+     */
+    @Test
+    void scheduledPurge_cronPath_deletesEntriesOlderThanTheRetention_andRecordsTheLastPass() {
+        settings.set(AppSettingsService.AUDIT_RETENTION_DAYS, "14", "test");
+        settings.set(AppSettingsService.AUDIT_LAST_PURGE, "{}", "test");
+        Instant now = Instant.now();
+        String marker = "cron-" + UUID.randomUUID();
+        AuditLog old = save(AuditLog.builder().action(AuditAction.CREATE).module(AuditModule.APPLICATION).result(AuditResult.SUCCESS)
+                .date(now.minus(Duration.ofDays(20))).description(marker + "-old").build());
+        AuditLog recent = save(AuditLog.builder().action(AuditAction.CREATE).module(AuditModule.APPLICATION).result(AuditResult.SUCCESS)
+                .date(now.minus(Duration.ofDays(10))).description(marker + "-recent").build());
+
+        retentionJob.scheduledPurge();
+
+        assertThat(auditLogRepository.findById(old.getId())).as("20 jours > 14 jours : supprimee").isEmpty();
+        assertThat(auditLogRepository.findById(recent.getId())).as("10 jours : gardee").isPresent();
+        AuditLog purge = auditLogRepository.findAll().stream().filter(a -> a.getAction() == AuditAction.PURGE).reduce((a, b) -> b).orElseThrow();
+        assertThat(purge.getDescription()).contains("de plus de 14 jours supprimée");
+        assertThat(settings.get(AppSettingsService.AUDIT_LAST_PURGE).orElseThrow()).as("bilan du passage (Paramètres > Système)")
+                .startsWith("{\"at\":\"" + now.toString().substring(0, 10)).containsPattern("\"deleted\":[1-9]");
+    }
+
     private AuditLog save(AuditLog entry) {
         return auditLogRepository.saveAndFlush(entry);
     }

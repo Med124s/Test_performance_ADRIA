@@ -34,6 +34,9 @@ prop() { add "-D$1=$2" "-D$1=$([ "${3:-}" = secret ] && echo '******' || echo "$
 # Docker Compose transmet une variable non renseignee comme une chaine vide : Spring Boot doit alors
 # appliquer sa valeur par defaut (application.yml), pas lire "" (EXECUTION_TIMEOUT_SECONDS est un nombre).
 if [ -z "$(setting EXECUTION_TIMEOUT_SECONDS)" ]; then unset EXECUTION_TIMEOUT_SECONDS; fi
+# Idem pour les crons de purge : une expression vide empecherait le demarrage.
+if [ -z "$(setting LOADPILOT_AUDIT_PURGE_CRON)" ]; then unset LOADPILOT_AUDIT_PURGE_CRON; fi
+if [ -z "$(setting LOADPILOT_RESULTS_PURGE_CRON)" ]; then unset LOADPILOT_RESULTS_PURGE_CRON; fi
 
 # ---------------------------------------------------------------- memoire
 memory="$(setting LOADPILOT_JVM_MAX_MEMORY)"
