@@ -1,6 +1,6 @@
 import { formatDate } from '../utils/dateFormat'
 import { useRegressionThreshold } from '../utils/thresholds'
-import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   BackendApplicationResponse,
@@ -343,19 +343,10 @@ function Executions() {
     }
   }
 
-  // Clic sur une ligne : rapport (exécution terminée) ou suivi en direct (exécution active).
-  const openRow = (exec: BackendExecutionHistoryResponse) => {
-    if (isActive(exec.status)) {
-      monitor.track(exec.id, exec.scenarioName)
-      navigate(`/executions/live/${exec.id}`)
-    } else {
-      navigate(`/executions/report/${exec.id}`)
-    }
-  }
-  /** Les clics sur la case à cocher, les liens et les boutons d'action n'ouvrent pas la ligne. */
-  const onRowClick = (e: ReactMouseEvent, exec: BackendExecutionHistoryResponse) => {
-    if ((e.target as HTMLElement).closest('input, button, a, [role="menu"]')) return
-    openRow(exec)
+  // Ligne non cliquable : chaque destination a son action dans la colonne « Actions ».
+  const openLive = (exec: BackendExecutionHistoryResponse) => {
+    monitor.track(exec.id, exec.scenarioName)
+    navigate(`/executions/live/${exec.id}`)
   }
 
   const counts = data?.counts
@@ -522,8 +513,7 @@ function Executions() {
                 const req = requestsOf(exec, active && live ? { ok: live.successfulRequests, ko: live.failedRequests } : null)
                 const reqText = formatRequests(req.total, req.errorRate)
                 return (
-                  <tr key={exec.id} className={`ex-row ${selected.has(exec.id) ? 'selected' : ''}`} onClick={(e) => onRowClick(e, exec)}
-                    data-testid="execution-row">
+                  <tr key={exec.id} className={`ex-row ${selected.has(exec.id) ? 'selected' : ''}`} data-testid="execution-row">
                     <td className="ex-col-check">
                       <input type="checkbox" className="form-check-input" checked={selected.has(exec.id)} onChange={() => toggleOne(exec.id)}
                         aria-label={`Sélectionner l’exécution de ${exec.scenarioName} du ${formatDate(exec.startedAt)}`} />
@@ -590,6 +580,12 @@ function Executions() {
                     </td>
                     <td className="ex-col-actions">
                       <div className="ex-actions">
+                        {active && (
+                          <button type="button" className="ex-icon-btn" title="Suivre en direct" aria-label={`Suivre en direct ${exec.scenarioName}`}
+                            onClick={() => openLive(exec)}>
+                            <i className="bi bi-broadcast" aria-hidden="true"></i>
+                          </button>
+                        )}
                         <button type="button" className="ex-icon-btn" title="Voir le détail (requêtes par étape)" aria-label="Voir les détails"
                           onClick={() => navigate(`/executions/detail/${exec.id}`)}>
                           <i className="bi bi-eye" aria-hidden="true"></i>

@@ -140,8 +140,12 @@ describe('Planification — liste', () => {
     expect(screen.queryByRole('button', { name: /Mettre en pause/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /Plus d’actions/ }))
     expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['Historique'])
-    // Clic sur la ligne : historique.
+    // Ligne non cliquable ; « Voir le détail » (colonne Actions, visible de tous) ouvre l'historique.
+    fireEvent.keyDown(document, { key: 'Escape' })
     fireEvent.click(screen.getByText('Tous les jours à 02:00'))
+    fireEvent.click(screen.getByTestId('schedule-row'))
+    expect(screen.getByTestId('location').textContent).toBe('/planification')
+    fireEvent.click(screen.getByRole('button', { name: /Voir le détail de / }))
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/planification/s-1'))
   })
 })

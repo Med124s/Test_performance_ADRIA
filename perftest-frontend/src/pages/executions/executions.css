@@ -44,7 +44,10 @@
 .ex-table.rp-table { min-width: 860px; }
 .ex-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .ex-table th.num .ex-sort { flex-direction: row-reverse; }
-.ex-row { cursor: pointer; transition: background 0.12s ease; }
+/* Lignes non cliquables (Exécutions, Rapports, Planification) : curseur normal, actions dans la colonne « Actions ».
+   .ex-row-link : ligne qui reste cliquable en entier (historique d'une planification). */
+.ex-row { transition: background 0.12s ease; }
+.ex-row-link { cursor: pointer; }
 .ex-row:hover { background: var(--pt-sidebar-item-hover); }
 .ex-row.selected { background: color-mix(in srgb, var(--pt-primary) 8%, transparent); }
 .ex-col-check { width: 40px; padding-right: 0 !important; }

@@ -1,4 +1,4 @@
-import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   BackendApplicationResponse, BackendExecutionHistoryResponse, BackendExecutionPageResponse, BackendScenarioResponse,
@@ -26,7 +26,7 @@ import './reports/reports.css'
 // (Réussie, Seuils dépassés, Échouée, Annulée). Liste paginée côté serveur
 // (GET /api/executions/page?finished=true), filtres, page et tri dans l'URL.
 // Actions : voir le rapport, Exporter Excel (par défaut), exporter en PDF, et
-// « ⋯ » : CSV des étapes ou des 4 tableaux (.zip), Conserver, Supprimer (mêmes droits que partout).
+// « ⋯ » : Conserver, Supprimer (mêmes droits que partout). Pas d'export CSV : Excel et PDF seulement.
 // Sélection de 2 à 4 rapports : Comparer.
 // ============================================================
 
@@ -150,13 +150,11 @@ function Reports() {
   const compareBlocked = selected.size < 2 ? 'Sélectionnez de 2 à 4 rapports.' : selected.size > 4 ? 'Comparaison limitée à 4 rapports.' : null
 
   // ---------------------------------------------------------------- actions
-  // Exports (fichiers générés par le serveur, journalisés) : Excel par défaut, PDF, CSV (étapes) ou les 4 tableaux en .zip.
+  // Exports (fichiers générés par le serveur, journalisés) : Excel par défaut, ou PDF.
   const [exporting, setExporting] = useState<string | null>(null)
   const EXPORTS = {
     xlsx: { label: 'Excel', run: executionsBackendApi.exportReportXlsx },
     pdf: { label: 'PDF', run: executionsBackendApi.exportReportPdf },
-    csv: { label: 'CSV (étapes)', run: (id: string) => executionsBackendApi.exportReportCsv(id) },
-    zip: { label: 'CSV (4 tableaux, .zip)', run: executionsBackendApi.exportReportCsvZip },
   } as const
   const download = async (exec: BackendExecutionHistoryResponse, kind: keyof typeof EXPORTS) => {
     if (exporting) return
@@ -198,17 +196,10 @@ function Reports() {
   }
 
   const rowActions = (exec: BackendExecutionHistoryResponse): RowAction[] => [
-    { label: 'Exporter CSV (étapes)', icon: 'bi-filetype-csv', onSelect: () => download(exec, 'csv') },
-    { label: 'CSV : les 4 tableaux (.zip)', icon: 'bi-file-earmark-zip', onSelect: () => download(exec, 'zip') },
     ...(canWrite && !exec.resultsPurgedAt ? [{ label: exec.keepResults ? 'Ne plus conserver' : 'Conserver', icon: exec.keepResults ? 'bi-bookmark-x' : 'bi-bookmark',
       onSelect: () => handleKeep(exec) }] : []),
     ...(canWrite ? [{ label: 'Supprimer', icon: 'bi-trash3', danger: true, onSelect: () => setDeletion([exec.id]) }] : []),
   ]
-
-  const onRowClick = (e: ReactMouseEvent, exec: BackendExecutionHistoryResponse) => {
-    if ((e.target as HTMLElement).closest('input, button, a, [role="menu"]')) return
-    navigate(`/executions/report/${exec.id}`)
-  }
 
   const totalItems = data?.totalElements ?? 0
   const totalPages = Math.max(1, data?.totalPages ?? 1)
@@ -335,7 +326,8 @@ function Reports() {
               ) : rows.map((exec) => {
                 const req = requestsOf(exec)
                 return (
-                  <tr key={exec.id} className={`ex-row ${selected.has(exec.id) ? 'selected' : ''}`} onClick={(e) => onRowClick(e, exec)} data-testid="report-row">
+                  // Ligne non cliquable : « Voir le rapport » et les exports sont dans la colonne « Actions ».
+                  <tr key={exec.id} className={`ex-row ${selected.has(exec.id) ? 'selected' : ''}`} data-testid="report-row">
                     <td className="ex-col-check">
                       <input type="checkbox" className="form-check-input" checked={selected.has(exec.id)} onChange={() => toggleOne(exec.id)}
                         aria-label={`Sélectionner le rapport de ${exec.scenarioName} du ${fullDate(exec.startedAt)}`} />

@@ -9,7 +9,7 @@ import { ToastProvider } from '../context/ToastContext'
 const auth = vi.hoisted(() => ({ roles: ['ROLE_PERFORMANCE_ENGINEER'] }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ authProvider: 'keycloak', rawRoles: auth.roles }) }))
 const api = vi.hoisted(() => ({
-  getPage: vi.fn(), exportReportPdf: vi.fn(), exportReportCsv: vi.fn(), setKeep: vi.fn(), remove: vi.fn(), bulkDelete: vi.fn(),
+  getPage: vi.fn(), exportReportPdf: vi.fn(), setKeep: vi.fn(), remove: vi.fn(), bulkDelete: vi.fn(),
   getDeletionImpact: vi.fn(),
 }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: api }))
@@ -166,30 +166,36 @@ describe('Page Rapports', () => {
     expect(screen.getByText('Rapport PDF de « Parcours bancaire » téléchargé.')).toBeTruthy()
   })
 
-  it('« Voir le rapport » ouvre la page du rapport', async () => {
+  it('ligne non cliquable ; « Voir le rapport » (colonne Actions) ouvre la page du rapport', async () => {
     renderAt()
-    await screen.findAllByTestId('report-row')
+    const rows = await screen.findAllByTestId('report-row')
+    const before = location()
+    fireEvent.click(rows[0])
+    fireEvent.click(rows[0].querySelector('.ex-scenario-name')!)
+    expect(location()).toBe(before)
     fireEvent.click(screen.getAllByRole('button', { name: 'Voir le rapport de Parcours bancaire' })[0])
     await waitFor(() => expect(location()).toBe('/executions/report/ex-1'))
   })
 
-  it('droits : Observateur = consulter et exporter seulement ; Ingénieur = aussi Conserver et Supprimer (pas Conserver si purgé)', async () => {
+  it('droits : Observateur = consulter et exporter (Excel, PDF) seulement ; Ingénieur = aussi Conserver et Supprimer (pas Conserver si purgé)', async () => {
     auth.roles = ['ROLE_VIEWER']
     const { unmount } = renderAt()
     await screen.findAllByTestId('report-row')
-    fireEvent.click(screen.getAllByRole('button', { name: 'Plus d’actions pour le rapport de Parcours bancaire' })[0])
-    expect(screen.getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['Exporter CSV (étapes)', 'CSV : les 4 tableaux (.zip)'])
+    // Plus d'export CSV : le menu « ⋯ » d'un Observateur serait vide, il n'est pas affiché.
+    expect(screen.queryByRole('button', { name: /Plus d’actions pour le rapport/ })).toBeNull()
     expect(screen.getAllByRole('button', { name: 'Exporter en PDF le rapport de Parcours bancaire' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Exporter Excel le rapport de Parcours bancaire' })).toHaveLength(2)
     unmount()
 
     auth.roles = ['ROLE_PERFORMANCE_ENGINEER']
     renderAt()
     await screen.findAllByTestId('report-row')
     fireEvent.click(screen.getAllByRole('button', { name: 'Plus d’actions pour le rapport de Parcours bancaire' })[0])
-    expect(screen.getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['Exporter CSV (étapes)', 'CSV : les 4 tableaux (.zip)', 'Conserver', 'Supprimer'])
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['Conserver', 'Supprimer'])
     fireEvent.keyDown(document, { key: 'Escape' })
     fireEvent.click(screen.getAllByRole('button', { name: /Plus d’actions pour le rapport de Parcours bancaire/ })[1])
-    expect(screen.getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['Exporter CSV (étapes)', 'CSV : les 4 tableaux (.zip)', 'Supprimer'])
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent?.trim())).toEqual(['Supprimer'])
+    expect(screen.queryByText(/CSV|\.zip/)).toBeNull()
   })
 
   it('aucun rapport : message d’attente ; filtres sans résultat : bouton pour les réinitialiser', async () => {

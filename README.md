@@ -390,10 +390,11 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
     | Rapport | 0,6 | ~2,8 M |
     | Comparaison (somme des exécutions comparées) | 0,6 | ~2,8 M |
     | Analyse dans le temps | 0,3 | ~5,6 M |
-    | Exports CSV, ZIP, Excel et PDF | 1 | ~1,7 M |
+    | Exports Excel et PDF (et CSV / ZIP par l'API seulement) | 1 | ~1,7 M |
     | Métriques (`GET /api/metrics`) | 1 | ~1,7 M |
     | Détail complet (`GET /api/executions/{id}?includeResults=true`, jamais utilisé par l'interface) | 1,2 | ~1,4 M |
 
+  - Exports d'un rapport proposés dans l'interface (table Rapports, page du rapport) : **Excel et PDF**. Les exports CSV (`GET /api/executions/{id}/report/export?table=…`) et ZIP (`…/report/export.zip`) restent disponibles par l'API, sans bouton.
   - **Refus, avec un message clair** donnant le nombre de requêtes et la limite :
     - **413** si l'exécution est trop volumineuse pour la mémoire de ce serveur, même seule. Il faut alors augmenter `LOADPILOT_JVM_MAX_MEMORY` ;
     - **409** si la lecture ne tient pas pour l'instant dans la mémoire restante (tests en cours, autres rapports ouverts). Il suffit de réessayer.

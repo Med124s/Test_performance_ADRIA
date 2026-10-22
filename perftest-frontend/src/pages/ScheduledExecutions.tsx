@@ -1,5 +1,5 @@
 import { useRegressionThreshold } from '../utils/thresholds'
-import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { scheduledExecutionsBackendApi } from '../services/api/scheduledExecutionsBackend'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
@@ -167,11 +167,6 @@ export default function ScheduledExecutions() {
     }
   }
 
-  const onRowClick = (e: ReactMouseEvent, s: BackendScheduledExecutionResponse) => {
-    if ((e.target as HTMLElement).closest('button, a, input, [role="menu"]')) return
-    navigate(`/planification/${s.id}`)
-  }
-
   const openCreate = () => setForm({ schedule: null })
 
   return (
@@ -277,7 +272,7 @@ export default function ScheduledExecutions() {
                   )}
                   {pageRows.map((s) => (
                     <ScheduleRow key={s.id} s={s} canWrite={canWrite} busy={busyId === s.id}
-                      onClick={(e) => onRowClick(e, s)} onRunNow={() => runNow(s)} onTogglePause={() => togglePause(s)}
+                      onRunNow={() => runNow(s)} onTogglePause={() => togglePause(s)}
                       onEdit={() => setForm({ schedule: s })} onHistory={() => navigate(`/planification/${s.id}`)}
                       onDelete={() => setToDelete(s)} />
                   ))}
@@ -333,7 +328,6 @@ interface RowProps {
   s: BackendScheduledExecutionResponse
   canWrite: boolean
   busy: boolean
-  onClick: (e: ReactMouseEvent) => void
   onRunNow: () => void
   onTogglePause: () => void
   onEdit: () => void
@@ -341,13 +335,14 @@ interface RowProps {
   onDelete: () => void
 }
 
-function ScheduleRow({ s, canWrite, busy, onClick, onRunNow, onTogglePause, onEdit, onHistory, onDelete }: RowProps) {
+function ScheduleRow({ s, canWrite, busy, onRunNow, onTogglePause, onEdit, onHistory, onDelete }: RowProps) {
   const suspended = s.state === 'SUSPENDED'
   const finished = s.state === 'COMPLETED' || s.state === 'EXPIRED'
   const paused = s.state === 'PAUSED'
   const regressionThreshold = useRegressionThreshold()
   const change = p95Change(s.lastRun?.p95ChangePercent, regressionThreshold)
 
+  // « Voir le détail » (page de la planification et son historique) est une icône, visible de tous.
   const actions: RowAction[] = canWrite ? [
     { label: 'Modifier', icon: 'bi-pencil', onSelect: onEdit },
     { label: 'Historique', icon: 'bi-clock-history', onSelect: onHistory },
@@ -355,7 +350,8 @@ function ScheduleRow({ s, canWrite, busy, onClick, onRunNow, onTogglePause, onEd
   ] : [{ label: 'Historique', icon: 'bi-clock-history', onSelect: onHistory }]
 
   return (
-    <tr className="ex-row" data-testid="schedule-row" onClick={onClick}>
+    // Ligne non cliquable : le détail et les autres actions sont dans la colonne « Actions ».
+    <tr className="ex-row" data-testid="schedule-row">
       <td>
         <span className="pl-name" title={s.name}>{s.name}</span>
         {s.createdByUsername && <span className="pl-sub">par {s.createdByUsername}</span>}
@@ -396,6 +392,10 @@ function ScheduleRow({ s, canWrite, busy, onClick, onRunNow, onTogglePause, onEd
       </td>
       <td className="ex-col-actions">
         <div className="ex-actions">
+          <button type="button" className="ex-icon-btn" title="Voir le détail (historique des lancements)" aria-label={`Voir le détail de ${s.name}`}
+            onClick={onHistory}>
+            <i className="bi bi-eye" aria-hidden="true"></i>
+          </button>
           {canWrite && (
             <button type="button" className="ex-icon-btn" aria-label={`Lancer maintenant ${s.name}`}
               title={suspended ? s.stateReason ?? 'Scénario indisponible' : 'Lancer maintenant'} disabled={busy || suspended} onClick={onRunNow}>

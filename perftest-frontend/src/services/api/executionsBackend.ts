@@ -130,16 +130,11 @@ export const executionsBackendApi = {
   getReport: (id: string) => springHttp.get<BackendExecutionReportResponse>(`${RESOURCE}/${id}/report`),
   /** Excel (.xlsx) : feuilles Résumé, Étapes, Erreurs, Analyse dans le temps (export par défaut). */
   exportReportXlsx: (id: string) => downloadReport(id, 'report/xlsx'),
-  /** CSV « Excel en français » d'UN tableau (étapes par défaut). */
-  exportReportCsv: (id: string, table: ReportCsvTable = 'steps') =>
-    downloadReport(id, table === 'steps' ? 'report/export' : `report/export?table=${table}`),
-  /** Les quatre tableaux en CSV séparés, dans une archive .zip. */
-  exportReportCsvZip: (id: string) => downloadReport(id, 'report/export.zip'),
   /** Rapport PDF d'une exécution terminée, généré par le serveur (journalisé). */
   exportReportPdf: (id: string) => downloadReport(id, 'report/pdf'),
+  // Exports CSV d'un rapport (GET /report/export, /report/export.zip) : retirés de l'interface,
+  // les points d'accès du serveur restent disponibles (API, Swagger).
 }
-
-export type ReportCsvTable = 'steps' | 'errors' | 'timeline' | 'summary'
 
 /** Fichier d'export d'un rapport (nom donné par le serveur) ; message du serveur en cas de refus. */
 async function downloadReport(id: string, path: string): Promise<{ blob: Blob; fileName: string }> {

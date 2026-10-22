@@ -211,7 +211,7 @@ export default function ScheduleHistory() {
                 </tr>
               )}
               {(items ?? []).map((item, i) => item.kind === 'EXECUTION' ? (
-                <tr key={item.executionId ?? i} className="ex-row" data-testid="history-row"
+                <tr key={item.executionId ?? i} className="ex-row ex-row-link" data-testid="history-row"
                   onClick={(e) => { if (!(e.target as HTMLElement).closest('a') && item.executionId) navigate(`/executions/report/${item.executionId}`) }}>
                   <td title={formatInZone(item.at, tz)}>{formatInZone(item.at, tz)}</td>
                   <td>{item.status && <span className={`pt-pill ${statusPill(item.status)} ex-pill`}>{statusLabel(item.status)}</span>}</td>

@@ -179,11 +179,24 @@ describe('Page Exécutions', () => {
     expect(within(rows[1]).getAllByText('—').length).toBe(2)
     expect(screen.queryByRole('columnheader', { name: 'Application' })).toBeNull()
 
-    // La case à cocher ne déclenche pas l'ouverture ; le reste de la ligne ouvre le rapport.
+    // Ligne non cliquable : ni la case à cocher ni une cellule n'ouvrent quoi que ce soit ; l'action « Voir le rapport » oui.
     fireEvent.click(within(rows[0]).getByRole('checkbox'))
-    expect(screen.getByTestId('location').textContent).toBe('/executions')
     fireEvent.click(first.getByText('550 ms'))
+    fireEvent.click(rows[0])
+    expect(screen.getByTestId('location').textContent).toBe('/executions')
+    fireEvent.click(first.getByRole('button', { name: 'Voir le rapport' }))
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/executions/report/ex-1'))
+  })
+
+  it('exécution en cours : « Suivre en direct » dans la colonne Actions (l’ancienne destination du clic sur la ligne)', async () => {
+    api.getPage.mockResolvedValue(page([row({ id: 'ex-run', status: 'RUNNING', duration: null }), row({ id: 'ex-1' })], { running: 1, success: 1 }))
+    renderAt()
+    const rows = await screen.findAllByTestId('execution-row')
+    expect(within(rows[1]).queryByRole('button', { name: /Suivre en direct/ })).toBeNull()
+    fireEvent.click(rows[0])
+    expect(screen.getByTestId('location').textContent).toBe('/executions')
+    fireEvent.click(within(rows[0]).getByRole('button', { name: 'Suivre en direct Parcours bancaire' }))
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/executions/live/ex-run'))
   })
 
   it('actions : détail et rapport en icônes ; Relancer et Supprimer dans « ⋯ » ; en cours : progression, « Suivre », suppression impossible', async () => {

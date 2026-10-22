@@ -13,17 +13,11 @@ import TimelineAnalysis from './execution-report/TimelineAnalysis'
 import ExtremesPanel from './execution-report/ExtremesPanel'
 import { KeepToggle, RetentionNotice } from './execution-report/Retention'
 import { saveBlob } from '../utils/download'
-import RowActionsMenu from './executions/RowActionsMenu'
 
-/** Exports du rapport, tous générés par le serveur. */
+/** Exports du rapport, tous générés par le serveur : Excel et PDF (pas de CSV). */
 const REPORT_EXPORTS = {
   xlsx: { label: 'Excel', run: executionsBackendApi.exportReportXlsx },
   pdf: { label: 'PDF', run: executionsBackendApi.exportReportPdf },
-  csv: { label: 'CSV (étapes)', run: (id: string) => executionsBackendApi.exportReportCsv(id, 'steps') },
-  csvErrors: { label: 'CSV (erreurs)', run: (id: string) => executionsBackendApi.exportReportCsv(id, 'errors') },
-  csvTimeline: { label: 'CSV (analyse dans le temps)', run: (id: string) => executionsBackendApi.exportReportCsv(id, 'timeline') },
-  csvSummary: { label: 'CSV (résumé)', run: (id: string) => executionsBackendApi.exportReportCsv(id, 'summary') },
-  zip: { label: 'CSV (4 tableaux, .zip)', run: executionsBackendApi.exportReportCsvZip },
 } as const
 type ExportKind = keyof typeof REPORT_EXPORTS
 
@@ -91,7 +85,7 @@ function SpringExecutionReport({ id }: { id: string }) {
     return () => { cancelled = true }
   }, [id])
 
-  // Exports générés par le serveur (journalisés) : Excel par défaut, PDF, CSV d'un tableau ou des 4 (.zip).
+  // Exports générés par le serveur (journalisés) : Excel par défaut, ou PDF.
   const handleExport = async (kind: ExportKind) => {
     if (exporting) return
     setExporting(kind)
@@ -170,16 +164,6 @@ function SpringExecutionReport({ id }: { id: string }) {
                 <i className={`bi ${exporting === 'pdf' ? 'bi-arrow-repeat pt-spin' : 'bi-file-earmark-pdf'}`} aria-hidden="true"></i>
                 {exporting === 'pdf' ? 'Export…' : 'Exporter en PDF'}
               </button>
-              <button className="pt-btn-outline" onClick={() => handleExport('csv')} disabled={!!exporting} title="Données brutes : tableau des étapes">
-                <i className={`bi ${exporting === 'csv' ? 'bi-arrow-repeat pt-spin' : 'bi-filetype-csv'}`} aria-hidden="true"></i>
-                {exporting === 'csv' ? 'Export…' : 'Exporter CSV'}
-              </button>
-              <RowActionsMenu label="Autres exports CSV" actions={[
-                { label: 'CSV : erreurs', icon: 'bi-filetype-csv', onSelect: () => handleExport('csvErrors') },
-                { label: 'CSV : analyse dans le temps', icon: 'bi-filetype-csv', onSelect: () => handleExport('csvTimeline') },
-                { label: 'CSV : résumé', icon: 'bi-filetype-csv', onSelect: () => handleExport('csvSummary') },
-                { label: 'CSV : les 4 tableaux (.zip)', icon: 'bi-file-earmark-zip', onSelect: () => handleExport('zip') },
-              ]} />
             </>
           )}
           <TopBar searchPlaceholder="" />
