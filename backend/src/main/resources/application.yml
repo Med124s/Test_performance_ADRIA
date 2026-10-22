@@ -76,15 +76,14 @@ app:
     # valeurs par defaut (issues du benchmark reel de cette phase, a ajuster
     # via ces variables selon le materiel de production reel).
     #
-    # Limite PAR EXECUTION (nombre d'utilisateurs virtuels d'un seul
-    # Scenario) - 500 preserve exactement le comportement deja valide en
-    # P0-A (ancienne borne fixe @Max(500) sur ScenarioRequest, desormais
-    # configurable ici ; ScenarioRequest ne garde plus qu'un plafond de bon
-    # sens tres eleve, voir son Javadoc).
-    max-virtual-users-per-execution: ${LOADPILOT_MAX_VUS_PER_EXECUTION:500}
-    # Limite GLOBALE (somme des utilisateurs virtuels de TOUTES les
-    # executions actives simultanement sur ce processus backend).
-    max-global-virtual-users: ${LOADPILOT_MAX_GLOBAL_VUS:200}
+    # Limite PAR EXECUTION (nombre d'utilisateurs virtuels d'un seul Scenario) et limite GLOBALE
+    # (somme des utilisateurs virtuels de TOUTES les executions actives simultanement sur ce
+    # processus backend). Toujours par test <= au total (refus sinon, voir ExecutionLimitsService).
+    # 200 par test : la valeur reellement appliquee jusqu'ici (l'ancien 500 etait borne par le total
+    # de 200). 500 au total : plusieurs tests en parallele (un test au plus 40 % du budget) ;
+    # mesure : 500 VU avec 1 s de reflexion ~ 105 Mo de tas, 40 % de CPU sur 12 coeurs.
+    max-virtual-users-per-execution: ${LOADPILOT_MAX_VUS_PER_EXECUTION:200}
+    max-global-virtual-users: ${LOADPILOT_MAX_GLOBAL_VUS:500}
     # Plafonds des nouvelles limites de charge (limites applicatives reglables en dessous, dans Parametres).
     max-duration-seconds: ${LOADPILOT_MAX_DURATION_SECONDS:3600}
     max-iterations: ${LOADPILOT_MAX_ITERATIONS:10000}

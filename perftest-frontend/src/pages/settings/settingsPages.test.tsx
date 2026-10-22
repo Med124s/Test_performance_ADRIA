@@ -28,7 +28,7 @@ import Configurations, { formatDuration } from '../Configurations'
 import SettingsIntegrations from '../SettingsIntegrations'
 import { formatBytes, formatNextRun, formatRunDate } from './StorageStatus'
 import { validateThresholds } from './ThresholdsCard'
-import { perTestRule } from './LimitsCard'
+import { TOTAL_BELOW_PER_TEST, totalBelowPerTest } from './LimitsCard'
 import { resetThemeForTests, setThemeSaver } from '../../utils/theme'
 import { useDarkMode } from '../../utils/useDarkMode'
 import { resetThresholdsCache } from '../../utils/thresholds'
@@ -161,9 +161,9 @@ describe('Mon profil', () => {
 
 const LIMITS_RESPONSE = {
   limits: [
-    // Le serveur ne renvoie jamais « par test » au-dessus de « au total » (plafond 500, total 200).
-    { key: 'virtualUsersPerTest', label: 'Utilisateurs virtuels par test', unit: 'utilisateurs', value: 200, ceiling: 500 },
-    { key: 'virtualUsersTotal', label: 'Utilisateurs virtuels au total', unit: 'utilisateurs', value: 200, ceiling: 200 },
+    // Plafonds par défaut cohérents : 200 par test ≤ 500 au total (ordre du serveur : « par test » d'abord).
+    { key: 'virtualUsersPerTest', label: 'Utilisateurs virtuels par test', unit: 'utilisateurs', value: 200, ceiling: 200 },
+    { key: 'virtualUsersTotal', label: 'Utilisateurs virtuels au total', unit: 'utilisateurs', value: 500, ceiling: 500 },
     { key: 'concurrentTests', label: 'Tests en même temps', unit: 'tests', value: 10, ceiling: 10 },
     { key: 'maxDurationSeconds', label: 'Durée maximale d’un test', unit: 's', value: 3600, ceiling: 3600 },
     { key: 'maxIterations', label: 'Itérations maximales par utilisateur', unit: 'itérations', value: 10000, ceiling: 10000 },
@@ -192,7 +192,7 @@ describe('Système', () => {
     const field = (label: RegExp) => within(card).getByRole('textbox', { name: label }) as HTMLInputElement
     await waitFor(() => expect(field(/Durée maximale d’un test/).value).toBe('3600'))
     expect(within(card).getByText('Maximum 3 600 (plafond du serveur).')).toBeTruthy()
-    expect(field(/Utilisateurs virtuels par test/).closest('.st-field')!.textContent).toContain('Maximum 500 (plafond du serveur).')
+    expect(field(/Utilisateurs virtuels par test/).closest('.st-field')!.textContent).toContain('Maximum 200 (plafond du serveur).')
     // Valeurs cohérentes : plus d'estimation « réellement applicable ».
     expect(card.textContent).not.toMatch(/réellement applicable/)
     expect(within(card).getAllByRole('textbox')).toHaveLength(6)
@@ -211,68 +211,73 @@ describe('Système', () => {
     fireEvent.change(field(/Tests en même temps/), { target: { value: '3' } })
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
-    await waitFor(() => expect(settingsApi.updateLimits).toHaveBeenCalledWith({ virtualUsersPerTest: 200, virtualUsersTotal: 200,
+    await waitFor(() => expect(settingsApi.updateLimits).toHaveBeenCalledWith({ virtualUsersPerTest: 200, virtualUsersTotal: 500,
       concurrentTests: 3, maxDurationSeconds: 1800, maxIterations: 10000, maxTargetRps: 500 }))
     expect(toast.showToast).toHaveBeenCalledWith('Limites enregistrées : elles s’appliquent aux prochains enregistrements, lancements et planifications.', 'success')
   })
 
-  it('« par test » choisi au-dessus de « au total » : refusé avant l’envoi, message clair', async () => {
-    renderSystem()
-    const card = (await screen.findByRole('heading', { name: 'Limites' })).closest('section')!
-    const perTest = await within(card).findByRole('textbox', { name: /Utilisateurs virtuels par test/ })
-    await waitFor(() => expect((perTest as HTMLInputElement).value).toBe('200'))
-    const save = within(card).getByRole('button', { name: 'Enregistrer' }) as HTMLButtonElement
-
-    fireEvent.change(perTest, { target: { value: '300' } })
-    expect(within(card).getByText('La limite par test ne peut pas dépasser la limite au total (200).')).toBeTruthy()
-    expect(perTest.getAttribute('aria-invalid')).toBe('true')
-    expect(save.disabled).toBe(true)
-    // Chaque champ garde son propre plafond (message du plafond en premier).
-    fireEvent.change(perTest, { target: { value: '600' } })
-    expect(within(card).getByText('Utilisateurs virtuels par test : maximum 500 (plafond du serveur).')).toBeTruthy()
-    // Les deux changés, « par test » au-dessus du nouveau total : refusé aussi.
-    fireEvent.change(perTest, { target: { value: '150' } })
-    fireEvent.change(within(card).getByRole('textbox', { name: /Utilisateurs virtuels au total/ }), { target: { value: '120' } })
-    expect(within(card).getByText('La limite par test ne peut pas dépasser la limite au total (120).')).toBeTruthy()
-    expect(save.disabled).toBe(true)
-    fireEvent.change(perTest, { target: { value: '120' } })
-    expect(within(card).queryByText(/ne peut pas dépasser/)).toBeNull()
-    expect(save.disabled).toBe(false)
-    expect(settingsApi.updateLimits).not.toHaveBeenCalled()
-  })
-
-  it('total baissé sous « par test » : annoncé, puis « par test » ramené par le serveur et expliqué', async () => {
-    settingsApi.updateLimits.mockImplementationOnce((v) => Promise.resolve({ ...LIMITS_RESPONSE,
-      limits: LIMITS_RESPONSE.limits.map((l) => ({ ...l, value: l.key === 'virtualUsersPerTest' ? Math.min(v.virtualUsersPerTest, v.virtualUsersTotal) : v[l.key] })),
-      effectiveVirtualUsersPerTest: 150,
-      notices: ['« Utilisateurs virtuels par test » ramenée de 200 à 150 : la limite par test ne peut pas dépasser la limite au total.'] }))
+  it('« au total » inférieur à « par test » : toujours refusé, message rouge sous les deux champs, enregistrement bloqué', async () => {
     renderSystem()
     const card = (await screen.findByRole('heading', { name: 'Limites' })).closest('section')!
     const perTest = await within(card).findByRole('textbox', { name: /Utilisateurs virtuels par test/ }) as HTMLInputElement
+    const total = within(card).getByRole('textbox', { name: /Utilisateurs virtuels au total/ }) as HTMLInputElement
     await waitFor(() => expect(perTest.value).toBe('200'))
-    fireEvent.change(within(card).getByRole('textbox', { name: /Utilisateurs virtuels au total/ }), { target: { value: '150' } })
-    // Pas une erreur : un avertissement, l'enregistrement reste possible.
-    expect(within(card).getByRole('status').textContent)
-      .toContain('Sera ramenée à 150 à l’enregistrement : la limite par test ne peut pas dépasser la limite au total.')
     const save = within(card).getByRole('button', { name: 'Enregistrer' }) as HTMLButtonElement
+    const fieldOf = (input: HTMLInputElement) => input.closest('.st-field') as HTMLElement
+
+    // Total baissé seul sous « par test » : refusé aussi (plus d'ajustement automatique).
+    fireEvent.change(total, { target: { value: '150' } })
+    const messages = within(card).getAllByText('Le total doit être supérieur ou égal au maximum par test.')
+    expect(messages).toHaveLength(2)
+    expect(within(fieldOf(total)).getByText('Le total doit être supérieur ou égal au maximum par test.').className).toContain('st-error')
+    expect(within(fieldOf(perTest)).getByText('Le total doit être supérieur ou égal au maximum par test.').className).toContain('st-error')
+    expect(total.getAttribute('aria-invalid')).toBe('true')
+    expect(perTest.getAttribute('aria-invalid')).toBe('true')
+    expect(save.disabled).toBe(true)
+    expect(within(card).queryByRole('status')).toBeNull()
+
+    // Corrigé en baissant « par test » : messages disparus, enregistrement possible.
+    fireEvent.change(perTest, { target: { value: '150' } })
+    expect(within(card).queryByText(/Le total doit être supérieur ou égal/)).toBeNull()
+    expect(perTest.getAttribute('aria-invalid')).toBeNull()
+    expect(save.disabled).toBe(false)
+
+    // « Par test » monté au-dessus du total : refusé.
+    fireEvent.change(total, { target: { value: '400' } })
+    fireEvent.change(perTest, { target: { value: '180' } })
+    expect(save.disabled).toBe(false)
+    fireEvent.change(total, { target: { value: '170' } })
+    expect(within(card).getAllByText('Le total doit être supérieur ou égal au maximum par test.')).toHaveLength(2)
+    expect(save.disabled).toBe(true)
+    // Chaque champ garde son propre plafond (message du plafond en premier).
+    fireEvent.change(perTest, { target: { value: '600' } })
+    expect(within(card).getByText('Utilisateurs virtuels par test : maximum 200 (plafond du serveur).')).toBeTruthy()
+    expect(settingsApi.updateLimits).not.toHaveBeenCalled()
+
+    // Égal : accepté et envoyé.
+    fireEvent.change(perTest, { target: { value: '170' } })
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
-    await waitFor(() => expect(perTest.value).toBe('150'))
-    expect(settingsApi.updateLimits).toHaveBeenCalledWith(expect.objectContaining({ virtualUsersPerTest: 200, virtualUsersTotal: 150 }))
-    expect(toast.showToast).toHaveBeenCalledWith('« Utilisateurs virtuels par test » ramenée de 200 à 150 : la limite par test ne peut pas dépasser la limite au total.', 'info')
-    // Cohérent : plus d'avertissement ni d'estimation.
-    expect(within(card).queryByRole('status')).toBeNull()
-    expect(card.textContent).not.toMatch(/réellement applicable|Sera ramenée/)
+    await waitFor(() => expect(settingsApi.updateLimits).toHaveBeenCalledWith(expect.objectContaining({ virtualUsersPerTest: 170, virtualUsersTotal: 170 })))
   })
 
-  it('règle « par test ≤ au total » (même logique que le serveur)', () => {
-    expect(perTestRule('200', '200', 200)).toEqual({})
-    expect(perTestRule('100', '200', 200)).toEqual({})
-    expect(perTestRule('300', '200', 200).error).toBe('La limite par test ne peut pas dépasser la limite au total (200).')
-    expect(perTestRule('200', '150', 200).notice).toBe('Sera ramenée à 150 à l’enregistrement : la limite par test ne peut pas dépasser la limite au total.')
-    expect(perTestRule('1500', '1200', 200).error).toBe('La limite par test ne peut pas dépasser la limite au total (1 200).')
-    expect(perTestRule('', '150', 200)).toEqual({})
-    expect(perTestRule('200', 'abc', 200)).toEqual({})
+  it('ordre d’affichage : « au total » en premier, puis « par test » ; le reste inchangé', async () => {
+    renderSystem()
+    const card = (await screen.findByRole('heading', { name: 'Limites' })).closest('section')!
+    await within(card).findByRole('textbox', { name: /Utilisateurs virtuels au total/ })
+    // Libellé de chaque champ (le texte de l'infobulle ⓘ qui le suit est ignoré).
+    const labels = within(card).getAllByRole('textbox').map((t) => t.closest('.st-field')!.querySelector('strong')!.firstChild!.textContent?.trim())
+    expect(labels).toEqual(['Utilisateurs virtuels au total', 'Utilisateurs virtuels par test', 'Tests en même temps', 'Durée maximale d’un test',
+      'Itérations maximales par utilisateur', 'Débit cible maximal'])
+  })
+
+  it('règle « au total ≥ par test » (même logique et même message que le serveur)', () => {
+    expect(totalBelowPerTest('200', '200')).toBeNull()
+    expect(totalBelowPerTest('200', '500')).toBeNull()
+    expect(totalBelowPerTest('200', '150')).toBe('Le total doit être supérieur ou égal au maximum par test.')
+    expect(totalBelowPerTest('1500', '1200')).toBe(TOTAL_BELOW_PER_TEST)
+    expect(totalBelowPerTest('', '150')).toBeNull()
+    expect(totalBelowPerTest('200', 'abc')).toBeNull()
   })
 
   it('taille de la base, dernière et prochaine purge', async () => {

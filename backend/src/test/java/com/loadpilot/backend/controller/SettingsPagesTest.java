@@ -140,8 +140,10 @@ class SettingsPagesTest {
         return s.isBlank() ? null : objectMapper.readTree(s);
     }
 
+    /** Entrees du journal pour cette cible, la plus recente d'abord (plusieurs tests modifient la meme cible). */
     private List<AuditLog> audits(AuditAction action, String targetId) {
-        return auditLogRepository.findAll().stream().filter(a -> a.getAction() == action && targetId.equals(a.getTargetId())).toList();
+        return auditLogRepository.findAll().stream().filter(a -> a.getAction() == action && targetId.equals(a.getTargetId()))
+                .sorted(java.util.Comparator.comparing(AuditLog::getDate).reversed()).toList();
     }
 
     // ---------------------------------------------------------------- profil
@@ -437,9 +439,9 @@ class SettingsPagesTest {
         JsonNode initial = json(perform(get("/api/settings/limits"), null, ADMIN));
         Map<String, int[]> byKey = new HashMap<>();
         for (JsonNode l : initial.get("limits")) byKey.put(l.get("key").asText(), new int[] {l.get("value").asInt(), l.get("ceiling").asInt()});
-        // Plafond « par test » 500, mais jamais au-dessus du total (200) : 200 affiché, aucune incohérence.
-        assertThat(byKey.get("virtualUsersPerTest")).containsExactly(200, 500);
-        assertThat(byKey.get("virtualUsersTotal")).containsExactly(200, 200);
+        // Plafonds par defaut coherents : 200 par test <= 500 au total.
+        assertThat(byKey.get("virtualUsersPerTest")).containsExactly(200, 200);
+        assertThat(byKey.get("virtualUsersTotal")).containsExactly(500, 500);
         assertThat(byKey.get("maxDurationSeconds")).containsExactly(3600, 3600);
         assertThat(byKey.get("maxIterations")).containsExactly(10000, 10000);
         assertThat(byKey.get("maxTargetRps")).containsExactly(500, 500);
@@ -448,10 +450,10 @@ class SettingsPagesTest {
         assertThat(perform(get("/api/settings/limits"), null, ENGINEER).getResponse().getStatus()).isEqualTo(403);
         assertThat(perform(put("/api/settings/limits"), limits(100, 100, 5, 600, 100, 50), ENGINEER).getResponse().getStatus()).isEqualTo(403);
 
-        MvcResult above = perform(put("/api/settings/limits"), limits(500, 200, 10, 7200, 10000, 500), ADMIN);
+        MvcResult above = perform(put("/api/settings/limits"), limits(200, 500, 10, 7200, 10000, 500), ADMIN);
         assertThat(above.getResponse().getStatus()).isEqualTo(400);
         assertThat(message(above)).isEqualTo("Durée maximale d’un test : maximum 3 600 (plafond du serveur).");
-        assertThat(message(perform(put("/api/settings/limits"), limits(0, 200, 10, 3600, 10000, 500), ADMIN)))
+        assertThat(message(perform(put("/api/settings/limits"), limits(0, 500, 10, 3600, 10000, 500), ADMIN)))
                 .isEqualTo("Utilisateurs virtuels par test : au moins 1.");
 
         JsonNode lowered = json(perform(put("/api/settings/limits"), limits(40, 40, 3, 1800, 500, 100), ADMIN));
@@ -478,55 +480,44 @@ class SettingsPagesTest {
         return values;
     }
 
-    private AuditLog limitsAudit(String descriptionPart) {
-        return audits(AuditAction.UPDATE, "limits").stream()
-                .filter(a -> a.getDescription() != null && a.getDescription().contains(descriptionPart)).findFirst().orElseThrow();
-    }
-
     @Test
-    void limits_perTestNeverAboveTotal_refused_or_lowered_audited() throws Exception {
-        // Choisir « par test » au-dessus de « au total » : refusé, rien n'est enregistré.
-        MvcResult above = perform(put("/api/settings/limits"), limits(300, 200, 10, 3600, 10000, 500), ADMIN);
-        assertThat(above.getResponse().getStatus()).isEqualTo(400);
-        assertThat(message(above)).isEqualTo("La limite par test ne peut pas dépasser la limite au total (200).");
-        assertThat(limitValues().get("virtualUsersPerTest")).isEqualTo(200);
-        // Chaque champ reste borné par son propre plafond (contrôlé en premier).
-        assertThat(message(perform(put("/api/settings/limits"), limits(600, 200, 10, 3600, 10000, 500), ADMIN)))
-                .isEqualTo("Utilisateurs virtuels par test : maximum 500 (plafond du serveur).");
-        assertThat(message(perform(put("/api/settings/limits"), limits(150, 250, 10, 3600, 10000, 500), ADMIN)))
-                .isEqualTo("Utilisateurs virtuels au total : maximum 200 (plafond du serveur).");
-        // Égal : accepté.
+    void limits_totalBelowPerTest_alwaysRefused_nothingSaved_consistentAccepted() throws Exception {
+        // Plafonds par defaut : 200 par test, 500 au total (un test au plus 40 % du budget).
+        assertThat(limitValues()).containsEntry("virtualUsersPerTest", 200).containsEntry("virtualUsersTotal", 500);
+        // Chaque champ reste borne par son propre plafond (controle en premier).
+        assertThat(message(perform(put("/api/settings/limits"), limits(300, 500, 10, 3600, 10000, 500), ADMIN)))
+                .isEqualTo("Utilisateurs virtuels par test : maximum 200 (plafond du serveur).");
+        assertThat(message(perform(put("/api/settings/limits"), limits(150, 600, 10, 3600, 10000, 500), ADMIN)))
+                .isEqualTo("Utilisateurs virtuels au total : maximum 500 (plafond du serveur).");
+
+        // « Au total » sous « par test » : refuse, rien n'est enregistre - total baisse seul...
+        int auditsBefore = audits(AuditAction.UPDATE, "limits").size();
+        MvcResult lowered = perform(put("/api/settings/limits"), limits(200, 150, 10, 3600, 10000, 500), ADMIN);
+        assertThat(lowered.getResponse().getStatus()).isEqualTo(400);
+        assertThat(message(lowered)).isEqualTo("Le total doit être supérieur ou égal au maximum par test.");
+        // ... ou « par test » monte au-dessus du total.
+        assertThat(message(perform(put("/api/settings/limits"), limits(180, 120, 10, 3600, 10000, 500), ADMIN)))
+                .isEqualTo("Le total doit être supérieur ou égal au maximum par test.");
+        assertThat(limitValues()).containsEntry("virtualUsersPerTest", 200).containsEntry("virtualUsersTotal", 500);
+        assertThat(audits(AuditAction.UPDATE, "limits")).as("aucun enregistrement refuse n'est journalise comme modifie").hasSize(auditsBefore);
+
+        // Egal : accepte ; total au-dessus : accepte, sans ajustement automatique.
         JsonNode equal = json(perform(put("/api/settings/limits"), limits(150, 150, 10, 3600, 10000, 500), ADMIN));
         assertThat(equal.get("notices").size()).isZero();
-
-        // Total baissé sous « par test » (laissé tel quel) : « par test » suit, message et audit.
-        JsonNode lowered = json(perform(put("/api/settings/limits"), limits(150, 100, 10, 3600, 10000, 500), ADMIN));
-        assertThat(limitValues()).containsEntry("virtualUsersPerTest", 100).containsEntry("virtualUsersTotal", 100);
-        assertThat(lowered.get("effectiveVirtualUsersPerTest").asInt()).isEqualTo(100);
-        assertThat(lowered.get("notices").get(0).asText())
-                .isEqualTo("« Utilisateurs virtuels par test » ramenée de 150 à 100 : la limite par test ne peut pas dépasser la limite au total.");
-        AuditLog auto = limitsAudit("ramené de 150 à 100 automatiquement");
-        assertThat(auto.getDescription()).contains("Utilisateurs virtuels par test ramené de 150 à 100 automatiquement (pas plus que la limite au total, 100)");
-        assertThat(auto.getChanges()).contains("150 utilisateurs").contains("100 utilisateurs (automatiquement)");
-
-        // Les deux changés, « par test » au-dessus du nouveau total : refusé (choix explicite).
-        assertThat(message(perform(put("/api/settings/limits"), limits(120, 110, 10, 3600, 10000, 500), ADMIN)))
-                .isEqualTo("La limite par test ne peut pas dépasser la limite au total (110).");
-        // Total remonté : « par test » garde la valeur choisie, rien d'automatique.
-        JsonNode raised = json(perform(put("/api/settings/limits"), limits(100, 180, 10, 3600, 10000, 500), ADMIN));
+        JsonNode raised = json(perform(put("/api/settings/limits"), limits(100, 400, 10, 3600, 10000, 500), ADMIN));
         assertThat(raised.get("notices").size()).isZero();
-        assertThat(limitValues()).containsEntry("virtualUsersPerTest", 100).containsEntry("virtualUsersTotal", 180);
+        assertThat(limitValues()).containsEntry("virtualUsersPerTest", 100).containsEntry("virtualUsersTotal", 400);
+        assertThat(raised.get("effectiveVirtualUsersPerTest").asInt()).isEqualTo(100);
 
-        // Ancienne configuration incohérente déjà en base (500 par test, 150 au total) : jamais visible ni appliquée,
-        // corrigée et journalisée au prochain enregistrement.
-        settings.set("limits.virtual-users-per-test", "500", "ancien");
+        // Ancienne configuration incoherente deja en base (180 par test, 150 au total) : jamais appliquee telle
+        // quelle (par test borne au total), corrigee au prochain enregistrement coherent.
+        settings.set("limits.virtual-users-per-test", "180", "ancien");
         settings.set("limits.virtual-users-total", "150", "ancien");
         assertThat(limitValues()).containsEntry("virtualUsersPerTest", 150).containsEntry("virtualUsersTotal", 150);
         assertThat(json(perform(get("/api/settings/load-limits"), null, ENGINEER)).get("maxVirtualUsers").asInt()).isEqualTo(150);
-        JsonNode fixed = json(perform(put("/api/settings/limits"), limits(150, 150, 5, 3600, 10000, 500), ADMIN));
-        assertThat(fixed.get("notices").size()).as("rien ne change à l'écran").isZero();
+        json(perform(put("/api/settings/limits"), limits(150, 150, 5, 3600, 10000, 500), ADMIN));
         assertThat(settings.getInt("limits.virtual-users-per-test", 0)).isEqualTo(150);
-        assertThat(limitsAudit("ramené de 500 à 150 automatiquement").getChanges()).contains("500 utilisateurs").contains("150 utilisateurs (automatiquement)");
+        assertThat(audits(AuditAction.UPDATE, "limits").get(0).getChanges()).contains("180 utilisateurs").contains("150 utilisateurs");
     }
 
     @Test

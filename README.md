@@ -129,8 +129,8 @@ Aucune valeur ci-dessous n'est une valeur réelle — uniquement les noms et rô
 | `FRONTEND_ORIGIN` | Oui en profil `prod` (défaut en `dev` uniquement) | `http://localhost:3000` (dev uniquement) | Origine CORS autorisée |
 | `AVAILABILITY_TIMEOUT_SECONDS` | Non | 5 | Timeout du test de disponibilité d'une Application |
 | `EXECUTION_TIMEOUT_SECONDS` | Non | 10 | Timeout HTTP par requête d'exécution |
-| `LOADPILOT_MAX_VUS_PER_EXECUTION` | Non | 500 | Limite d'utilisateurs virtuels par exécution |
-| `LOADPILOT_MAX_GLOBAL_VUS` | Non | 200 | Limite globale d'utilisateurs virtuels simultanés |
+| `LOADPILOT_MAX_GLOBAL_VUS` | Non | 500 | Plafond global : utilisateurs virtuels de tous les tests en cours réunis |
+| `LOADPILOT_MAX_VUS_PER_EXECUTION` | Non | 200 | Plafond par test ; toujours inférieur ou égal au plafond global (un test au plus 40 % du budget par défaut, pour laisser tourner plusieurs tests en parallèle) |
 | `LOADPILOT_MAX_CONCURRENT_EXECUTIONS` | Non | 10 | Limite d'exécutions simultanées |
 | `LOADPILOT_TARGET_RPS_ADVISED_ABOVE_VUS` | Non | 50 | Au-delà de ce nombre d'utilisateurs virtuels sans débit cible : avertissement, jamais un refus (0 = jamais) |
 | `LOADPILOT_MAX_RESULTS_IN_MEMORY` | Non | calculée : mémoire de la JVM ÷ 2,5 Ko (~1,6 M avec 4 Go) | Garde-fou mémoire : résultats gardés en mémoire, toutes exécutions confondues (voir section 17) |

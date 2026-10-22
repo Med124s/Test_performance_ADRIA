@@ -33,19 +33,24 @@ export function limitProblem(label: string, raw: string, ceiling: number): strin
   return null
 }
 
+/** Message identique au serveur (ExecutionLimitsService.TOTAL_BELOW_PER_TEST). */
+export const TOTAL_BELOW_PER_TEST = 'Le total doit être supérieur ou égal au maximum par test.'
+
 /**
- * « Par test » jamais au-dessus de « au total » (même règle que le serveur, ExecutionLimitsService.update) :
- *  - « par test » modifié et au-dessus du total : refus (error) ;
- *  - « par test » laissé tel quel, total baissé en dessous : ramené au total à l'enregistrement (notice).
- * Rien si l'un des deux champs n'est pas un nombre valide (son propre message s'affiche déjà).
+ * « Au total » jamais en dessous de « par test » (même règle que le serveur, ExecutionLimitsService.update) :
+ * toujours refusé, quel que soit le champ modifié - message sous les deux champs, enregistrement impossible.
+ * null si cohérent, ou si l'un des deux champs n'est pas un nombre valide (son propre message s'affiche déjà).
  */
-export function perTestRule(perTestRaw: string, totalRaw: string, shownPerTest: number): { error?: string; notice?: string } {
-  if (!/^\d+$/.test(perTestRaw.trim()) || !/^\d+$/.test(totalRaw.trim())) return {}
-  const perTest = Number(perTestRaw)
-  const total = Number(totalRaw)
-  if (perTest <= total) return {}
-  if (perTest !== shownPerTest) return { error: `La limite par test ne peut pas dépasser la limite au total (${formatInt(total)}).` }
-  return { notice: `Sera ramenée à ${formatInt(total)} à l’enregistrement : la limite par test ne peut pas dépasser la limite au total.` }
+export function totalBelowPerTest(perTestRaw: string, totalRaw: string): string | null {
+  if (!/^\d+$/.test(perTestRaw.trim()) || !/^\d+$/.test(totalRaw.trim())) return null
+  return Number(totalRaw) < Number(perTestRaw) ? TOTAL_BELOW_PER_TEST : null
+}
+
+/** Ordre d'affichage : le plafond global d'abord, puis celui par test (qui doit lui rester inférieur ou égal). */
+const DISPLAY_ORDER: BackendLimitKey[] = ['virtualUsersTotal', 'virtualUsersPerTest']
+const displayRank = (key: BackendLimitKey) => {
+  const i = DISPLAY_ORDER.indexOf(key)
+  return i < 0 ? DISPLAY_ORDER.length : i
 }
 
 function HelpTip({ text, label }: { text: string; label: string }) {
@@ -74,12 +79,14 @@ export default function LimitsCard({ onSaved }: { onSaved?: () => void }) {
     settingsBackendApi.limits().then(fill).catch((err) => setError(describeSettingsError(err, 'Impossible de charger les limites.')))
   }, [])
 
-  const shownPerTest = data?.limits.find((l) => l.key === 'virtualUsersPerTest')?.value ?? 0
-  const rule = perTestRule(values.virtualUsersPerTest ?? '', values.virtualUsersTotal ?? '', shownPerTest)
+  const pairProblem = totalBelowPerTest(values.virtualUsersPerTest ?? '', values.virtualUsersTotal ?? '')
   const problems = data ? data.limits.map((l) => ({
     key: l.key,
-    problem: limitProblem(l.label, values[l.key] ?? '', l.ceiling) ?? (l.key === 'virtualUsersPerTest' ? rule.error ?? null : null),
+    problem: limitProblem(l.label, values[l.key] ?? '', l.ceiling)
+      ?? (l.key === 'virtualUsersPerTest' || l.key === 'virtualUsersTotal' ? pairProblem : null),
   })) : []
+  // Affichage seulement (structure et clés inchangées) : « au total » avant « par test », le reste dans l'ordre du serveur.
+  const displayed = data ? [...data.limits].sort((a, b) => displayRank(a.key) - displayRank(b.key)) : []
   const valid = problems.every((p) => !p.problem)
   const dirty = !!data && data.limits.some((l) => (values[l.key] ?? '').trim() !== String(l.value))
 
@@ -116,15 +123,15 @@ export default function LimitsCard({ onSaved }: { onSaved?: () => void }) {
       {!data ? (!error && <p className="st-note">Chargement…</p>) : (
         <>
           <div className="st-fields">
-            {data.limits.map((l) => {
+            {displayed.map((l) => {
               const problem = problems.find((p) => p.key === l.key)?.problem
-              const notice = l.key === 'virtualUsersPerTest' && !problem ? rule.notice : undefined
               return (
                 <div className="st-field" key={l.key}>
                   <label htmlFor={`${id}-${l.key}`}>
                     <strong>{l.label}<HelpTip text={LIMIT_HELP[l.key]} label={l.label} /></strong>
-                    <span className={problem ? 'st-error' : undefined}>{problem ?? `Maximum ${formatInt(l.ceiling)} (plafond du serveur).`}</span>
-                    {notice && <span className="st-warn" role="status"><i className="bi bi-arrow-down-circle" aria-hidden="true"></i> {notice}</span>}
+                    <span className={problem ? 'st-error' : undefined} role={problem ? 'alert' : undefined}>
+                      {problem ?? `Maximum ${formatInt(l.ceiling)} (plafond du serveur).`}
+                    </span>
                   </label>
                   <div className="st-unit">
                     <input id={`${id}-${l.key}`} className={`pt-form-control${problem ? ' is-invalid' : ''}`} inputMode="numeric"
