@@ -8,11 +8,17 @@ const custom = (patch: Partial<NetworkForm> = {}): NetworkForm => ({
 })
 
 describe('Réseau d’une application : modèle', () => {
-  it('proxy du serveur par défaut, comme avant', () => {
-    expect(EMPTY_NETWORK_FORM.proxyMode).toBe('INHERIT')
+  it('nouvelle application : aucun proxy par défaut', () => {
+    expect(EMPTY_NETWORK_FORM.proxyMode).toBe('NONE')
     expect(networkFormFromResponse(undefined)).toEqual(EMPTY_NETWORK_FORM)
-    expect(networkFormToRequest(EMPTY_NETWORK_FORM)).toEqual({ proxyMode: 'INHERIT', proxyHost: null, proxyPort: null, proxyUsername: null, proxyPassword: null })
+    expect(networkFormToRequest(EMPTY_NETWORK_FORM)).toEqual({ proxyMode: 'NONE', proxyHost: null, proxyPort: null, proxyUsername: null, proxyPassword: null })
     expect(validateNetworkForm(EMPTY_NETWORK_FORM)).toEqual({})
+  })
+
+  it('application existante : son mode est conservé, et sans mode enregistré c’est le proxy du serveur', () => {
+    const base = { proxyHost: null, proxyPort: null, proxyUsername: null, proxyPasswordConfigured: false }
+    expect(networkFormFromResponse({ ...base, proxyMode: 'INHERIT' }).proxyMode).toBe('INHERIT')
+    expect(networkFormFromResponse({ ...base, proxyMode: null as unknown as 'INHERIT' }).proxyMode).toBe('INHERIT')
   })
 
   it('proxy de l’application : envoi au serveur, mot de passe vide = conservé, jamais réaffiché', () => {
@@ -54,7 +60,8 @@ describe('Réseau d’une application : formulaire', () => {
   it('choix du proxy, champs du proxy de l’application, mot de passe enregistré conservé', () => {
     const onChange = vi.fn()
     const { rerender } = render(<NetworkFields value={EMPTY_NETWORK_FORM} onChange={onChange} errors={{}} showErrors={false} />)
-    expect(screen.getByRole('radio', { name: 'Proxy du serveur' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: 'Aucun proxy' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: 'Proxy du serveur' }).getAttribute('aria-checked')).toBe('false')
     expect(screen.queryByLabelText(/Hôte du proxy/)).toBeNull()
     fireEvent.click(screen.getByRole('radio', { name: 'Proxy de l’application' }))
     expect(onChange).toHaveBeenLastCalledWith({ ...EMPTY_NETWORK_FORM, proxyMode: 'CUSTOM' })

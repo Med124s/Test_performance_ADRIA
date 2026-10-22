@@ -80,7 +80,8 @@ public class ApplicationServiceImpl implements ApplicationService {
             application.setCreatedBy(createdBy);
             authSupport.apply(request.auth(), application, true);
             monitoringSupport.apply(request.monitoring(), application);
-            networkSupport.apply(request.network(), application);
+            // Reseau non precise : « Aucun proxy » pour une nouvelle application (voir NetworkSupport.applyOnCreate).
+            networkSupport.applyOnCreate(request.network(), application);
             // Aucun test n'a encore ete lance pour cette application : pas de
             // statut invente (voir ApplicationStatus).
 

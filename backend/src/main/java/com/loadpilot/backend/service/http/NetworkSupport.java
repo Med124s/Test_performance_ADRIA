@@ -15,15 +15,36 @@ import org.springframework.stereotype.Component;
 @Component
 public class NetworkSupport {
 
-    /** Applique la saisie (null = inchangee). Mot de passe vide = mot de passe deja enregistre conserve. */
+    /** Mode d'une NOUVELLE application quand la creation n'en precise pas : aucun proxy. */
+    public static final ProxyMode CREATION_DEFAULT_MODE = ProxyMode.NONE;
+
+    /**
+     * Creation : saisie appliquee, ou « Aucun proxy » si la requete n'a pas de section reseau ou pas de
+     * mode. Seules les nouvelles applications sont concernees : une application existante dont le mode
+     * est vide (NULL en base) reste lue comme « Proxy du serveur » (voir toResponse, NetworkProfile.of).
+     */
+    public void applyOnCreate(ApplicationNetworkRequest request, Application application) {
+        if (request == null) {
+            application.setProxyMode(CREATION_DEFAULT_MODE);
+            return;
+        }
+        apply(request, application, CREATION_DEFAULT_MODE);
+    }
+
+    /** Mise a jour : saisie appliquee (null = inchangee). Mot de passe vide = mot de passe deja enregistre conserve. */
     public void apply(ApplicationNetworkRequest request, Application application) {
+        apply(request, application, ProxyMode.INHERIT);
+    }
+
+    /** defaultMode : mode retenu si la saisie n'en precise pas. */
+    private void apply(ApplicationNetworkRequest request, Application application, ProxyMode defaultMode) {
         if (request == null) return;
         // Confiance TLS : independante du proxy ; vide = confiance de la JVM seule.
         String ca = blankToNull(request.tlsCaCertificate());
         String caProblem = TlsTrust.problem(ca);
         if (caProblem != null) throw new BadRequestException(caProblem);
         application.setTlsCaCertificate(ca);
-        ProxyMode mode = request.proxyMode() == null ? ProxyMode.INHERIT : request.proxyMode();
+        ProxyMode mode = request.proxyMode() == null ? defaultMode : request.proxyMode();
         if (mode != ProxyMode.CUSTOM) {
             application.setProxyMode(mode);
             application.setProxyHost(null);

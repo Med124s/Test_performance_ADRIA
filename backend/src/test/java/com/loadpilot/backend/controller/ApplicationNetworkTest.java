@@ -123,11 +123,61 @@ class ApplicationNetworkTest {
     }
 
     @Test
-    void byDefault_theServerProxy_asBefore() throws Exception {
+    void newApplication_byDefault_noProxy_withOrWithoutANetworkSection() throws Exception {
         JsonNode created = json(perform(post("/api/applications"), app(null)));
-        assertThat(created.get("network").get("proxyMode").asText()).isEqualTo("INHERIT");
+        assertThat(created.get("network").get("proxyMode").asText()).isEqualTo("NONE");
         assertThat(created.get("network").get("proxyPasswordConfigured").asBoolean()).isFalse();
         assertThat(created.get("monitoring").get("withoutProxy").asBoolean()).isFalse();
+        String id = created.get("id").asText();
+        assertThat(jdbc.queryForObject("SELECT proxy_mode FROM application WHERE id = ?", String.class, UUID.fromString(id)))
+                .as("enregistre explicitement").isEqualTo("NONE");
+
+        // Section reseau sans mode (ex. autorite de certification seule) : aucun proxy aussi.
+        JsonNode withSection = json(perform(post("/api/applications"), app(new HashMap<>(Map.of("proxyHost", "")))));
+        assertThat(withSection.get("network").get("proxyMode").asText()).isEqualTo("NONE");
+
+        // Choix explicite respecte.
+        JsonNode server = json(perform(post("/api/applications"), app(Map.of("proxyMode", "INHERIT"))));
+        assertThat(server.get("network").get("proxyMode").asText()).isEqualTo("INHERIT");
+    }
+
+    @Test
+    void monitoringWithoutProxy_underNoProxy_isKeptAsIs_andAppliesAgainWithAProxy() throws Exception {
+        // Choix retenu : ignore sans proxy (lecture directe de toute facon), jamais remis a false -
+        // comme le reglage, deja garde quand le monitoring est desactive (MonitoringSupport).
+        Map<String, Object> body = app(Map.of("proxyMode", "NONE"));
+        body.put("monitoring", new HashMap<>(Map.of("type", "NONE", "withoutProxy", true)));
+        JsonNode created = json(perform(post("/api/applications"), body));
+        assertThat(created.get("network").get("proxyMode").asText()).isEqualTo("NONE");
+        assertThat(created.get("monitoring").get("withoutProxy").asBoolean()).isTrue();
+        String id = created.get("id").asText();
+
+        // Retour a un proxy : la case reprend effet telle que l'utilisateur l'avait laissee.
+        body.put("network", Map.of("proxyMode", "INHERIT"));
+        JsonNode updated = json(perform(put("/api/applications/" + id), body));
+        assertThat(updated.get("network").get("proxyMode").asText()).isEqualTo("INHERIT");
+        assertThat(updated.get("monitoring").get("withoutProxy").asBoolean()).isTrue();
+    }
+
+    @Test
+    void existingApplications_keepTheirMode_theNewDefaultIsOnlyForCreations() throws Exception {
+        // Application creee avant ce changement : mode vide en base, toujours lu comme « Proxy du serveur ».
+        String legacy = json(perform(post("/api/applications"), app(null))).get("id").asText();
+        jdbc.update("UPDATE application SET proxy_mode = NULL WHERE id = ?", UUID.fromString(legacy));
+        assertThat(json(perform(get("/api/applications/" + legacy), null)).get("network").get("proxyMode").asText()).isEqualTo("INHERIT");
+
+        // Mise a jour sans section reseau : mode inchange (vide -> toujours le proxy du serveur).
+        Map<String, Object> update = new HashMap<>(Map.of("name", "legacy-" + UUID.randomUUID(), "url", "http://app.test"));
+        assertThat(json(perform(put("/api/applications/" + legacy), update)).get("network").get("proxyMode").asText()).isEqualTo("INHERIT");
+        assertThat(jdbc.queryForObject("SELECT proxy_mode FROM application WHERE id = ?", String.class, UUID.fromString(legacy))).isNull();
+
+        // Proxy du serveur ou de l'application choisis explicitement : conserves par une mise a jour sans section reseau.
+        String server = json(perform(post("/api/applications"), app(Map.of("proxyMode", "INHERIT")))).get("id").asText();
+        update.put("name", "server-" + UUID.randomUUID());
+        assertThat(json(perform(put("/api/applications/" + server), update)).get("network").get("proxyMode").asText()).isEqualTo("INHERIT");
+        String custom = json(perform(post("/api/applications"), app(customProxy(PASSWORD)))).get("id").asText();
+        update.put("name", "custom-" + UUID.randomUUID());
+        assertThat(json(perform(put("/api/applications/" + custom), update)).get("network").get("proxyMode").asText()).isEqualTo("CUSTOM");
     }
 
     @Test

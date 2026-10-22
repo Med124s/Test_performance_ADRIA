@@ -17,7 +17,8 @@ export interface NetworkForm {
   tlsCaCertificate?: string
 }
 
-export const EMPTY_NETWORK_FORM: NetworkForm = { proxyMode: 'INHERIT', proxyHost: '', proxyPort: '', proxyUsername: '', proxyPassword: '', tlsCaCertificate: '' }
+/** Formulaire d'une NOUVELLE application : aucun proxy par défaut (comme le serveur, voir NetworkSupport.applyOnCreate). */
+export const EMPTY_NETWORK_FORM: NetworkForm = { proxyMode: 'NONE', proxyHost: '', proxyPort: '', proxyUsername: '', proxyPassword: '', tlsCaCertificate: '' }
 
 export const PROXY_MODE_LABELS: Record<BackendProxyMode, string> = {
   INHERIT: 'Proxy du serveur',
@@ -28,6 +29,7 @@ export const PROXY_MODE_LABELS: Record<BackendProxyMode, string> = {
 export function networkFormFromResponse(n: BackendNetworkResponse | undefined | null): NetworkForm {
   if (!n) return EMPTY_NETWORK_FORM
   return {
+    // Application existante sans mode enregistré : proxy du serveur, comme elle a été créée.
     proxyMode: n.proxyMode ?? 'INHERIT',
     proxyHost: n.proxyHost ?? '',
     proxyPort: n.proxyPort == null ? '' : String(n.proxyPort),

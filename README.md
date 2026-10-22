@@ -413,8 +413,8 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
   - Les requêtes coupées par l'arrêt, donc sans réponse, ne sont pas comptées comme des échecs.
   - Auparavant, une exécution annulée n'enregistrait aucun résultat.
 - **Proxy par application** (formulaire de l'application, bloc « Réseau ») : chaque application testée peut avoir son propre proxy, sans redémarrer le backend.
-  - **Proxy du serveur** (par défaut, et pour toutes les applications existantes) : comportement d'avant, avec les variables `LOADPILOT_HTTPS_PROXY_*` (section 10).
-  - **Aucun proxy** : connexion directe, même si un proxy est configuré sur le serveur (application interne, par exemple).
+  - **Aucun proxy** (par défaut pour toute nouvelle application, formulaire comme API sans section `network`) : connexion directe, même si un proxy est configuré sur le serveur (application interne, par exemple).
+  - **Proxy du serveur** : proxy des variables `LOADPILOT_HTTPS_PROXY_*` (section 10). C'est le mode des applications créées avant ce changement, qui le conservent : une application existante n'est jamais modifiée.
   - **Proxy de l'application** : hôte, port (de 1 à 65535) et identifiant Basic optionnel, avec les mêmes règles que les scripts de démarrage.
     - Le **mot de passe est chiffré en base** (AES-GCM, comme les autres secrets, voir `docs/SECRETS.md`).
     - Il n'est jamais renvoyé par l'API ni écrit au journal d'audit. Laissé vide en modification, il est conservé.

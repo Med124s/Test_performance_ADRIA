@@ -42,6 +42,8 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
   const err = (k: keyof MonitoringErrors) => (showErrors || value.url ? errors[k] : undefined)
   const current = TYPES.find((t) => t.type === value.type) ?? TYPES[0]
   const keptSecret = !!existing?.secretConfigured && existing.authType === value.authType
+  // « Aucun proxy » dans l'onglet Réseau (lu à chaque changement) : « Monitoring sans proxy » n'a rien à contourner.
+  const noProxy = network?.proxyMode === 'NONE'
 
   const chooseType = (type: BackendMonitoringType) => {
     const previousSuggestion = suggestedMonitoringUrl(value.type, appUrl)
@@ -97,12 +99,20 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
           </div>
 
           <div className="form-check mb-2">
+            {/* Sans proxy pour l'application (onglet Réseau), la lecture est déjà directe : case sans effet, grisée.
+                Sa valeur est gardée telle quelle et reprend effet si un proxy est de nouveau choisi. */}
             <input className="form-check-input" type="checkbox" id="mon-without-proxy" checked={value.withoutProxy}
-              onChange={(e) => set({ withoutProxy: e.target.checked })} />
-            <label className="form-check-label" htmlFor="mon-without-proxy" style={{ fontSize: '13px' }}>
+              disabled={noProxy} aria-describedby={noProxy ? 'mon-without-proxy-hint' : undefined}
+              onChange={(e) => { if (!noProxy) set({ withoutProxy: e.target.checked }) }} />
+            <label className={`form-check-label ${noProxy ? 'text-muted' : ''}`} htmlFor="mon-without-proxy" style={{ fontSize: '13px' }}>
               Monitoring sans proxy
             </label>
             <InfoTip text="Lecture en direct, sans le proxy de l’application : utile si l’URL de monitoring est interne." />
+            {noProxy && (
+              <div id="mon-without-proxy-hint" className="aa-hint" style={{ marginTop: '2px' }}>
+                Sans effet : aucun proxy n’est configuré pour cette application (onglet Réseau).
+              </div>
+            )}
           </div>
 
           <label className="aa-label">Authentification du monitoring</label>

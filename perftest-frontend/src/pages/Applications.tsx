@@ -353,8 +353,10 @@ function Applications() {
   const tabConfigured: Record<AppTab, boolean> = {
     general: false,
     auth: authForm.type !== 'NONE',
-    network: networkForm.proxyMode !== 'INHERIT',
-    monitoring: monitoringForm.type !== 'NONE' || monitoringForm.withoutProxy,
+    // Réglage différent du défaut d'une nouvelle application (aucun proxy, sans autorité de certification).
+    network: networkForm.proxyMode !== EMPTY_NETWORK_FORM.proxyMode || !!networkForm.tlsCaCertificate?.trim(),
+    // « Monitoring sans proxy » ne compte que s'il y a un proxy à contourner.
+    monitoring: monitoringForm.type !== 'NONE' || (monitoringForm.withoutProxy && networkForm.proxyMode !== 'NONE'),
   }
   const tabMarkers = Object.fromEntries(APP_TABS.map((t) => [t, tabErrors[t] ? 'error' : tabConfigured[t] ? 'configured' : null])) as
     Record<AppTab, 'error' | 'configured' | null>

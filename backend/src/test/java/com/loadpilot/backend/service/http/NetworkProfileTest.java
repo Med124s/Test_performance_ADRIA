@@ -110,6 +110,25 @@ class NetworkProfileTest {
                 new Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved("proxy", 3128))));
     }
 
+    @Test
+    void monitoringWithoutProxy_isIgnoredWithoutAProxy_andAppliedOtherwise() {
+        // Aucun proxy : lecture directe, case cochee ou non (rien a contourner) - meme comportement que l'interface, qui la grise.
+        Application none = app(ProxyMode.NONE, null, null, null, null);
+        none.setMonitoringWithoutProxy(true);
+        assertThat(NetworkProfile.forMonitoring(none).mode()).isEqualTo(ProxyMode.NONE);
+        none.setMonitoringWithoutProxy(false);
+        assertThat(NetworkProfile.forMonitoring(none).mode()).isEqualTo(ProxyMode.NONE);
+
+        // Avec un proxy (serveur ou application) : la case contourne bien le proxy.
+        for (Application withProxy : new Application[] {app(ProxyMode.INHERIT, null, null, null, null),
+                app(ProxyMode.CUSTOM, "proxy.banque.local", 8080, null, null)}) {
+            withProxy.setMonitoringWithoutProxy(false);
+            assertThat(NetworkProfile.forMonitoring(withProxy).mode()).isEqualTo(withProxy.getProxyMode());
+            withProxy.setMonitoringWithoutProxy(true);
+            assertThat(NetworkProfile.forMonitoring(withProxy).mode()).isEqualTo(ProxyMode.NONE);
+        }
+    }
+
     private static String basic(String user, String password) {
         return "Basic " + Base64.getEncoder().encodeToString((user + ":" + password).getBytes(StandardCharsets.UTF_8));
     }

@@ -13,7 +13,7 @@ import '../application-auth/applicationAuth.css'
 // ============================================================
 
 const MODES: { mode: BackendProxyMode; hint: string }[] = [
-  { mode: 'INHERIT', hint: 'Proxy configuré sur le serveur, comme avant (connexion directe s’il n’y en a pas).' },
+  { mode: 'INHERIT', hint: 'Proxy défini globalement sur le serveur LoadPilot, commun à toutes les applications qui choisissent cette option. Sans proxy configuré sur le serveur, la connexion est directe.' },
   { mode: 'NONE', hint: 'Connexion directe, même si le serveur a un proxy.' },
   { mode: 'CUSTOM', hint: 'Proxy propre à cette application (identification Basic).' },
 ]
@@ -104,9 +104,6 @@ export default function NetworkFields({ value, onChange, errors, showErrors, exi
           {value.tlsCaCertificate?.trim() && (
             <button type="button" className="sw-chip" onClick={() => set({ tlsCaCertificate: '' })}>Retirer</button>
           )}
-        </div>
-        <div className="aa-hint">
-          Vide : confiance habituelle de Java, comme avant. Plusieurs certificats peuvent être collés à la suite (chaîne).
         </div>
         {savedCas.length > 0 && value.tlsCaCertificate?.trim() === existing?.tlsCaCertificate?.trim() && (
           <ul className="aa-hint" data-testid="saved-cas" style={{ margin: 0, paddingLeft: '1.1rem' }}>
