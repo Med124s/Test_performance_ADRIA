@@ -602,9 +602,15 @@ class SettingsPagesTest {
         settings.set("limits.virtual-users-total", "150", "ancien");
         assertThat(limitValues()).containsEntry("virtualUsersPerTest", 150).containsEntry("virtualUsersTotal", 150);
         assertThat(json(perform(get("/api/settings/load-limits"), null, ENGINEER)).get("maxVirtualUsers").asInt()).isEqualTo(150);
+        java.util.Set<UUID> auditsBeforeFix = audits(AuditAction.UPDATE, "limits").stream().map(AuditLog::getId).collect(java.util.stream.Collectors.toSet());
         json(perform(put("/api/settings/limits"), limits(150, 150, 5, 3600, 10000, 500), ADMIN));
         assertThat(settings.getInt("limits.virtual-users-per-test", 0)).isEqualTo(150);
-        assertThat(audits(AuditAction.UPDATE, "limits").get(0).getChanges()).contains("180 utilisateurs").contains("150 utilisateurs");
+        // Entree reperee par son contenu, pas par sa date : deux enregistrements a quelques millisecondes
+        // d'intervalle peuvent avoir la meme date, et le tri « plus recente d'abord » n'est alors pas fiable.
+        assertThat(audits(AuditAction.UPDATE, "limits")).filteredOn(a -> !auditsBeforeFix.contains(a.getId()))
+                .as("une seule nouvelle entree, avec l'ancienne valeur enregistree (180) et la nouvelle (150)")
+                .singleElement().satisfies(a -> assertThat(a.getChanges())
+                        .contains("{\"label\":\"Utilisateurs virtuels par test\",\"before\":\"180 utilisateurs\",\"after\":\"150 utilisateurs\"}"));
     }
 
     @Test
