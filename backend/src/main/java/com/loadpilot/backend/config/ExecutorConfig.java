@@ -16,8 +16,7 @@ import org.springframework.context.annotation.Configuration;
  * d'usage pour lequel les threads virtuels ont ete concus (cout memoire
  * minimal par thread, pas de limite artificielle sur le nombre
  * d'utilisateurs virtuels concurrents au-dela des ressources reelles de la
- * machine). Voir rapport P0-A, comparaison des moteurs, pour la
- * justification complete du choix face a JMeter/Gatling.
+ * machine).
  */
 @Configuration
 public class ExecutorConfig {

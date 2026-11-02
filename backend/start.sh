@@ -32,11 +32,19 @@ add() { opts+=("$1"); shown+=("${2:-$1}"); }
 prop() { add "-D$1=$2" "-D$1=$([ "${3:-}" = secret ] && echo '******' || echo "$2")"; }
 
 # Docker Compose transmet une variable non renseignee comme une chaine vide : Spring Boot doit alors
-# appliquer sa valeur par defaut (application.yml), pas lire "" (EXECUTION_TIMEOUT_SECONDS est un nombre).
-if [ -z "$(setting EXECUTION_TIMEOUT_SECONDS)" ]; then unset EXECUTION_TIMEOUT_SECONDS; fi
-# Idem pour les crons de purge : une expression vide empecherait le demarrage.
-if [ -z "$(setting LOADPILOT_AUDIT_PURGE_CRON)" ]; then unset LOADPILOT_AUDIT_PURGE_CRON; fi
-if [ -z "$(setting LOADPILOT_RESULTS_PURGE_CRON)" ]; then unset LOADPILOT_RESULTS_PURGE_CRON; fi
+# appliquer sa valeur par defaut (application.yml), pas lire "" (un nombre, un booleen ou un cron vide
+# empecherait le demarrage, une adresse vide casserait les e-mails).
+for name in EXECUTION_TIMEOUT_SECONDS AVAILABILITY_TIMEOUT_SECONDS \
+  LOADPILOT_AUDIT_PURGE_CRON LOADPILOT_RESULTS_PURGE_CRON LOADPILOT_RESULTS_SNAPSHOT_BACKFILL \
+  LOADPILOT_SCHEDULER_POLL_INTERVAL_MS LOADPILOT_AUDIT_SECURITY_EVENTS_ENABLED LOADPILOT_AUDIT_SECURITY_EVENTS_POLL_MS \
+  LOADPILOT_MAX_VUS_PER_EXECUTION LOADPILOT_MAX_GLOBAL_VUS LOADPILOT_MAX_DURATION_SECONDS LOADPILOT_MAX_ITERATIONS \
+  LOADPILOT_MAX_TARGET_RPS LOADPILOT_TARGET_RPS_ADVISED_ABOVE_VUS LOADPILOT_MAX_CONCURRENT_EXECUTIONS \
+  LOADPILOT_MAX_PAUSE_MINUTES LOADPILOT_MAX_RESULTS_IN_MEMORY LOADPILOT_REQUEST_DETAIL_MAX_MEMORY_MB \
+  LOADPILOT_INJECTOR_CPU_WARNING_PERCENT LOADPILOT_MAIL_ENABLED LOADPILOT_MAIL_FROM LOADPILOT_MAIL_FROM_NAME \
+  LOADPILOT_MAIL_STARTTLS LOADPILOT_MAIL_SSL LOADPILOT_APP_URL KEYCLOAK_ADMIN_TIMEOUT_SECONDS \
+  KEYCLOAK_ACTIONS_CLIENT_ID KEYCLOAK_ACTIONS_REDIRECT_URI KEYCLOAK_ACTIONS_LIFESPAN_SECONDS; do
+  if [ -z "$(setting "$name")" ]; then unset "$name"; fi
+done
 
 # ---------------------------------------------------------------- memoire
 memory="$(setting LOADPILOT_JVM_MAX_MEMORY)"

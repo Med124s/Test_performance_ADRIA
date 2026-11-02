@@ -8,7 +8,8 @@
 import express from 'express'
 import cors from 'cors'
 import promClient from 'prom-client'
-import { db, nextId, resetDatabase } from './db.js'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { db, nextId, resetDatabase, resetTestData } from './db.js'
 import { latencyConfig, rollSimulatedOutcome, errorSimulationConfig } from './config.js'
 
 const app = express()
@@ -32,8 +33,10 @@ function pickLatencyMs(req) {
   if (Number.isFinite(requested)) {
     return Math.min(Math.max(requested, 0), latencyConfig.maxAllowedMs)
   }
-  const { defaultMinMs, defaultMaxMs } = latencyConfig
-  return defaultMinMs + Math.round(Math.random() * (defaultMaxMs - defaultMinMs))
+  const route = latencyConfig.routes[req.path]
+  const minMs = route ? route.minMs : latencyConfig.defaultMinMs
+  const maxMs = route ? route.maxMs : latencyConfig.defaultMaxMs
+  return minMs + Math.round(Math.random() * (maxMs - minMs))
 }
 function simulateLatency(req) {
   return new Promise((resolve) => setTimeout(resolve, pickLatencyMs(req)))
@@ -525,6 +528,143 @@ app.post('/api/deposits', async (req, res) => {
 })
 
 // ============================================================
+// /demo/* — démonstration des 3 types de capture de LoadPilot, enchaînés :
+//   1. GET  /demo/accounts                 JSON          -> capture $.data.accounts[0].id
+//   2. GET  /demo/accounts/:id/session     en-tête       -> capture X-CSRF-Token (+ cookie DEMO_SESSION)
+//   3. GET  /demo/transfer-form            page HTML     -> capture input[name=form_token] (value)
+//   4. POST /demo/transfer-form            formulaire    -> réutilise form_token, cookie et compte
+// Chaque route VÉRIFIE la valeur reçue : une valeur mal capturée fait échouer l'étape suivante
+// (403 / 404 avec la raison), c'est ce qui prouve le chaînage. Authentification comme les autres
+// routes (Connexion auto de LoadPilot). Latence simulée, mais jamais d'erreur aléatoire (ERROR_RATE).
+// Sessions et jetons en mémoire : expiration 10 min, nombre plafonné (aucune croissance sous charge).
+// ============================================================
+const DEMO_TTL_MS = 10 * 60 * 1000
+const DEMO_MAX_ENTRIES = 100_000
+const demoSessions = new Map() // id de session -> { userId, accountId, csrf, expiresAt }
+const demoFormTokens = new Map() // jeton -> { sessionId, accountId, expiresAt }
+
+const demoId = (bytes = 16) => randomBytes(bytes).toString('hex')
+
+/** Ajoute une entrée en gardant la table bornée : expirées d'abord, puis les plus anciennes. */
+function demoRemember(map, key, value) {
+  if (map.size >= DEMO_MAX_ENTRIES) {
+    const now = Date.now()
+    for (const [k, v] of map) if (v.expiresAt <= now) map.delete(k)
+    for (const k of map.keys()) {
+      if (map.size < DEMO_MAX_ENTRIES) break
+      map.delete(k)
+    }
+  }
+  map.set(key, value)
+}
+
+function readCookie(req, name) {
+  for (const part of (req.headers.cookie || '').split(';')) {
+    const separator = part.indexOf('=')
+    if (separator > 0 && part.slice(0, separator).trim() === name) return part.slice(separator + 1).trim()
+  }
+  return null
+}
+
+/** Session de démo valide de l'appelant (cookie DEMO_SESSION), sinon réponse 403 envoyée et null. */
+function requireDemoSession(req, res, userId) {
+  const sessionId = readCookie(req, 'DEMO_SESSION')
+  const session = sessionId && demoSessions.get(sessionId)
+  if (!session || session.expiresAt <= Date.now() || session.userId !== userId) {
+    res.status(403).json({ success: false, error: 'Session de démo absente ou expirée : cookie DEMO_SESSION manquant ou invalide.' })
+    return null
+  }
+  return { sessionId, session }
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
+// 1. Comptes de l'agent : le sien en premier (utilisable), un second en lecture seule.
+app.get('/demo/accounts', async (req, res) => {
+  await simulateLatency(req)
+  const userId = requireAuth(req, res)
+  if (!userId) return
+  const own = findAccount(agentAccountFor(userId))
+  const other = db.prepare('SELECT * FROM accounts WHERE id <> ? ORDER BY id LIMIT 1').get(own.id)
+  const view = (a, access) => ({ id: a.id, balance: a.balance, currency: a.currency, access })
+  res.status(200).json({
+    success: true,
+    data: { agent: userId, accounts: [view(own, 'gestion'), ...(other ? [view(other, 'lecture')] : [])] },
+  })
+})
+
+// 2. Ouverture d'une session sur un compte géré : jeton CSRF en en-tête, session en cookie.
+app.get('/demo/accounts/:id/session', async (req, res) => {
+  await simulateLatency(req)
+  const userId = requireAuth(req, res)
+  if (!userId) return
+  const accountId = req.params.id
+  if (!findAccount(accountId)) {
+    return res.status(404).json({ success: false, error: `Compte introuvable : ${accountId}.` })
+  }
+  if (accountId !== agentAccountFor(userId)) {
+    return res.status(403).json({ success: false, error: `Compte ${accountId} en lecture seule pour cet agent : session refusée.` })
+  }
+  const sessionId = demoId()
+  const csrf = demoId()
+  demoRemember(demoSessions, sessionId, { userId, accountId, csrf, expiresAt: Date.now() + DEMO_TTL_MS })
+  res.set('X-CSRF-Token', csrf)
+  res.cookie('DEMO_SESSION', sessionId, { path: '/demo', httpOnly: true, sameSite: 'lax', maxAge: DEMO_TTL_MS })
+  res.status(200).json({ success: true, account: accountId, message: 'Session ouverte : jeton CSRF dans l’en-tête X-CSRF-Token.' })
+})
+
+// 3. Page HTML du formulaire de virement : exige le cookie ET l'en-tête X-CSRF-Token de la session.
+app.get('/demo/transfer-form', async (req, res) => {
+  await simulateLatency(req)
+  const userId = requireAuth(req, res)
+  if (!userId) return
+  const demo = requireDemoSession(req, res, userId)
+  if (!demo) return
+  const csrf = req.headers['x-csrf-token']
+  if (!csrf || csrf !== demo.session.csrf) {
+    return res.status(403).json({ success: false, error: 'Jeton CSRF absent ou invalide : en-tête X-CSRF-Token attendu (celui de l’ouverture de session).' })
+  }
+  const formToken = demoId()
+  demoRemember(demoFormTokens, formToken, { sessionId: demo.sessionId, accountId: demo.session.accountId, expiresAt: Date.now() + DEMO_TTL_MS })
+  res.status(200).type('html').send(`<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Virement — démo</title></head>
+<body>
+  <h1>Nouveau virement</h1>
+  <form id="virement" method="post" action="/demo/transfer-form">
+    <input type="hidden" name="form_token" value="${formToken}">
+    <label>Compte <input type="text" name="account" value="${escapeHtml(demo.session.accountId)}" readonly></label>
+    <label>Montant <input type="number" name="amount" min="1"></label>
+    <button type="submit">Valider</button>
+  </form>
+</body>
+</html>`)
+})
+
+// 4. Envoi du formulaire (application/x-www-form-urlencoded) : jeton du formulaire à usage unique.
+app.post('/demo/transfer-form', express.urlencoded({ extended: false }), async (req, res) => {
+  await simulateLatency(req)
+  const userId = requireAuth(req, res)
+  if (!userId) return
+  const demo = requireDemoSession(req, res, userId)
+  if (!demo) return
+  const { form_token: formToken, account, amount } = req.body || {}
+  const issued = formToken && demoFormTokens.get(formToken)
+  if (!issued || issued.expiresAt <= Date.now() || issued.sessionId !== demo.sessionId) {
+    return res.status(403).json({ success: false, error: 'Jeton du formulaire absent, invalide, expiré ou déjà utilisé (champ form_token).' })
+  }
+  demoFormTokens.delete(formToken) // usage unique
+  if (account !== issued.accountId) {
+    return res.status(403).json({ success: false, error: `Compte ${account || '(absent)'} différent de celui du formulaire (${issued.accountId}).` })
+  }
+  const value = Number(amount)
+  if (!Number.isFinite(value) || value <= 0) {
+    return res.status(400).json({ success: false, error: 'Montant invalide : nombre strictement positif attendu.' })
+  }
+  res.status(200).json({ success: true, status: 'accepted', reference: `DEMO-${demoId(4).toUpperCase()}`, account, amount: value })
+})
+
+// ============================================================
 // POST /api/reset — réinitialise toutes les données de test fictives à leur
 // état de départ (aucune authentification requise : c'est un utilitaire de
 // test, pas une opération bancaire). Le jeton statique TEST-TOKEN-123 reste
@@ -533,6 +673,56 @@ app.post('/api/deposits', async (req, res) => {
 app.post('/api/reset', (_req, res) => {
   resetDatabase()
   res.status(200).json({ success: true, message: 'Données de test réinitialisées.' })
+})
+
+// ============================================================
+// POST /api/admin/reset — remise à zéro entre deux exécutions de charge :
+// vide les virements, paiements, dépôts et mouvements créés par les tests,
+// restaure les soldes et les factures impayées, et oublie les sessions en
+// mémoire. Utilisateurs, agents et clients ne sont pas touchés.
+//
+// Protégée, pour ne jamais être appelée par erreur (un scénario LoadPilot ne
+// l'atteint pas sans la clé) :
+//   - désactivée tant que la variable ADMIN_RESET_KEY n'est pas définie ;
+//   - refusée si NODE_ENV=production, même avec la clé ;
+//   - en-tête X-Admin-Key égal à ADMIN_RESET_KEY obligatoire (401 sinon).
+// La clé n'est jamais journalisée.
+// ============================================================
+const ADMIN_RESET_KEY = (process.env.ADMIN_RESET_KEY || '').trim()
+const IS_PRODUCTION = process.env.NODE_ENV === 'production'
+
+/** Comparaison en temps constant (empreintes de même longueur, quelle que soit la clé reçue). */
+function isAdminKey(received) {
+  const digest = (value) => createHash('sha256').update(String(value)).digest()
+  return timingSafeEqual(digest(received), digest(ADMIN_RESET_KEY))
+}
+
+app.post('/api/admin/reset', (req, res) => {
+  if (IS_PRODUCTION) {
+    return res.status(403).json({ success: false, error: 'Remise à zéro interdite en production (NODE_ENV=production).' })
+  }
+  if (!ADMIN_RESET_KEY) {
+    return res.status(403).json({ success: false, error: 'Remise à zéro désactivée : définir ADMIN_RESET_KEY au démarrage du serveur.' })
+  }
+  const received = req.headers['x-admin-key']
+  if (!received || !isAdminKey(received)) {
+    return res.status(401).json({ success: false, error: 'En-tête X-Admin-Key absent ou incorrect.' })
+  }
+  const started = Date.now()
+  const { tablesCleared, tablesRestored, deletedRows } = resetTestData()
+  // Sessions en mémoire : jetons de connexion (sauf le jeton fixe) et sessions /demo.
+  const sessionsCleared = tokens.size - 1 + demoSessions.size + demoFormTokens.size
+  for (const token of tokens.keys()) if (token !== STATIC_TOKEN) tokens.delete(token)
+  demoSessions.clear()
+  demoFormTokens.clear()
+  res.status(200).json({
+    status: 'reset_ok',
+    tables_cleared: tablesCleared,
+    tables_restored: tablesRestored,
+    deleted_rows: deletedRows,
+    sessions_cleared: sessionsCleared,
+    duration_ms: Date.now() - started,
+  })
 })
 
 // Port 6000 est délibérément évité : Chrome/Chromium le bloque en dur comme
@@ -548,4 +738,7 @@ app.listen(PORT, () => {
   const pct = (v) => `${Math.round(v * 1000) / 10} %`
   console.log(`Erreurs aléatoires : ${pct(errorSimulationConfig.conflict409Probability)} de 409, `
     + `${pct(errorSimulationConfig.serverError500Probability)} de 500 (réglable avec ERROR_RATE)`)
+  const resetState = IS_PRODUCTION ? 'interdite (NODE_ENV=production)'
+    : ADMIN_RESET_KEY ? 'activée (en-tête X-Admin-Key)' : 'désactivée (ADMIN_RESET_KEY non définie)'
+  console.log(`Remise à zéro POST /api/admin/reset : ${resetState}`)
 })

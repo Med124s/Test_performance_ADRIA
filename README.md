@@ -120,7 +120,7 @@ Aucune valeur ci-dessous n'est une valeur réelle — uniquement les noms et rô
 |---|---|---|---|
 | `DB_URL` | Oui | `jdbc:postgresql://localhost:5432/loadpilot` (dev uniquement) | URL JDBC PostgreSQL |
 | `DB_USERNAME` | Oui | `loadpilot` (dev uniquement) | Utilisateur PostgreSQL |
-| `DB_PASSWORD` | Oui | Aucune | Mot de passe PostgreSQL — `DB_PASSWORD=<SECRET>` |
+| `DB_PASSWORD` | Oui (profil `prod` et Docker) | `loadpilot` (dev uniquement, base locale de développement) | Mot de passe PostgreSQL — `DB_PASSWORD=<SECRET>` |
 | `KEYCLOAK_ISSUER_URI` | Oui | `http://localhost:8081/realms/loadpilot` (dev uniquement) | URL du réalm, résolue au démarrage pour le `JwtDecoder` |
 | `KEYCLOAK_ADMIN_SERVER_URL` | Oui (pour `/api/users`) | `http://localhost:8081` (dev uniquement) | URL serveur pour l'Admin API Keycloak |
 | `KEYCLOAK_ADMIN_REALM` | Non | `loadpilot` | Réalm pour l'Admin API |
@@ -150,7 +150,7 @@ Aucune valeur ci-dessous n'est une valeur réelle — uniquement les noms et rô
 | `VITE_KEYCLOAK_CLIENT_ID` | Oui | Client public (`loadpilot-frontend`) |
 | `VITE_SPRING_API_URL` | Oui | URL du backend résolue par le navigateur |
 
-**Docker Compose** (`.env` à la racine, voir `.env.example`) : `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET` — ce dernier n'est connu qu'après le premier import du réalm (voir `keycloak/README.md`).
+**Docker Compose** (`.env` à la racine, voir `.env.example`) : obligatoires `DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET` (connu seulement après le premier import du réalm, voir `keycloak/README.md`) et `LOADPILOT_SECRETS_KEY` ; `DB_USERNAME` et `DB_NAME` valent `loadpilot` par défaut. Les variables optionnelles du backend (tableau ci-dessus, e-mails, certificats, proxy) sont transmises au conteneur : non renseignées, elles gardent la valeur par défaut de `application.yml`.
 
 ## 10. Démarrage
 

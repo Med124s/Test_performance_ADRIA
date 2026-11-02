@@ -15,6 +15,12 @@ export const latencyConfig = {
   // Latence par défaut si la requête n'envoie pas ?latency=<ms>.
   defaultMinMs: 100,
   defaultMaxMs: 300,
+  // Routes plus lentes que la valeur par défaut. Virement international : contrôles de
+  // conformité (sanctions, anti-blanchiment) et passage par le réseau interbancaire,
+  // d'où 400 à 900 ms au lieu de 100 à 300 ms.
+  routes: {
+    '/api/transfers/international': { minMs: 400, maxMs: 900 },
+  },
   // Plafond dur, même si ?latency= demande plus (évite qu'un scénario mal
   // configuré ne bloque indéfiniment un test PERFTEST).
   maxAllowedMs: 5000,

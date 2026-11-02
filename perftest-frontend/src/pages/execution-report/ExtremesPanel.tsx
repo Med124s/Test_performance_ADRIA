@@ -3,14 +3,13 @@ import { useEffect, useState } from 'react'
 import { BackendExecutionExtremes } from '../../types/backendContracts'
 import { executionsBackendApi } from '../../services/api/executionsBackend'
 import { ApiError } from '../../services/api/httpClient'
-import { formatMs, formatNumber, formatRps } from '../../utils/numberFormat'
+import { formatMs, formatNumber } from '../../utils/numberFormat'
 import RequestDetailPanel from '../execution-detail/RequestDetailPanel'
 import './timelineAnalysis.css'
 
 // ============================================================
 // D'où vient la carte Minimum / Maximum : la requête la plus rapide (ou la plus lente), puis les
-// 10 plus rapides (ou plus lentes), avec leur place dans le test et, au même moment, utilisateurs
-// actifs, débit et P95 de l'intervalle de l'analyse dans le temps. Calcul côté serveur.
+// 10 plus rapides (ou plus lentes), avec leur place dans le test. Calcul côté serveur.
 // ============================================================
 
 export const DETAIL_NOT_KEPT_TEXT =
@@ -23,11 +22,6 @@ export function formatOffset(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds))
   if (s < 60) return `à ${s} s du début`
   return `à ${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s du début`
-}
-
-function moment(item: Item, intervalSeconds: number): string {
-  const label = intervalSeconds > 1 ? `intervalle de ${intervalSeconds} s` : 'cette seconde'
-  return `${formatNumber(item.activeVirtualUsers, 0)} utilisateur(s) actif(s) · ${formatRps(item.throughput)} · P95 de ${label} : ${formatMs(item.p95Ms)}`
 }
 
 export default function ExtremesPanel({ executionId, kind, onClose }: { executionId: string; kind: 'MIN' | 'MAX'; onClose: () => void }) {
@@ -87,7 +81,6 @@ export default function ExtremesPanel({ executionId, kind, onClose }: { executio
                         {new Date(first.request.timestamp).toLocaleTimeString('fr-FR', inUserZone())} ({formatOffset(first.secondsFromStart)}) ·{' '}
                         HTTP {first.request.httpStatus ?? '—'}{first.request.success === false && ' (échec)'}
                       </div>
-                      <div className="xp-muted">Au même moment : {moment(first, data.intervalSeconds)}</div>
                       {first.request.error && <div className="text-danger" style={{ fontSize: '12px' }}>{first.request.error}</div>}
                     </div>
                     <div className="xp-hero-link">
@@ -104,7 +97,7 @@ export default function ExtremesPanel({ executionId, kind, onClose }: { executio
                       <thead>
                         <tr>
                           <th>#</th><th>Étape</th><th>VU</th><th>Itér.</th><th>Heure</th><th>Dans le test</th><th>Code</th>
-                          <th className="text-end">Temps</th><th>Au même moment</th><th className="text-end">Actions</th>
+                          <th className="text-end">Temps</th><th className="text-end">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -118,7 +111,6 @@ export default function ExtremesPanel({ executionId, kind, onClose }: { executio
                             <td>{formatOffset(it.secondsFromStart).replace('à ', '')}</td>
                             <td><span className={it.request.success === false ? 'text-danger fw-semibold' : ''}>{it.request.httpStatus ?? '—'}</span></td>
                             <td className="text-end fw-semibold">{formatMs(it.request.responseTime)}</td>
-                            <td className="xp-muted">{moment(it, data.intervalSeconds)}</td>
                             <td className="text-end">{link(it)}</td>
                           </tr>
                         ))}

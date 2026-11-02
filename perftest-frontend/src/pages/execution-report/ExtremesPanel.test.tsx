@@ -24,7 +24,7 @@ const extremes = (patch: Partial<BackendExecutionExtremes> = {}): BackendExecuti
 beforeEach(() => vi.clearAllMocks())
 
 describe('panneau Minimum / Maximum', () => {
-  it('requête la plus lente : étape, VU, itération, place dans le test, code, temps, contexte, lien vers le détail', async () => {
+  it('requête la plus lente : étape, VU, itération, place dans le test, code, temps, lien vers le détail', async () => {
     api.getExtremes.mockResolvedValue(extremes())
     api.getResultDetail.mockResolvedValue({ summary: { ...item(0).request }, kind: 'SAMPLE', request: { method: 'POST', url: 'http://x/api', headers: {}, body: null, bodyTruncated: false }, response: null, checks: null })
     render(<ExtremesPanel executionId="ex-1" kind="MAX" onClose={() => {}} />)
@@ -32,7 +32,8 @@ describe('panneau Minimum / Maximum', () => {
     expect(hero.getByText('900 ms')).toBeTruthy()
     expect(hero.getByText(/Virement national/)).toBeTruthy()
     expect(hero.getByText(/VU 5 · itération 3 · .* \(à 2 s du début\) · HTTP 201/)).toBeTruthy()
-    expect(hero.getByText('Au même moment : 12 utilisateur(s) actif(s) · 68,7 req/s · P95 de cette seconde : 412 ms')).toBeTruthy()
+    expect(screen.queryByText(/Au même moment/)).toBeNull()
+    expect(screen.queryByText(/utilisateur\(s\) actif\(s\)/)).toBeNull()
     expect(screen.getByText(/Les 10 requêtes les plus lentes/)).toBeTruthy()
     expect(screen.getByText(/sur 11\s000 mesurées/)).toBeTruthy()
     expect(api.getExtremes).toHaveBeenCalledWith('ex-1', 'MAX')
@@ -45,13 +46,12 @@ describe('panneau Minimum / Maximum', () => {
     expect(api.getResultDetail).toHaveBeenCalledWith('ex-1', 'r0')
   })
 
-  it('requête la plus rapide, détail non enregistré : message clair ; aucune requête ; intervalle de plusieurs secondes', async () => {
+  it('requête la plus rapide, détail non enregistré : message clair ; aucune requête', async () => {
     api.getExtremes.mockResolvedValue(extremes({ kind: 'MIN', cardValueMs: 3, intervalSeconds: 2,
       requests: [item(0, { responseTime: 3, detailKind: null })] }))
     const { unmount } = render(<ExtremesPanel executionId="ex-1" kind="MIN" onClose={() => {}} />)
     expect(await screen.findByText(/Minimum : la requête la plus rapide/)).toBeTruthy()
     expect(screen.getByText(DETAIL_NOT_KEPT_TEXT)).toBeTruthy()
-    expect(screen.getAllByText(/P95 de intervalle de 2 s : 412 ms/).length).toBeGreaterThan(0)
     unmount()
 
     api.getExtremes.mockResolvedValue(extremes({ cardValueMs: null, measuredRequests: 0, requests: [] }))

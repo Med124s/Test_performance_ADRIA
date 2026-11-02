@@ -150,49 +150,70 @@ function seededRandom(seed) {
   }
 }
 
-function seedInitialData() {
-  const insertUser = db.prepare(`INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)`)
-  const insertClient = db.prepare(`INSERT INTO clients (id, name) VALUES (?, ?)`)
-  const insertAccount = db.prepare(`INSERT INTO accounts (id, owner_id, balance, commission, currency) VALUES (?, ?, ?, ?, ?)`)
-  const insertAgent = db.prepare(`INSERT INTO agents (id, user_id, name, account_id, client_id) VALUES (?, ?, ?, ?, ?)`)
-  const insertInvoice = db.prepare(`INSERT INTO invoices (bill_number, client_id, amount, status, paid_at) VALUES (?, ?, ?, 'unpaid', NULL)`)
-
+/** Exécute fn dans une transaction : tout ou rien, et bien plus rapide que ligne par ligne. */
+function inTransaction(fn) {
   db.exec('BEGIN')
   try {
-    for (let n = 1; n <= DEMO_AGENT_COUNT; n++) {
-      const id = pad3(n)
-      insertUser.run(`AG${id}`, `agent${id}`, demoPassword(n), 'agent')
-      insertClient.run(`CL${id}`, n === 1 ? 'Client Démo' : `Client Démo ${id}`)
-      // Soldes de 30 000 à 49 000 MAD (ACC001 garde ses 50 centimes historiques).
-      insertAccount.run(`ACC${id}`, `CL${id}`, 30000 + ((n * 7) % 20) * 1000 + (n === 1 ? 0.5 : 0), 2.5, 'MAD')
-      insertAgent.run(`AG${id}`, `AG${id}`, n === 1 ? 'Agent Démo' : `Agent Démo ${id}`, `ACC${id}`, `CL${id}`)
-    }
-    const random = seededRandom(2026)
-    for (let k = 1; k <= DEMO_AGENT_COUNT * DEMO_BILLS_PER_CLIENT; k++) {
-      const amount = Math.round((20 + random() * 780) * 100) / 100
-      insertInvoice.run(demoBillNumber(k), `CL${pad3(((k - 1) % DEMO_AGENT_COUNT) + 1)}`, amount)
-    }
-
-    db.prepare(
-      `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run('TRX001', 'ACC001', 'transfer', 500, 'MAD', 'completed', '2026-08-10')
-    db.prepare(
-      `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run('TRX002', 'ACC001', 'deposit', 1200, 'MAD', 'completed', '2026-08-12')
-
-    // Transfert de démo avec un id fixe (TRF001) : sert de cible toute prête
-    // pour les scénarios recommandés PUT/PATCH/DELETE /api/transfers/:id
-    // (voir recommendedScenarios.ts côté PERFTEST) sans devoir d'abord chaîner
-    // un POST /api/transfers/national réel. Déjà compté dans les soldes ci-dessus.
-    db.prepare(
-      `INSERT INTO transfers (id, source_account, destination_account, destination_country, amount, currency, kind, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run('TRF001', 'ACC001', 'ACC002', null, 500, 'MAD', 'national', 'completed', '2026-08-15T09:00:00.000Z')
+    const result = fn()
     db.exec('COMMIT')
+    return result
   } catch (err) {
     db.exec('ROLLBACK')
     throw err
   }
+}
+
+/** Données de référence, jamais modifiées par les routes : utilisateurs, clients, agents. */
+function seedReferenceData() {
+  const insertUser = db.prepare(`INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)`)
+  const insertClient = db.prepare(`INSERT INTO clients (id, name) VALUES (?, ?)`)
+  const insertAgent = db.prepare(`INSERT INTO agents (id, user_id, name, account_id, client_id) VALUES (?, ?, ?, ?, ?)`)
+  for (let n = 1; n <= DEMO_AGENT_COUNT; n++) {
+    const id = pad3(n)
+    insertUser.run(`AG${id}`, `agent${id}`, demoPassword(n), 'agent')
+    insertClient.run(`CL${id}`, n === 1 ? 'Client Démo' : `Client Démo ${id}`)
+    insertAgent.run(`AG${id}`, `AG${id}`, n === 1 ? 'Agent Démo' : `Agent Démo ${id}`, `ACC${id}`, `CL${id}`)
+  }
+}
+
+/** Données que les tests modifient : soldes des comptes, factures, mouvements de départ. */
+function seedTestData() {
+  const insertAccount = db.prepare(`INSERT INTO accounts (id, owner_id, balance, commission, currency) VALUES (?, ?, ?, ?, ?)`)
+  const insertInvoice = db.prepare(`INSERT INTO invoices (bill_number, client_id, amount, status, paid_at) VALUES (?, ?, ?, 'unpaid', NULL)`)
+
+  for (let n = 1; n <= DEMO_AGENT_COUNT; n++) {
+    const id = pad3(n)
+    // Soldes de 30 000 à 49 000 MAD (ACC001 garde ses 50 centimes historiques).
+    insertAccount.run(`ACC${id}`, `CL${id}`, 30000 + ((n * 7) % 20) * 1000 + (n === 1 ? 0.5 : 0), 2.5, 'MAD')
+  }
+  const random = seededRandom(2026)
+  for (let k = 1; k <= DEMO_AGENT_COUNT * DEMO_BILLS_PER_CLIENT; k++) {
+    const amount = Math.round((20 + random() * 780) * 100) / 100
+    insertInvoice.run(demoBillNumber(k), `CL${pad3(((k - 1) % DEMO_AGENT_COUNT) + 1)}`, amount)
+  }
+
+  db.prepare(
+    `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run('TRX001', 'ACC001', 'transfer', 500, 'MAD', 'completed', '2026-08-10')
+  db.prepare(
+    `INSERT INTO transactions (id, account_id, type, amount, currency, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run('TRX002', 'ACC001', 'deposit', 1200, 'MAD', 'completed', '2026-08-12')
+
+  // Transfert de démo avec un id fixe (TRF001) : sert de cible toute prête
+  // pour les scénarios recommandés PUT/PATCH/DELETE /api/transfers/:id
+  // (voir recommendedScenarios.ts côté PERFTEST) sans devoir d'abord chaîner
+  // un POST /api/transfers/national réel. Déjà compté dans les soldes ci-dessus.
+  db.prepare(
+    `INSERT INTO transfers (id, source_account, destination_account, destination_country, amount, currency, kind, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run('TRF001', 'ACC001', 'ACC002', null, 500, 'MAD', 'national', 'completed', '2026-08-15T09:00:00.000Z')
+}
+
+function seedInitialData() {
+  inTransaction(() => {
+    seedReferenceData()
+    seedTestData()
+  })
 }
 
 function seedIfEmpty() {
@@ -265,7 +286,38 @@ export function resetDatabase() {
     DELETE FROM users;
   `)
   seedInitialData()
+  resetIdCounters()
+}
+
+function resetIdCounters() {
   for (const [key, { table, prefix }] of Object.entries(ID_TABLES)) {
     seq[key] = currentMaxSeq(table, prefix)
   }
+}
+
+// Tables vidées par resetTestData : tout ce que les tests de charge créent.
+const GENERATED_TABLES = ['transfers', 'bills', 'deposits', 'transactions']
+// Tables remises à leur contenu de départ : soldes des comptes, factures impayées.
+const RESTORED_TABLES = ['accounts', 'invoices']
+
+// ============================================================
+// POST /api/admin/reset (voir index.js) — remet la base dans son état de
+// départ entre deux exécutions de charge, sans toucher aux données de
+// référence (utilisateurs, agents, clients) : les identifiants de démo
+// restent valides. SQLite n'a pas de TRUNCATE ; un DELETE sans WHERE en est
+// l'équivalent (optimisation « truncate » : la table est vidée d'un coup, pas
+// ligne par ligne). Le tout dans une seule transaction : quelques dizaines de ms.
+// Renvoie le nombre de lignes supprimées par table.
+// ============================================================
+export function resetTestData() {
+  const deleted = inTransaction(() => {
+    const counts = {}
+    for (const table of [...GENERATED_TABLES, ...RESTORED_TABLES]) {
+      counts[table] = Number(db.prepare(`DELETE FROM ${table}`).run().changes)
+    }
+    seedTestData()
+    return counts
+  })
+  resetIdCounters()
+  return { tablesCleared: GENERATED_TABLES, tablesRestored: RESTORED_TABLES, deletedRows: deleted }
 }

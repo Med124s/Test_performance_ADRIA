@@ -17,7 +17,7 @@ Le port peut être changé avec la variable d'environnement `PORT`.
 LoadPilot y lit le CPU et la RAM **de ce serveur** (pas de la machine entière) toutes les 5 secondes.
 Après une mise à jour, relancez `npm install` puis `npm start`.
 
-La latence est simulée (100 à 300 ms), et 7 % d'erreurs 409/500 aléatoires sont injectées sur les requêtes d'écriture valides (voir `src/config.js`) : quelques échecs pendant un test de charge sont donc normaux.
+La latence est simulée : 100 à 300 ms, et 400 à 900 ms pour le virement international (contrôles de conformité et réseau interbancaire simulés, voir `latencyConfig.routes`). Le paramètre `?latency=<ms>` la remplace sur n'importe quelle route. En plus, 7 % d'erreurs 409/500 aléatoires sont injectées sur les requêtes d'écriture valides (voir `src/config.js`) : quelques échecs pendant un test de charge sont donc normaux.
 
 ### Régler les erreurs aléatoires
 
@@ -54,7 +54,55 @@ Les erreurs 400 (validation) et 401 (authentification) ne sont pas concernées :
 | POST | `/api/transfers/national`, `/api/transfers/international` | Oui |
 | PUT / PATCH / DELETE | `/api/transfers/:id` | Oui |
 | POST | `/api/bills/pay`, `/api/deposits` | Oui |
+| POST | `/api/admin/reset` | En-tête `X-Admin-Key` = `ADMIN_RESET_KEY` : remise à zéro entre deux exécutions (voir ci-dessous) |
 | POST | `/api/reset` | Non (restaure les données de démo ; jamais dans un scénario de charge) |
+| GET | `/demo/accounts`, `/demo/accounts/:id/session`, `/demo/transfer-form` | Oui : démonstration des captures (voir ci-dessous) |
+| POST | `/demo/transfer-form` | Oui : formulaire `application/x-www-form-urlencoded` |
+
+## Remise à zéro entre deux exécutions (`POST /api/admin/reset`)
+
+Remet la base dans son état de départ, en une transaction (environ 100 ms) :
+
+- **vidées** : `transfers`, `bills`, `deposits`, `transactions` (tout ce que créent les tests), puis réinsertion de `TRF001`, `TRX001` et `TRX002` ;
+- **restaurées** : `accounts` (soldes de départ) et `invoices` (6 000 factures impayées) ;
+- **oubliées** : sessions en mémoire (jetons de connexion, sessions `/demo`). Le jeton fixe `TEST-TOKEN-123` reste valide ;
+- **inchangées** : `users`, `agents`, `clients`. Les identifiants de démo restent valides.
+
+Protection :
+
+- désactivée (403) tant que `ADMIN_RESET_KEY` n'est pas définie ;
+- refusée (403) si `NODE_ENV=production`, même avec la clé ;
+- en-tête `X-Admin-Key` égal à `ADMIN_RESET_KEY` obligatoire, sinon 401.
+
+Ne jamais l'ajouter à un scénario de charge.
+
+```powershell
+# Démarrage avec la remise à zéro activée (choisir sa propre clé)
+$env:ADMIN_RESET_KEY = 'ma-cle-locale'; npm start
+
+# Appel, entre deux exécutions
+curl.exe -s -X POST http://localhost:8888/api/admin/reset -H "X-Admin-Key: ma-cle-locale"
+```
+
+Réponse :
+
+```json
+{"status":"reset_ok","tables_cleared":["transfers","bills","deposits","transactions"],
+ "tables_restored":["accounts","invoices"],"deleted_rows":{"transfers":10666,…},"sessions_cleared":1,"duration_ms":100}
+```
+
+## Démonstration des captures (`/demo/*`)
+
+Quatre routes enchaînées pour montrer les 3 types de capture de LoadPilot (corps JSON, en-tête de réponse, page HTML). Chaque route **vérifie** la valeur reçue : une capture ratée fait échouer l'étape suivante, avec la raison. Latence simulée comme ailleurs, **jamais d'erreur aléatoire** (`ERROR_RATE` ne s'applique pas). Guide pas à pas : `docs/demo/GUIDE_DEMO_CAPTURES.md`.
+
+| # | Route | Renvoie | Vérifie |
+|---|---|---|---|
+| 1 | `GET /demo/accounts` | `{"data":{"agent":"AG001","accounts":[{"id":"ACC001","access":"gestion",…},{"id":"ACC002","access":"lecture",…}]}}` : le compte de l'agent en premier | authentification |
+| 2 | `GET /demo/accounts/:id/session` | en-tête `X-CSRF-Token`, cookie `DEMO_SESSION` (`Path=/demo`, `HttpOnly`) | compte existant (404), géré par l'agent (403 pour un compte en lecture) |
+| 3 | `GET /demo/transfer-form` | page HTML avec `<input type="hidden" name="form_token" value="…">` | cookie `DEMO_SESSION` de l'agent **et** en-tête `X-CSRF-Token` de la session (403 sinon) |
+| 4 | `POST /demo/transfer-form` (`form_token`, `account`, `amount`) | `{"status":"accepted","reference":"DEMO-…"}` | cookie, `form_token` émis pour cette session et **à usage unique**, même compte, montant > 0 (403 / 400 sinon) |
+
+Sessions et jetons en mémoire : 10 minutes de validité, 100 000 au plus chacun (les plus anciens sont oubliés au-delà). Ils repartent à vide au redémarrage. Aucune donnée bancaire n'est modifiée : le virement de l'étape 4 est fictif.
 
 ## Données de démo
 
