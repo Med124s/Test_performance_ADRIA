@@ -32,16 +32,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Verifie MetricServiceImpl directement (sans HTTP) : donnees inserees via
- * les repositories, jamais via des mocks - seule la couche service est en
- * jeu ici (voir MetricControllerTest pour le bout-en-bout HTTP complet).
- *
- * JwtDecoder est mocke (jamais utilise directement ici) uniquement parce
- * que @SpringBootTest demarre le contexte complet, y compris SecurityConfig
- * qui exige un bean JwtDecoder - meme necessite que dans les *ControllerTest
- * (voir Phase 4), aucun Keycloak reel requis.
- */
+/** MetricServiceImpl sans HTTP, avec des donnees inserees via les repositories. */
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional

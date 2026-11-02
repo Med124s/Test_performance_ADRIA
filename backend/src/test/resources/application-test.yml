@@ -1,12 +1,4 @@
-# Profil "test" : H2 en memoire UNIQUEMENT (jamais utilise en dev/prod).
-#
-# Place sous src/test/resources (et non src/main/resources) pour qu'il ne
-# soit jamais embarque dans le jar d'application - seul le classpath de test
-# le voit.
-#
-# MODE=PostgreSQL rapproche le comportement SQL de H2 de celui de PostgreSQL
-# (types, fonctions) pour que les changelogs Liquibase se comportent de
-# facon coherente entre tests (H2) et dev/prod (PostgreSQL reel).
+# Profil "test" : base H2 en memoire, en mode PostgreSQL.
 
 spring:
   datasource:
@@ -29,17 +21,10 @@ logging:
 
 app:
   secrets:
-    # Cle FICTIVE reservee aux tests (texte « loadpilot-test-only-not-a-secret » en Base64) :
-    # ne protege aucune donnee reelle, jamais utilisee hors de src/test.
+    # Cle de test (texte « loadpilot-test-only-not-a-secret » en Base64).
     encryption-key: bG9hZHBpbG90LXRlc3Qtb25seS1ub3QtYS1zZWNyZXQ=
   scheduler:
-    # P1-B - intervalle tres long en test (1h) : le poller reste actif
-    # (@EnableScheduling n'est jamais desactive - on veut que le contexte
-    # Spring reel demarre exactement comme en production) mais ne doit
-    # jamais interferer, en arriere-plan, avec des assertions ecrites pour
-    # un declenchement DETERMINISTE (voir les tests de
-    # ScheduledExecutionPoller, qui appellent pollAndTrigger() directement
-    # plutot que d'attendre un vrai tick).
+    # Intervalle d'une heure : les tests appellent pollAndTrigger() directement.
     poll-interval-ms: 3600000
   audit:
     # Pas d'import automatique des evenements de securite en test (aucun Keycloak) :

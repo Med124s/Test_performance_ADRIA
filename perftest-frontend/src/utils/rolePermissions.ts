@@ -1,10 +1,4 @@
-// ============================================================
-// Ce que chaque rôle peut faire, tel que le backend l'applique réellement.
-// Chaque ligne cite les endpoints dont elle découle (`evidence`) : le test
-// rolePermissions.test.ts relit le code Java des contrôleurs et vérifie que
-// leurs annotations @PreAuthorize donnent exactement ces rôles. Si une règle
-// change côté backend, ce test échoue tant que ce tableau n'est pas mis à jour.
-// ============================================================
+// Ce que chaque rôle peut faire, avec les endpoints dont chaque règle découle (vérifié par rolePermissions.test.ts).
 
 import type { BackendAppRole } from '../types/backendContracts'
 

@@ -4,12 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.loadpilot.backend.enums.JsonAssertionOperator;
 
-/**
- * Controles optionnels d'une etape, en plus du code HTTP attendu et du « contenu attendu » (jamais a
- * leur place) : temps de reponse maximal, et assertion JSON simple « le champ X egale / contient Y ».
- * Le champ est lu par JsonPathExtractor (meme syntaxe que la capture). Utilise a l'identique par le
- * moteur de charge et par « Tester » (StepTestRunner). Messages en francais, null = controle reussi.
- */
+/** Controles optionnels d'une etape : temps de reponse maximal et assertion JSON ("le champ X egale / contient Y"). */
 public final class StepChecks {
 
     private static final int SHOWN_VALUE_MAX = 100;
@@ -22,18 +17,18 @@ public final class StepChecks {
         return maxResponseTimeMs != null && maxResponseTimeMs > 0;
     }
 
-    /** true si une assertion JSON est configuree (le champ suffit : comparaison EQUALS par defaut). */
+    /** true si une assertion JSON est configuree. */
     public static boolean hasJsonAssertion(String path) {
         return path != null && !path.isBlank();
     }
 
-    /** Message d'echec si le temps de reponse depasse le maximum, sinon null (et null sans maximum). */
+    /** Message d'echec si le temps de reponse depasse le maximum, sinon null. */
     public static String responseTimeProblem(Integer maxResponseTimeMs, long elapsedMs) {
         if (!hasMaxResponseTime(maxResponseTimeMs) || elapsedMs <= maxResponseTimeMs) return null;
         return "Temps de réponse trop long : " + elapsedMs + " ms (maximum autorisé " + maxResponseTimeMs + " ms)";
     }
 
-    /** Message d'echec de l'assertion JSON, ou null si elle est verifiee (ou absente). */
+    /** Message d'echec de l'assertion JSON, ou null. */
     public static String jsonAssertionProblem(ObjectMapper objectMapper, String body, String path,
             JsonAssertionOperator operator, String expected) {
         if (!hasJsonAssertion(path)) return null;
@@ -53,7 +48,7 @@ public final class StepChecks {
                 : "Assertion JSON : " + field + " vaut « " + shown(actual) + " », attendu « " + shown(want) + " »";
     }
 
-    /** Probleme de configuration (pour StepRules), ou null : syntaxe du champ seulement. */
+    /** Probleme de configuration de l'assertion, ou null. */
     public static String configurationProblem(String path, JsonAssertionOperator operator, String expected) {
         boolean hasPath = hasJsonAssertion(path);
         if (!hasPath) {

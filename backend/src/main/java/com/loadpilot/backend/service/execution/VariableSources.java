@@ -6,18 +6,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Sources de variables d'une execution : lignes CSV, distribution des lignes, variables du
- * scenario. Une instance par execution : le compteur PER_ITERATION est partage par tous les VU
- * (AtomicLong, thread-safe) ; tout le reste est en lecture seule.
- */
+/** Sources de variables d'une execution : lignes CSV, distribution des lignes, variables du scenario. */
 public final class VariableSources {
 
     private final List<Map<String, String>> csvRows;
     private final CsvDistribution distribution;
     private final Map<String, String> scenarioVariables;
     private final AtomicLong nextRow = new AtomicLong();
-    /** Variable -> numero (1..n) de la premiere etape qui la capture (messages d'erreur). */
+    /** Variable -> numero de la premiere etape qui la capture. */
     private final Map<String, Integer> captureStepByVariable;
 
     public VariableSources(List<Map<String, String>> csvRows, CsvDistribution distribution,
@@ -38,12 +34,11 @@ public final class VariableSources {
         this.captureStepByVariable = Map.copyOf(captures);
     }
 
-    /** Compatibilite : CSV seul, une ligne par VU, sans variables du scenario. */
     public static VariableSources of(List<Map<String, String>> csvRows) {
         return new VariableSources(csvRows, CsvDistribution.PER_VIRTUAL_USER, Map.of(), List.of());
     }
 
-    /** Ligne CSV de l'iteration d'un VU (vide sans CSV). */
+    /** Ligne CSV de l'iteration d'un utilisateur virtuel (vide sans CSV). */
     public Map<String, String> rowFor(int virtualUser) {
         if (csvRows.isEmpty()) return Map.of();
         if (distribution == CsvDistribution.PER_ITERATION) {
@@ -64,7 +59,7 @@ public final class VariableSources {
         return captureStepByVariable;
     }
 
-    /** Meme sources, numerotation des captures recalculee sur les etapes reellement jouees. */
+    /** Memes sources, captures renumerotees sur les etapes jouees. */
     public VariableSources withSteps(List<StepExecutionSpec> steps) {
         return new VariableSources(csvRows, distribution, scenarioVariables, steps);
     }

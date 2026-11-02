@@ -10,7 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Reglage de LoadPilot modifiable a chaud (cle -> valeur texte), voir service.AppSettingsService. */
+/** Reglage de LoadPilot modifiable depuis l'interface (cle -> valeur texte). */
 @Entity
 @Table(name = "app_setting")
 @Getter

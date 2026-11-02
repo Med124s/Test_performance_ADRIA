@@ -10,11 +10,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.Test;
 
-/**
- * P1-B — tests unitaires purs (aucun contexte Spring) de la seule logique
- * de calcul de "nextRunAt" (voir sa Javadoc pour le choix technologique
- * CronExpression, deja inclus dans spring-context).
- */
+/** Calcul de "nextRunAt" (tests unitaires, sans contexte Spring). */
 class ScheduleNextRunCalculatorTest {
 
     private final Instant now = Instant.parse("2026-01-15T10:00:00Z");
@@ -43,8 +39,7 @@ class ScheduleNextRunCalculatorTest {
 
     @Test
     void computeInitial_recurringCron_validExpression_returnsFutureOccurrence() {
-        // Tous les jours a 08:00 UTC - "now" est le 15 janvier a 10:00, donc
-        // la prochaine occurrence reelle est le 16 janvier a 08:00.
+        // Tous les jours a 08:00 UTC ; now = 15 janvier 10:00 -> 16 janvier 08:00.
         Instant result = ScheduleNextRunCalculator.computeInitial(ScheduleType.RECURRING_CRON, null, "0 0 8 * * *", "UTC", now);
         assertThat(result).isEqualTo(Instant.parse("2026-01-16T08:00:00Z"));
     }
@@ -71,8 +66,7 @@ class ScheduleNextRunCalculatorTest {
 
     @Test
     void computeInitial_recurringCron_differentTimezones_produceDifferentUtcInstants() {
-        // 08:00 heure de Casablanca (UTC+1 en janvier, pas d'heure d'ete) !=
-        // 08:00 UTC - la conversion doit reellement changer l'instant retourne.
+        // 08:00 a Casablanca (UTC+1 en janvier) != 08:00 UTC.
         Instant utc = ScheduleNextRunCalculator.computeInitial(ScheduleType.RECURRING_CRON, null, "0 0 8 * * *", "UTC", now);
         Instant casablanca = ScheduleNextRunCalculator.computeInitial(ScheduleType.RECURRING_CRON, null, "0 0 8 * * *", "Africa/Casablanca", now);
         assertThat(casablanca).isNotEqualTo(utc);
@@ -94,7 +88,7 @@ class ScheduleNextRunCalculatorTest {
         assertThat(next).isEqualTo(Instant.parse("2026-01-16T08:00:00Z"));
     }
 
-    // ---- frequences de l'interface (toutes traduites en CRON), CRON standard, fuseau, date de fin
+    // ---- Frequences de l'interface, CRON standard, fuseau, date de fin ----
 
     @Test
     void normalizeCron_acceptsStandardFiveFieldExpressions() {

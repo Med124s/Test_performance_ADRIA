@@ -7,11 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import './executions/executions.css'
 import './users/users.css'
 
-// ============================================================
-// « Utilisateurs et rôles » : l'ancienne page « Users & Roles » (onglet
-// « Utilisateurs ») et le « Catalogue des rôles » (onglet « Rôles »).
-// Anciennes adresses : /users-roles, /roles-catalog.
-// ============================================================
+// « Utilisateurs et rôles » : onglets Utilisateurs et Rôles.
 
 export default function UtilisateursRoles() {
   const { authProvider, rawRoles } = useAuth()

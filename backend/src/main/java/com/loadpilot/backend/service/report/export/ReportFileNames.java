@@ -5,11 +5,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
-/**
- * Noms des fichiers exportes, lisibles et surs : « Rapport_Parcours-bancaire_2026-10-10_16h38.xlsx »
- * (scenario sans accent ni caractere special, espaces remplaces par des tirets, date et heure de
- * lancement a l'heure locale), suivi au besoin du tableau (« _Etapes.csv »).
- */
+/** Noms des fichiers exportes, ex. "Rapport_Parcours-bancaire_2026-10-10_16h38.xlsx". */
 public final class ReportFileNames {
 
     private ReportFileNames() {

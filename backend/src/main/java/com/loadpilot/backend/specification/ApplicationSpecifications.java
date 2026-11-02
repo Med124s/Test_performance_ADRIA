@@ -7,11 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.jpa.domain.Specification;
 
-/**
- * WHERE de GET /api/applications pagine (meme pattern qu'ExecutionSpecifications) :
- * archivees ou non, filtre de status optionnel, recherche insensible a la
- * casse sur le nom, l'URL et la description - tous combines en ET.
- */
+/** Filtres de la liste paginee des applications : archivees ou non, statut, recherche sur le nom, l'URL et la description. */
 public final class ApplicationSpecifications {
 
     private ApplicationSpecifications() {

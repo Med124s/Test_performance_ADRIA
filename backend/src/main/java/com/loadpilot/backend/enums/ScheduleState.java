@@ -1,10 +1,6 @@
 package com.loadpilot.backend.enums;
 
-/**
- * Etat d'une planification, calcule (jamais stocke) depuis ses champs et son scenario :
- * ACTIVE (se lancera), PAUSED (mise en pause par l'utilisateur), SUSPENDED (scenario inactif ou archive),
- * COMPLETED (planification unique deja lancee ou passee), EXPIRED (date de fin depassee).
- */
+/** Etat calcule d'une planification : ACTIVE, PAUSED, SUSPENDED (scenario inactif ou archive) ou COMPLETED ou EXPIRED. */
 public enum ScheduleState {
     ACTIVE,
     PAUSED,

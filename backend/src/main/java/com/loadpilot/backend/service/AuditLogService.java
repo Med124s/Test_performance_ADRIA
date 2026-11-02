@@ -13,18 +13,10 @@ import java.util.UUID;
 
 public interface AuditLogService {
 
-    /**
-     * Enregistre reellement une entree (acteur, IP, navigateur et date resolus
-     * en interne depuis la requete courante, sauf action automatique ou
-     * evenement importe). Ne leve JAMAIS d'exception : un echec d'ecriture de
-     * l'audit ne doit jamais faire echouer l'operation metier appelante (voir
-     * Phase 12, section 15). Ignore :
-     * - une consultation si le reglage « Journaliser aussi les consultations » est desactive ;
-     * - une action strictement identique a la precedente dans la meme seconde.
-     */
+    /** Enregistre une entree d'audit ; ne leve jamais d'exception. */
     void record(AuditEvent event);
 
-    /** Forme courte historique (sans objet ni avant / apres). */
+    /** Enregistrement sans objet concerne ni changements. */
     default void record(AuditAction action, AuditModule module, AuditResult result, String description) {
         record(AuditEvent.of(action, module).result(result).description(description));
     }

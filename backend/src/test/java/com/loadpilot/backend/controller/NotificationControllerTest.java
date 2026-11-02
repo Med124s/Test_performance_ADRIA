@@ -35,17 +35,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * P1-B — verifie que les Notifications sont REELLEMENT generees depuis un
- * vrai evenement (fin d'Execution SUCCESS) ET que l'isolation entre
- * utilisateurs est stricte (jamais un utilisateur ne voit/modifie les
- * notifications d'un autre) - voir NotificationServiceImpl.
- *
- * Les postprocesseurs jwt() par defaut utilises ailleurs (AS_SUPER_ADMIN...)
- * partagent tous le meme "sub" par defaut - INSUFFISANT ici, ou l'identite
- * du declencheur doit reellement differer entre deux utilisateurs : ce
- * fichier construit donc ses propres Jwt avec un "sub" explicite et distinct.
- */
+/** Notifications generees a la fin d'une execution, et isolation stricte entre utilisateurs. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -125,8 +115,7 @@ class NotificationControllerTest {
                     mockMvc.perform(get("/api/executions/" + executionId).with(as))
                             .andReturn().getResponse().getContentAsString()).get("status").asText();
             if (!status.equals("QUEUED") && !status.equals("RUNNING")) {
-                // La notification est creee juste APRES le statut final (fin de la tache asynchrone :
-                // metriques, audit) : on attend qu'elle existe plutot que de lire trop tot.
+                // La notification est creee juste apres le statut final : on attend qu'elle existe.
                 long notifDeadline = System.currentTimeMillis() + 5000;
                 while (System.currentTimeMillis() < notifDeadline
                         && !listNotifications(as).toString().contains(executionId)) {
@@ -226,8 +215,7 @@ class NotificationControllerTest {
             assertThat(n.get("id").asText()).isNotEqualTo(userANotificationId);
         }
 
-        // userB ne peut ni lire, ni supprimer la notification de userA (404,
-        // jamais un 403 qui confirmerait son existence a un autre utilisateur).
+        // userB ne peut ni lire ni supprimer la notification de userA (404).
         mockMvc.perform(patch("/api/notifications/" + userANotificationId + "/read").with(userB))
                 .andExpect(status().isNotFound());
         mockMvc.perform(delete("/api/notifications/" + userANotificationId).with(userB))

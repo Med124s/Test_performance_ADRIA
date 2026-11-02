@@ -6,11 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Tout ce qu'il faut pour lancer reellement une Execution, copie dans la transaction courte de
- * preparation (voir ExecutionTransactionHelper.prepareAndStart) - jamais une entite JPA geree
- * transportee hors de sa transaction.
- */
+/** Donnees necessaires pour lancer une execution, copiees pendant sa preparation. */
 public record PreparedExecution(
         UUID executionId,
         List<StepExecutionSpec> steps,
@@ -24,12 +20,11 @@ public record PreparedExecution(
         UUID scheduleId,
         /** Detail des requetes a conserver (voir RequestDetailRecorder). */
         RequestDetailMode requestDetailMode,
-        /** Frein automatique sur taux d'erreurs fige au lancement ; null = desactive (voir ErrorRateBrake). */
+        /** Frein automatique ; null = desactive. */
         ErrorRateBrake.Config errorBrake,
-        /** Proxy pour joindre l'application, fige au lancement (voir NetworkProfile) ; null = proxy du serveur. */
+        /** Reglages reseau pour joindre l'application ; null = proxy du serveur. */
         com.loadpilot.backend.service.http.NetworkProfile network
 ) {
-    /** Compatibilite : proxy du serveur. */
     public PreparedExecution(UUID executionId, List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
             LoadTestSpec loadSpec, List<Map<String, String>> vuVariableRows, VariableSources variableSources, String scenarioName,
             UUID triggeredByAppUserId, UUID scheduleId, RequestDetailMode requestDetailMode, ErrorRateBrake.Config errorBrake) {
@@ -37,7 +32,6 @@ public record PreparedExecution(
                 triggeredByAppUserId, scheduleId, requestDetailMode, errorBrake, null);
     }
 
-    /** Compatibilite : sans detail des requetes. */
     public PreparedExecution(UUID executionId, List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
             LoadTestSpec loadSpec, List<Map<String, String>> vuVariableRows, VariableSources variableSources, String scenarioName,
             UUID triggeredByAppUserId, UUID scheduleId) {

@@ -21,14 +21,7 @@ import './applications.css'
 import './executions/executions.css'
 import './reports/reports.css'
 
-// ============================================================
-// Page Rapports : consulter et partager les résultats des tests TERMINÉS
-// (Réussie, Seuils dépassés, Échouée, Annulée). Liste paginée côté serveur
-// (GET /api/executions/page?finished=true), filtres, page et tri dans l'URL.
-// Actions : voir le rapport, Exporter Excel (par défaut), exporter en PDF, et
-// « ⋯ » : Conserver, Supprimer (mêmes droits que partout). Pas d'export CSV : Excel et PDF seulement.
-// Sélection de 2 à 4 rapports : Comparer.
-// ============================================================
+// Page Rapports : résultats des tests terminés, liste paginée côté serveur, exports et comparaison.
 
 export const RESULTS = ['SUCCESS', 'THRESHOLDS_EXCEEDED', 'FAILED', 'CANCELLED'] as const
 type Result = typeof RESULTS[number]
@@ -149,8 +142,7 @@ function Reports() {
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pageIds))
   const compareBlocked = selected.size < 2 ? 'Sélectionnez de 2 à 4 rapports.' : selected.size > 4 ? 'Comparaison limitée à 4 rapports.' : null
 
-  // ---------------------------------------------------------------- actions
-  // Exports (fichiers générés par le serveur, journalisés) : Excel par défaut, ou PDF.
+  // ---- Actions ----
   const [exporting, setExporting] = useState<string | null>(null)
   const EXPORTS = {
     xlsx: { label: 'Excel', run: executionsBackendApi.exportReportXlsx },

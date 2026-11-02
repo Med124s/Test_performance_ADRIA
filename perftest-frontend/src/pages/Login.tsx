@@ -3,12 +3,7 @@ import LoginRedirect from '../components/LoginRedirect'
 import { useAuth } from '../context/AuthContext'
 import { safeReturnPath } from '../services/auth/keycloakClient'
 
-/**
- * Ancienne adresse /login : il n'y a plus de page intermédiaire. La page de
- * connexion est le thème Keycloak « loadpilot » (keycloak/themes/loadpilot) ;
- * un utilisateur non connecté y est envoyé directement, un utilisateur déjà
- * connecté revient dans l'application.
- */
+/** Ancienne adresse /login : envoie vers la page de connexion, ou dans l'application si l'utilisateur est déjà connecté. */
 function Login() {
   const { isAuthenticated, isLoading } = useAuth()
   const location = useLocation()

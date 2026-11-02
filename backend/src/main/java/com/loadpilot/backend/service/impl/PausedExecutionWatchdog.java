@@ -12,12 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/**
- * Annule automatiquement une execution restee en pause plus de
- * app.execution.max-pause-minutes (15 par defaut) : sans ce garde-fou, une pause
- * oubliee garderait indefiniment sa capacite (VU reserves) et son verrou sur le
- * scenario (modification/suppression refusees pendant une execution active).
- */
+/** Annule une execution restee en pause plus de app.execution.max-pause-minutes (15 par defaut). */
 @Component
 public class PausedExecutionWatchdog {
 

@@ -3,11 +3,7 @@ package com.loadpilot.backend.dto.response;
 import com.loadpilot.backend.enums.HttpMethod;
 import java.time.Instant;
 
-/**
- * Une requete d'une execution (ligne de resume, toujours presente) ; "detailKind" = FAILURE ou
- * SAMPLE si le detail complet a ete conserve (GET /api/executions/{id}/results/{resultId}/detail),
- * sinon null.
- */
+/** Une requete d'une execution ; "detailKind" = FAILURE ou SAMPLE si le detail complet est conserve. */
 public record ExecutionRequestRowResponse(
         String resultId,
         String stepId,

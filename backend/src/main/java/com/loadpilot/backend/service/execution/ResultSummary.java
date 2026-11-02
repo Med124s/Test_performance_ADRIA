@@ -3,16 +3,7 @@ package com.loadpilot.backend.service.execution;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * Totaux d'une execution tenus au fil de l'eau, sans garder les resultats eux-memes : ceux-ci partent
- * en base pendant le test (voir ResultStream). Sert au statut final (ExecutionVerdict) : nombre de
- * requetes, echecs, au moins une reponse recue, premiere erreur, et P95 EXACT (meme methode
- * « nearest rank » que PercentileCalculator) a partir des seuls temps de reponse, 4 octets par requete
- * au lieu d'un StepOutcome complet.
- *
- * Thread-safe : alimente par tous les utilisateurs virtuels d'une execution (verrou court, jamais
- * dispute longtemps : un ajout dans un tableau).
- */
+/** Totaux d'une execution tenus au fil du test, sans garder les resultats eux-memes. */
 public final class ResultSummary {
 
     private long total;
@@ -66,7 +57,7 @@ public final class ResultSummary {
         return firstFailureError;
     }
 
-    /** Percentile p (0 &lt; p &le; 100) des temps de reponse, null sans requete - meme rang que PercentileCalculator. */
+    /** Percentile p (0 &lt; p &le; 100) des temps de reponse ; null sans requete. */
     public Long percentile(double p) {
         int[] sorted;
         synchronized (this) {
@@ -79,7 +70,7 @@ public final class ResultSummary {
         return (long) sorted[rank - 1];
     }
 
-    /** Memoire tenue, en octets (garde-fou memoire). */
+    /** Memoire occupee, en octets. */
     public synchronized long approxBytes() {
         return 4L * times.length;
     }

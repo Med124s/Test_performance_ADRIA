@@ -1,12 +1,4 @@
-// ============================================================
-// Messages entre onglets et fenêtres du même navigateur (même origine).
-//
-// BroadcastChannel quand le navigateur le permet ; sinon un événement « storage »
-// (localStorage) : écrire une clé prévient tous les AUTRES onglets. Un onglet ne
-// reçoit jamais ses propres messages. Utilisé par la déconnexion (sessionSync) et
-// par le compteur des notifications non lues (unreadNotifications).
-// Ne jamais y faire passer de jeton ni d'information personnelle.
-// ============================================================
+// Messages entre onglets du même navigateur : BroadcastChannel, ou à défaut l'événement « storage ».
 
 export interface TabChannel<T extends { type: string }> {
   /** Envoie `message` aux autres onglets. */

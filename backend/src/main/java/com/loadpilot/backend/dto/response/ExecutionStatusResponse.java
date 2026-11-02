@@ -4,19 +4,7 @@ import com.loadpilot.backend.enums.ExecutionStatus;
 import com.loadpilot.backend.service.execution.LiveStats;
 import java.time.Instant;
 
-/**
- * Vue allegee d'une Execution (P0-A), pensee pour du polling frequent
- * pendant un test de charge en cours - jamais le detail complet (pas de
- * liste de resultats par etape, potentiellement tres volumineuse avec
- * plusieurs utilisateurs virtuels).
- *
- * Pendant RUNNING, les totaux et "live" viennent des compteurs EN MEMOIRE du moteur (aucune
- * lecture des resultats en base) ; une fois terminee, les totaux viennent de l'Execution
- * finalisee et "live" vaut null (le rapport donne alors les statistiques completes).
- *
- * "progressPercent" n'est JAMAIS invente : temps ecoule / duree, sinon iterations faites /
- * prevues, plafonne a 99 % avant la finalisation reelle.
- */
+/** Etat d'une execution pour le suivi en direct. */
 public record ExecutionStatusResponse(
         String id,
         ExecutionStatus status,

@@ -1,18 +1,6 @@
-# Master prompt final (Lot E) — build multi-stage standard (Node + nginx),
-# aucune dependance/etape inventee. Syntaxiquement valide et coherent avec
-# package.json (script "build" = tsc && vite build, sortie dans dist/) —
-# mais JAMAIS execute dans cet environnement (Docker absent, verrou Avast/
-# esbuild egalement documente pour le build LOCAL non-Docker, voir rapport
-# de phase) : DOCKER RUNTIME TEST — NOT VERIFIED.
+# Image du frontend LoadPilot : build Vite (Node), puis fichiers statiques servis par nginx.
 #
-# IMPORTANT (variables VITE_*) : Vite les integre au JavaScript au moment du
-# BUILD, jamais au demarrage du conteneur (contrairement a une variable
-# d'environnement backend classique). Le NAVIGATEUR (cote HOTE, jamais dans
-# le reseau interne Docker) doit pouvoir les resoudre : elles doivent donc
-# pointer vers les ports EXPOSES A L'HOTE par docker-compose.yml
-# (http://localhost:8081, http://localhost:8080), jamais vers un nom de
-# service Docker interne ("keycloak"/"backend") que le navigateur ne peut
-# pas resoudre.
+# Les variables VITE_* sont integrees au build ; elles designent les ports de l'hote, utilises par le navigateur.
 FROM node:22-alpine AS build
 WORKDIR /build
 COPY package.json package-lock.json ./
@@ -30,8 +18,7 @@ ENV VITE_KEYCLOAK_URL=${VITE_KEYCLOAK_URL} \
 
 RUN npx tsc && npx vite build
 
-# Etage 2 : nginx sert le build statique (dist/) - jamais "npm run dev" en
-# production (serveur de developpement, non concu pour cet usage).
+# Etage 2 : nginx sert le build statique (dist/).
 FROM nginx:alpine
 COPY --from=build /build/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

@@ -22,19 +22,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/**
- * Importe periodiquement (toutes les 60 s par defaut) les evenements de
- * securite du systeme d'authentification (Keycloak) dans le journal d'audit,
- * categorie « Sécurité » : connexion reussie / echouee (nom saisi, IP),
- * compte bloque, deconnexion, mot de passe change ou lien demande.
- *
- * Choix : lecture periodique de l'API d'administration plutot qu'un
- * « Event Listener SPI » installe dans Keycloak (code Java a compiler et a
- * maintenir a chaque version de Keycloak). Contrepartie : jusqu'a une minute
- * de delai. Chaque evenement porte un identifiant unique (external_id) :
- * jamais importe deux fois, meme si la lecture se chevauche. Un curseur
- * (date du dernier evenement importe) evite de relire tout l'historique.
- */
+/** Importe periodiquement (60 s par defaut) les evenements de securite de Keycloak dans le journal d'audit. */
 @Component
 @RequiredArgsConstructor
 public class SecurityEventImporter {
@@ -61,7 +49,6 @@ public class SecurityEventImporter {
         try {
             importNewEvents();
         } catch (Exception e) {
-            // Systeme d'authentification injoignable : nouvel essai au prochain passage.
             log.warn("Import des evenements de securite impossible : {}", e.getMessage());
         }
     }
@@ -74,7 +61,7 @@ public class SecurityEventImporter {
             List<KeycloakSecurityEvent> page = keycloakAdminClient.securityEvents(first, PAGE);
             boolean reachedCursor = false;
             for (KeycloakSecurityEvent event : page) {
-                // ">=" : evenements de la meme milliseconde que le curseur reverifies via external_id.
+                // ">=" : evenements de la meme milliseconde que le curseur, dedoublonnes par external_id.
                 if (event.time() >= cursor) {
                     fresh.add(event);
                 } else {

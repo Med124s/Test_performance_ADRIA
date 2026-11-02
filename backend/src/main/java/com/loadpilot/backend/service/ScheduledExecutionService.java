@@ -18,7 +18,7 @@ public interface ScheduledExecutionService {
     /** Prochains lancements d'une configuration en cours de saisie (meme calcul que le declencheur) ; rien n'est enregistre. */
     SchedulePreviewResponse preview(SchedulePreviewRequest request);
 
-    /** ?scenarioId= filtre optionnel (meme convention que Scenarios/Executions). */
+    /** scenarioId : filtre optionnel. */
     List<ScheduledExecutionResponse> list(UUID scenarioId);
 
     ScheduledExecutionResponse getById(UUID id);
@@ -28,14 +28,7 @@ public interface ScheduledExecutionService {
 
     ScheduledExecutionResponse setEnabled(UUID id, boolean enabled);
 
-    /**
-     * Declenche IMMEDIATEMENT (voir ScheduledExecutionTransactionHelper -
-     * meme protection anti double-declenchement, meme moteur reel via
-     * ExecutionService.executeScheduled) - jamais un chemin distinct du
-     * declenchement automatique.
-     * @throws com.loadpilot.backend.exception.ConflictException si une execution du meme scenario est encore en cours.
-     * @throws com.loadpilot.backend.exception.ExecutionLimitExceededException si la capacite globale est depassee (propagee telle quelle, jamais absorbee).
-     */
+    /** Declenche immediatement une planification. */
     ScheduledExecutionResponse runNow(UUID id);
 
     void delete(UUID id);

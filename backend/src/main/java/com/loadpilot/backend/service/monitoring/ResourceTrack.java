@@ -3,11 +3,7 @@ package com.loadpilot.backend.service.monitoring;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Mesures CPU / RAM d'UNE execution, en memoire pendant le test (thread-safe) : lues par le
- * suivi en direct, enregistrees a la fin (ExecutionTransactionHelper.saveResources).
- * Au-dela de MAX_SAMPLES, les mesures sont moyennees deux a deux : toute la duree reste couverte.
- */
+/** Mesures CPU / RAM d'une execution, en memoire pendant le test, enregistrees a la fin. */
 public final class ResourceTrack {
 
     static final int MAX_SAMPLES = 4000;
@@ -62,10 +58,7 @@ public final class ResourceTrack {
         return samples.isEmpty() ? null : samples.get(samples.size() - 1);
     }
 
-    /**
-     * Message a afficher : null si toutes les lectures ont reussi. Monitoring jamais bloquant :
-     * l'execution continue normalement dans tous les cas.
-     */
+    /** Message a afficher ; null si toutes les lectures ont reussi. */
     public synchronized String message() {
         if (failures == 0) return null;
         if (successes == 0) {

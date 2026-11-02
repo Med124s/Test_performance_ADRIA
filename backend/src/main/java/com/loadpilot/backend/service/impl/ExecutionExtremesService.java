@@ -16,15 +16,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * D'ou viennent les cartes Minimum / Maximum du rapport : les LIMIT requetes les plus rapides ou
- * les plus lentes, lues dans la base via l'index (execution_id, response_time_ms) - jamais toutes
- * les requetes en memoire. Ordre : temps de reponse, puis la plus ancienne d'abord ; la premiere
- * est donc exactement la valeur de la carte (meme population : requetes au temps mesure).
- *
- * Contexte « au meme moment » : intervalle de l'analyse dans le temps (deja calculee et mise en
- * cache pour une execution terminee) contenant la fin de la requete.
- */
+/** Requetes les plus rapides ou les plus lentes d'une execution (cartes Minimum / Maximum du rapport), lues via l'index (execution_id, response_time_ms). */
 @Service
 @RequiredArgsConstructor
 public class ExecutionExtremesService {

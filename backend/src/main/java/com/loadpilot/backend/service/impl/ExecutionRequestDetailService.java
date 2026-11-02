@@ -25,10 +25,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Lecture des requetes d'une execution : liste paginee cote base (filtres etape, utilisateur
- * virtuel, iteration, echecs seulement) et detail complet d'une requete (si conserve).
- */
+/** Requetes d'une execution : liste paginee et filtree, et detail complet d'une requete s'il est conserve. */
 @Service
 @RequiredArgsConstructor
 public class ExecutionRequestDetailService {
@@ -74,7 +71,7 @@ public class ExecutionRequestDetailService {
             if (stepId != null) {
                 p.add(cb.equal(root.get("step").get("id"), stepId));
             } else if (stepName != null && !stepName.isBlank()) {
-                // Etape supprimee depuis : retrouvee par sa copie (nom), step = null.
+                // Etape supprimee depuis : retrouvee par sa copie (nom).
                 p.add(cb.isNull(root.get("step")));
                 p.add(cb.equal(root.get("stepName"), stepName));
             }
@@ -89,7 +86,7 @@ public class ExecutionRequestDetailService {
                 rows.getNumber(), rows.getSize(), rows.getTotalElements(), rows.getTotalPages());
     }
 
-    /** Type de detail conserve (FAILURE / SAMPLE) par requete ; absente = detail non conserve. */
+    /** Type de detail conserve (FAILURE / SAMPLE) par requete. */
     Map<UUID, String> detailKinds(List<ExecutionStepResult> results) {
         Map<UUID, String> kinds = new HashMap<>();
         if (!results.isEmpty()) {

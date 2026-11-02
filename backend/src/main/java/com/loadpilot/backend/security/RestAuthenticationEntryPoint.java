@@ -9,11 +9,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 
-/**
- * 401 - utilisateur non authentifie : token absent, invalide ou expire.
- * Remplace la reponse HTML/texte par defaut de Spring Security par un JSON
- * coherent avec le futur format d'erreur global (voir exception.ErrorResponse).
- */
+/** Reponse JSON 401 : jeton absent, invalide ou expire. */
 @Component
 @RequiredArgsConstructor
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {

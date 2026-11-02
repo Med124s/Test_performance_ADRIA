@@ -12,22 +12,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 
-/**
- * Convertit un Jwt Keycloak en Authentication Spring Security.
- *
- * Lit les roles realm dans la revendication standard Keycloak
- * "realm_access.roles" et les transforme en authorities Spring prefixees
- * "ROLE_" (ex: "ROLE_SUPER_ADMIN") pour etre compatibles avec
- * hasRole()/@PreAuthorize("hasRole('SUPER_ADMIN')").
- *
- * CONFIRME EN PHASE 5 (specification explicite : realm_access.roles =
- * ["ROLE_VIEWER"] doit produire l'authority "ROLE_VIEWER", pas
- * "ROLE_ROLE_VIEWER") : les roles realm Keycloak portent DEJA le prefixe
- * "ROLE_" - ceci remplace l'hypothese inverse documentee en Phase 4. Le
- * prefixage ci-dessous est rendu idempotent (n'ajoute "ROLE_" que si absent)
- * pour rester tolerant si un role est un jour defini sans prefixe cote
- * Keycloak, sans jamais produire de double-prefixe.
- */
+/** Convertit un JWT Keycloak en Authentication : les roles de "realm_access.roles" deviennent des authorities "ROLE_...". */
 @Component
 public class JwtAuthConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 

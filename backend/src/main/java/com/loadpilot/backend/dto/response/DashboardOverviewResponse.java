@@ -5,11 +5,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Dashboard (GET /api/dashboard/overview?applicationId=&from=&to=) : tout est filtre par
- * application et par periode (executions LANCEES dans la periode). Valeurs nulles = non
- * calculables (aucune requete, aucune execution precedente...), jamais inventees.
- */
+/** Tableau de bord filtre par application et par periode ; null = valeur non calculable. */
 public record DashboardOverviewResponse(
         String applicationId,
         Instant from,

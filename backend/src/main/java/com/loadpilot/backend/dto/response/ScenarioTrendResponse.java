@@ -5,12 +5,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * « Évolution des performances » d'un scenario : ses executions terminees de la periode, de la plus
- * ancienne a la plus recente. steps : etapes disponibles pour le filtre ; avec ?stepName=, chaque
- * point porte aussi le P95, le taux d'erreurs et le nombre de requetes de cette etape (null si
- * l'etape n'existe pas dans cette execution).
- */
+/** Evolution des performances d'un scenario sur la periode, de la plus ancienne execution a la plus recente. */
 public record ScenarioTrendResponse(String scenarioId, String scenarioName, List<StepOption> steps, String stepName, List<Point> points) {
 
     public record StepOption(String name, String method) {

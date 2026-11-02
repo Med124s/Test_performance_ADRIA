@@ -38,14 +38,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * P1-B (prompt section 44) — un declenchement de ScheduledExecution
- * ("run now" ici, meme chemin exactement que le poller automatique - voir
- * ScheduledExecutionTrigger) respecte EXACTEMENT la meme limite globale de
- * capacite que le lancement manuel (P0-B, RunningExecutionRegistry) -
- * jamais un contournement. Contexte Spring DEDIE avec une limite
- * volontairement basse (meme technique que ExecutionConcurrencyLimitsTest).
- */
+/** Un declenchement de planification respecte la meme limite de capacite qu'un lancement manuel. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
         "app.execution.max-concurrent-executions=1",
 })

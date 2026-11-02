@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { appInfoBackendApi } from '../services/api/appInfoBackend'
 
-// Version de LoadPilot lue sur le serveur (GET /api/version) : une seule requête par session.
-// Le numéro n'est jamais écrit dans le frontend (seule définition : backend/pom.xml).
+// Version de LoadPilot lue sur le serveur (GET /api/version), une fois par session.
 
 let cached: string | null = null
 let inFlight: Promise<string | null> | null = null

@@ -4,26 +4,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
 
-/**
- * Poignee reelle de controle d'une Execution en cours - un seul objet par
- * Execution, partage entre le thread qui orchestre l'execution (voir
- * ExecutionServiceImpl) et le thread HTTP qui traite une eventuelle
- * demande d'annulation (POST /api/executions/{id}/cancel) ou de pause.
- *
- * "cancelled" est verifie de maniere cooperative par chaque utilisateur
- * virtuel (voir HttpClientExecutionEngine.runVirtualUser) AVANT chaque
- * etape/iteration ; "futures" permet EN PLUS d'interrompre reellement une
- * requete HTTP deja en vol (Future.cancel(true) interrompt le thread
- * virtuel, java.net.http.HttpClient.send(...) reagit a l'interruption).
- * Sans ce deuxieme mecanisme, l'annulation attendrait la fin de la requete
- * HTTP en cours avant de prendre effet.
- *
- * Pause (cooperative, jamais d'interruption) : chaque VU appelle
- * awaitIfPaused() juste avant d'envoyer une requete - une requete deja en vol
- * recoit sa reponse, aucune nouvelle requete ne part pendant la pause. Les
- * attentes (ramp-up, think time) passent par sleepActive(), qui ne decompte
- * pas le temps de pause : le test reprend exactement la ou il s'etait arrete.
- */
+/** Controle d'une execution en cours : annulation, pause, compteurs en direct, mesures et chronologie. */
 public final class RunningExecutionHandle {
 
     private volatile boolean cancelled = false;
@@ -44,8 +25,7 @@ public final class RunningExecutionHandle {
     private volatile RequestDetailRecorder detailRecorder;
     private volatile com.loadpilot.backend.service.monitoring.ResourceTrack resources;
 
-    // Chronologie (heure murale, ms) : activite de chaque VU et pauses - enregistree a la fin de
-    // l'execution pour l'analyse dans le temps (utilisateurs actifs a chaque instant, pauses grisees).
+    // Chronologie (heure murale, ms) : activite de chaque utilisateur virtuel et pauses.
     private final java.util.Map<Integer, long[]> virtualUserIntervals = new java.util.concurrent.ConcurrentHashMap<>();
     private final List<long[]> pauseIntervals = new CopyOnWriteArrayList<>();
 
@@ -84,7 +64,7 @@ public final class RunningExecutionHandle {
         this.resources = track;
     }
 
-    /** Ecriture des resultats au fil du test (voir ResultStream) ; null = resultats gardes en memoire jusqu'a la fin. */
+    /** Ecriture des resultats au fil du test ; null = resultats gardes en memoire jusqu'a la fin. */
     private volatile ResultStream resultStream;
 
     public ResultStream resultStream() {
@@ -130,9 +110,7 @@ public final class RunningExecutionHandle {
 
     public void registerFuture(Future<?> future) {
         futures.add(future);
-        // Cas limite reel : l'annulation a ete demandee ENTRE la creation de
-        // cette poignee et l'enregistrement de ce future precis - sans ce
-        // rattrapage, ce VU particulier ignorerait l'annulation deja actee.
+        // Annulation demandee avant l'enregistrement de cette tache : elle est annulee tout de suite.
         if (cancelled) {
             future.cancel(true);
         }
@@ -149,9 +127,7 @@ public final class RunningExecutionHandle {
         return liveStats;
     }
 
-    /** Demande une annulation REELLE : positionne le drapeau cooperatif ET
-     * interrompt immediatement tous les utilisateurs virtuels deja lances
-     * (y compris ceux bloques par une pause). */
+    /** Annule l'execution : interrompt tous les utilisateurs virtuels deja lances. */
     public void requestCancellation() {
         requestCancellation(null);
     }
@@ -161,10 +137,7 @@ public final class RunningExecutionHandle {
         return requestCancellation(reason, null);
     }
 
-    /**
-     * La premiere demande l'emporte (atomique) : son motif et son auteur sont gardes, une demande
-     * concurrente (ex. frein automatique et clic sur « Annuler » au meme instant) ne les ecrase pas.
-     */
+    /** La premiere demande d'annulation l'emporte : son motif et son auteur sont gardes. */
     private boolean requestCancellation(String reason, String username) {
         boolean first;
         synchronized (cancelLock) {
@@ -186,7 +159,7 @@ public final class RunningExecutionHandle {
         futures.forEach(f -> f.cancel(true));
     }
 
-    // ------------------------------------------------------------ pause
+    // ---- Pause ----
 
     /** Met en pause ; false si deja en pause ou annulee. */
     public boolean pause() {
@@ -224,10 +197,7 @@ public final class RunningExecutionHandle {
         }
     }
 
-    /**
-     * Temps de travail (ns) depuis startNanos, pauses exclues, calcule avec UNE seule lecture
-     * d'horloge : pendant une pause la valeur est exactement constante (progression figee).
-     */
+    /** Temps de travail (ns) depuis startNanos, pauses exclues. */
     public long activeNanosSince(long startNanos) {
         synchronized (pauseLock) {
             long now = paused ? pausedSinceNanos : System.nanoTime();
@@ -235,10 +205,7 @@ public final class RunningExecutionHandle {
         }
     }
 
-    /**
-     * Bloque tant que l'execution est en pause. Renvoie false si l'execution est
-     * annulee (ou le thread interrompu) : l'appelant doit alors s'arreter.
-     */
+    /** Attend la fin de la pause ; false si l'execution est annulee. */
     public boolean awaitIfPaused() {
         synchronized (pauseLock) {
             while (paused && !cancelled) {
@@ -253,11 +220,7 @@ public final class RunningExecutionHandle {
         return !cancelled;
     }
 
-    /**
-     * Attente reelle de "millis" millisecondes de temps ACTIF : le temps passe en
-     * pause n'est pas decompte (un VU en ramp-up ou en think time reprend son
-     * attente la ou il l'avait laissee). false si annulee ou interrompue.
-     */
+    /** Attend "millis" millisecondes de temps actif (pauses exclues) ; false si annulee. */
     public boolean sleepActive(long millis) {
         long remaining = millis * 1_000_000L;
         while (remaining > 0) {

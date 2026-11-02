@@ -13,11 +13,7 @@ import './execution-compare/compare.css'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
 
-// ============================================================
-// « Comparer des exécutions » (/executions/compare?ids=a,b,c) : une colonne par exécution, mêmes
-// valeurs que leurs rapports (calcul serveur), meilleure / moins bonne valeur mises en évidence,
-// débit / P95 / CPU selon la charge, P95 de chaque étape.
-// ============================================================
+// « Comparer des exécutions » (/executions/compare?ids=a,b,c) : une colonne par exécution, mêmes valeurs que leurs rapports.
 
 type Row = { label: string; hint?: string; direction: Direction; value: (c: BackendComparisonColumn) => number | null; format: (c: BackendComparisonColumn) => string }
 

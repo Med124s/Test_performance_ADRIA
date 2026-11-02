@@ -11,14 +11,6 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-/**
- * JpaSpecificationExecutor : les filtres combinables de GET /api/audit-logs
- * sont construits dynamiquement via specification.AuditLogSpecifications.
- *
- * Aucune methode de modification d'une entree : le journal est en ajout
- * seul. Seule suppression possible : la purge automatique des entrees plus
- * anciennes que la duree de conservation (voir AuditRetentionJob).
- */
 public interface AuditLogRepository extends JpaRepository<AuditLog, UUID>, JpaSpecificationExecutor<AuditLog> {
 
     long countByResult(AuditResult result);

@@ -1,11 +1,4 @@
-// ============================================================
-// P1-D — accès réel (LECTURE SEULE) à GET /api/system/config (voir
-// SystemConfigController côté backend, réservé SUPER_ADMIN). Remplace la
-// page Configurations.tsx précédemment un pur placeholder ComingSoonPage —
-// aucune configuration mutable n'est créée ici (décision explicite,
-// documentée dans le rapport P1-D) : uniquement une vue honnête des
-// limites opérationnelles réellement actives.
-// ============================================================
+// Limites de charge du serveur (lecture seule, Super administrateur).
 
 import { springHttp } from './httpClient'
 import { BackendSystemConfigResponse } from '../../types/backendContracts'

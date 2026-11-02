@@ -1,9 +1,6 @@
 import { BackendTestRunStepResult } from '../../types/backendContracts'
 
-// ============================================================
-// Aides d'affichage du test détaillé (étape « Tester ») : couleur du statut,
-// piste de correction, taille lisible, coloration JSON et cohérence des URL.
-// ============================================================
+// Affichage du test détaillé (étape « Tester ») : couleur du statut, piste de correction, taille lisible, coloration JSON, cohérence des URL.
 
 export type StatusTone = 'ok' | 'info' | 'warn' | 'ko' | 'neutral'
 
@@ -82,7 +79,7 @@ export interface UrlMismatch {
   suggestedPath: string
 }
 
-/** Même règle que le backend (StepTestRunner.urlWarning) : URL absolue d'une autre origine que l'application. */
+/** URL absolue d'une autre origine que l'application (même règle que StepTestRunner.urlWarning). */
 export function urlMismatch(baseUrl: string, stepUrl: string): UrlMismatch | null {
   const step = ABSOLUTE_URL.exec(stepUrl.trim())
   const base = ABSOLUTE_URL.exec(baseUrl.trim())

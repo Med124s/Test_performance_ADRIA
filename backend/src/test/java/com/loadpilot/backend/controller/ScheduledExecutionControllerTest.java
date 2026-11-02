@@ -43,13 +43,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * P1-B — verifie /api/scheduled-executions de bout en bout : validation
- * croisee (cron/timezone/runAt), permissions (meme matrice que
- * /api/executions), declenchement REEL via run-now (meme moteur que le
- * lancement manuel), et LA protection anti double-declenchement
- * transactionnelle (voir ScheduledExecutionTransactionHelper).
- */
+/** /api/scheduled-executions de bout en bout : validation, permissions, declenchement via run-now et protection contre le double declenchement. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -262,15 +256,12 @@ class ScheduledExecutionControllerTest {
         mockMvc.perform(get("/api/scheduled-executions/" + id).with(AS_SUPER_ADMIN)).andExpect(status().isNotFound());
     }
 
-    // ------------------------------------------------------------
-    // Declenchement reel (run-now) — MEME moteur que le lancement manuel
-    // ------------------------------------------------------------
+    // ---- Declenchement immediat (run-now), meme moteur que le lancement manuel ----
 
     @Test
     void runNow_triggersARealExecution_disablesFutureAutoFiringForOneTime_andRecordsLastExecution() throws Exception {
         String scenarioId = createScenario("sched-runnow");
-        // runAt tres loin dans le futur : ne doit JAMAIS etre declenchee
-        // automatiquement pendant ce test, uniquement via "run now".
+        // runAt tres loin dans le futur : declenchee seulement via "run now" pendant ce test.
         String id = createOneTimeSchedule(scenarioId, "runnow-schedule", Instant.now().plus(30, ChronoUnit.DAYS));
 
         String response = mockMvc.perform(post("/api/scheduled-executions/" + id + "/run-now").with(AS_SUPER_ADMIN))
@@ -294,21 +285,9 @@ class ScheduledExecutionControllerTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ------------------------------------------------------------
-    // Protection anti double-declenchement (transactionnelle, section 45)
-    // ------------------------------------------------------------
+    // ---- Protection contre le double declenchement ----
 
-    /**
-     * Simule un tick de poller sur une ScheduledExecution RECURRING_CRON
-     * DEJA due (nextRunAt force dans le passe directement en base - la
-     * seule facon d'obtenir cet etat sans attendre reellement une
-     * occurrence cron, l'API publique ne permettant jamais de creer une
-     * planification deja due). Verifie que DEUX reclamations immediates
-     * consecutives ne peuvent JAMAIS toutes les deux reussir : la seconde
-     * doit systematiquement observer "nextRunAt" deja reprogramme dans le
-     * futur par la premiere (verrou + reprogrammation immediate AVANT le
-     * vrai declenchement, voir ScheduledExecutionTransactionHelper).
-     */
+    /** Deux reclamations du meme declenchement d'une planification due : seule la premiere reussit. */
     @Test
     void claimForAutomaticTrigger_calledTwiceForSameDueSchedule_onlyTheFirstSucceeds() throws Exception {
         String scenarioId = createScenario("sched-doubletrigger");
@@ -330,9 +309,7 @@ class ScheduledExecutionControllerTest {
         assertThat(first.claimed()).isTrue();
         assertThat(second.claimed()).isFalse();
 
-        // La premiere reclamation a bien reprogramme "nextRunAt" dans le
-        // futur (recurrence cron) - c'est CE mecanisme qui empeche la
-        // seconde de reussir, jamais un simple flag en memoire.
+        // La premiere reclamation a reprogramme "nextRunAt" dans le futur : la seconde ne trouve plus rien a declencher.
         ScheduledExecution reloaded = scheduledExecutionRepository.findById(id).orElseThrow();
         assertThat(reloaded.getNextRunAt()).isAfter(now);
     }

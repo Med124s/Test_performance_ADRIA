@@ -1,10 +1,6 @@
 import { KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from 'react'
 
-// ============================================================
-// Liste déroulante avec recherche (ex. filtre par scénario) : un champ
-// texte filtre les options, flèches haut/bas + Entrée pour choisir, Échap
-// pour fermer. La première option vide (« Tous… ») remet le filtre à zéro.
-// ============================================================
+// Liste déroulante avec recherche, utilisable au clavier (flèches, Entrée, Échap).
 
 export interface SearchSelectOption {
   value: string

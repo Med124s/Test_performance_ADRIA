@@ -32,18 +32,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/scheduled-executions — lecture ouverte a tout utilisateur
- * authentifie (voir SecurityConfig, meme convention que /api/executions) ;
- * creation/modification/activation/desactivation/declenchement manuel/
- * suppression reserves a SUPER_ADMIN et PERFORMANCE_ENGINEER - EXACTEMENT
- * la meme matrice de permissions que /api/executions (planifier un
- * lancement n'est pas une action moins sensible que le lancer directement).
- */
+/** API des planifications d'executions. */
 @RestController
 @RequestMapping("/api/scheduled-executions")
 @RequiredArgsConstructor
-@Tag(name = "Scheduled Executions", description = "Planification reelle et persistee du lancement d'un Scenario")
+@Tag(name = "Scheduled Executions", description = "Planification du lancement des scenarios (date unique ou expression cron)")
 public class ScheduledExecutionController {
 
     private final ScheduledExecutionService scheduledExecutionService;
@@ -105,7 +98,7 @@ public class ScheduledExecutionController {
 
     @PatchMapping("/{id}/disable")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
-    @Operation(summary = "Désactiver une planification", description = "Une planification desactivee n'est plus jamais declenchee automatiquement (mais reste declenchable via run-now).")
+    @Operation(summary = "Désactiver une planification", description = "Une planification desactivee n'est plus declenchee automatiquement ; elle reste declenchable via run-now.")
     public ScheduledExecutionResponse disable(@PathVariable UUID id) {
         return scheduledExecutionService.setEnabled(id, false);
     }
@@ -122,7 +115,7 @@ public class ScheduledExecutionController {
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
-    @Operation(summary = "Supprimer une planification", description = "N'affecte jamais les Executions deja generees (independantes, jamais supprimees en cascade).")
+    @Operation(summary = "Supprimer une planification", description = "Les executions deja lancees par la planification sont conservees.")
     public void delete(@PathVariable UUID id) {
         scheduledExecutionService.delete(id);
     }

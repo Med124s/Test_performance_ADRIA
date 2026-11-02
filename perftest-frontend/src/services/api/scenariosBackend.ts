@@ -1,16 +1,4 @@
-// ============================================================
-// Phase 18 — CRUD réel contre le backend Spring Boot pour le module
-// Scénarios. Distinct de services/api/scenarios.ts (JSON Server) : depuis
-// P1-G (retrait de l'assistant de création), services/api/scenarios.ts
-// n'est plus utilisé QUE par les écrans de consultation de l'historique
-// legacy (Applications, Dashboard, Metriques, onglet Legacy d'Executions,
-// ExecutionDetail, ExecutionReport) — plus par aucune création, les deux
-// jeux de Scénarios ne partageant toujours pas le même espace d'id.
-//
-// Utilise le même client HTTP central (springHttp, voir httpClient.ts) —
-// même gestion d'erreurs, même en-tête Authorization: Bearer automatique
-// que tout le reste de l'application.
-// ============================================================
+// Appels API des scénarios (/api/scenarios).
 
 import { springHttp } from './httpClient'
 import {
@@ -34,12 +22,10 @@ export const scenariosBackendApi = {
   getByApplication: (applicationId: string) =>
     springHttp.get<BackendScenarioResponse[]>(`${RESOURCE}?applicationId=${applicationId}`),
   getById: (id: string) => springHttp.get<BackendScenarioResponse>(`${RESOURCE}/${id}`),
-  /** Le backend genere id/status/createdBy/createdAt/updatedAt - jamais envoyes ici. */
   create: (data: BackendScenarioRequest) => springHttp.post<BackendScenarioResponse>(RESOURCE, data),
   update: (id: string, data: BackendScenarioRequest) =>
     springHttp.put<BackendScenarioResponse>(`${RESOURCE}/${id}`, data),
-  /** Renvoie 409 (voir ScenarioServiceImpl) si des Steps Spring Boot sont
-   * encore rattaches - jamais contourne ni masque depuis le frontend. */
+  /** Supprime un scénario ; 409 s'il a encore des étapes. */
   remove: (id: string) => springHttp.delete<void>(`${RESOURCE}/${id}`),
   deletionImpact: (id: string) => springHttp.get<BackendDeletionImpact>(`${RESOURCE}/${id}/deletion-impact`),
   archive: (id: string) => springHttp.post<BackendScenarioResponse>(`${RESOURCE}/${id}/archive`),
@@ -68,7 +54,7 @@ export const scenariosBackendApi = {
   bulkResumeSchedules: (ids: string[]) => springHttp.post<BackendBulkActionResponse>(`${RESOURCE}/bulk-resume-schedules`, { ids }),
   /** Brouillon → actif, après validation complète côté backend (400 avec message précis sinon). */
   publish: (id: string) => springHttp.post<BackendScenarioResponse>(`${RESOURCE}/${id}/publish`),
-  /** Suppression d'un brouillon (DRAFT uniquement) — autorisée aux rôles Admin et Performance Engineer. */
+  /** Suppression d'un brouillon. */
   removeDraft: (id: string) => springHttp.delete<void>(`${RESOURCE}/${id}/draft`),
   /** Modification complète transactionnelle (informations + étapes) ; 409 si une exécution est en cours. */
   updateFull: (id: string, data: BackendScenarioFullRequest) =>

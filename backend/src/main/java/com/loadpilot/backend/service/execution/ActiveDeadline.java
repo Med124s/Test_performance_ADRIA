@@ -7,7 +7,7 @@ record ActiveDeadline(long startNanos, long durationNanos, RunningExecutionHandl
         return System.nanoTime() - startNanos - handle.pausedNanos() >= durationNanos;
     }
 
-    /** Arrondi vers le HAUT : une attente de cette duree se termine a la fin du test, jamais juste avant. */
+    /** Temps restant en millisecondes, arrondi vers le haut. */
     long remainingMs() {
         long nanos = durationNanos - (System.nanoTime() - startNanos - handle.pausedNanos());
         return nanos <= 0 ? 0L : (nanos + 999_999L) / 1_000_000L;

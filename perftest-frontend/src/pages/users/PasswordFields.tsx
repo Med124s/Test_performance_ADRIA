@@ -2,10 +2,7 @@ import { useState } from 'react'
 import type { BackendPasswordPolicy } from '../../types/backendContracts'
 import { checkPassword, generatePassword } from '../../utils/passwordPolicy'
 
-// Mot de passe choisi par l'administrateur (création, réinitialisation) : saisie + confirmation,
-// afficher / masquer, « Générer » / « Copier », règles de la politique vérifiées en direct,
-// et « changer à la première connexion ». Le mot de passe ne quitte ce composant que pour
-// être envoyé au serveur ; il n'est jamais conservé ailleurs.
+// Mot de passe choisi par l'administrateur : saisie et confirmation, génération, copie, règles vérifiées en direct.
 
 export interface PasswordDraft {
   password: string

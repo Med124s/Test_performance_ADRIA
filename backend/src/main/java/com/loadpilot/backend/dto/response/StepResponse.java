@@ -4,11 +4,7 @@ import com.loadpilot.backend.enums.HttpMethod;
 import com.loadpilot.backend.enums.StepStatus;
 import java.time.Instant;
 
-/**
- * "scenarioName" est expose en plus de "scenarioId" par confort d'affichage
- * - jamais l'entite Scenario complete. Aucun createdBy (Step n'en a pas,
- * voir entity.Step).
- */
+/** Etape d'un scenario. */
 public record StepResponse(
         String id,
         String scenarioId,

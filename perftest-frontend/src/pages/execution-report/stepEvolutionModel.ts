@@ -1,11 +1,6 @@
 import { BackendStepEvolution, BackendStepTrend, BackendStepTrendKind } from '../../types/backendContracts'
 
-// ============================================================
-// Tableau « Évolution des étapes pendant le test » : libellés, tri,
-// infobulles (fonctions pures, testées).
-// Le calcul (P95 début / fin, tendance) est fait par le serveur
-// (StepEvolutionAnalyzer) : ces règles n'en sont que l'explication.
-// ============================================================
+// Tableau « Évolution des étapes pendant le test » : libellés, tri et infobulles.
 
 export const TREND_META: Record<BackendStepTrendKind, { label: string; pill: string; icon: string }> = {
   DEGRADED: { label: 'Dégradée', pill: 'danger', icon: 'bi-arrow-up-right' },

@@ -10,11 +10,7 @@ import com.loadpilot.backend.exception.LoadConfigurationException;
 import com.loadpilot.backend.exception.ResourceNotFoundException;
 import org.springframework.security.access.AccessDeniedException;
 
-/**
- * Raison d'un echec, en francais et sans nom de classe technique : les
- * exceptions metier de LoadPilot portent deja un message francais destine a
- * l'utilisateur ; toute autre erreur devient « Erreur inattendue ».
- */
+/** Raison d'un echec en francais ; une erreur hors LoadPilot devient "Erreur inattendue". */
 public final class AuditReasons {
 
     private AuditReasons() {

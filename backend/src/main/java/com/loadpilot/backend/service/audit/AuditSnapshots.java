@@ -10,12 +10,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * Valeurs importantes d'un objet, avec leur libelle francais, prises avant et
- * apres une modification : leur difference donne l'« avant -> apres » du
- * journal d'audit (voir AuditEvent#diff). Jamais de secret (configuration
- * d'authentification, en-tetes, corps de requete ne sont pas repris).
- */
+/** Valeurs d'un objet avant et apres une modification, pour l'avant -> apres du journal d'audit (sans secret). */
 public final class AuditSnapshots {
 
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(ZoneId.systemDefault());
@@ -50,7 +45,6 @@ public final class AuditSnapshots {
         m.put("Port du proxy", a.getProxyPort());
         m.put("Identifiant du proxy", a.getProxyUsername());
         m.put("Supervision sans proxy", Boolean.TRUE.equals(a.getMonitoringWithoutProxy()) ? "Oui" : null);
-        // Autorites TLS : leurs sujets (le PEM complet n'apporte rien au journal).
         java.util.List<com.loadpilot.backend.service.http.TlsTrust.CertificateInfo> cas =
                 com.loadpilot.backend.service.http.TlsTrust.describe(a.getTlsCaCertificate());
         m.put("Autorités de certification TLS", cas.isEmpty() ? null
@@ -95,7 +89,6 @@ public final class AuditSnapshots {
         m.put("Délai maximal (s)", s.getTimeoutSeconds());
         m.put("Temps de réflexion de l’étape (ms)", s.getThinkTimeMs());
         m.put("Temps de réponse maximal (ms)", s.getMaxResponseTimeMs());
-        // Champ et comparaison seulement : la valeur attendue peut provenir d'une donnee de test.
         m.put("Assertion JSON", s.getAssertionJsonPath() == null || s.getAssertionJsonPath().isBlank() ? null
                 : s.getAssertionJsonPath() + (s.getAssertionJsonOperator() == com.loadpilot.backend.enums.JsonAssertionOperator.CONTAINS
                         ? " contient…" : " égale…"));

@@ -16,12 +16,7 @@ import java.util.regex.Pattern;
 import org.mapstruct.Named;
 import org.springframework.stereotype.Component;
 
-/**
- * Point unique de gestion de l'authentification d'une Application :
- * validation par type, conservation des secrets en mise a jour,
- * (de)serialisation JSON, vue SANS secret pour l'API, et resolution reelle
- * (connexion comprise) pour le test de disponibilite.
- */
+/** Authentification d'une application : validation, conservation des secrets, (de)serialisation, vue sans secret et resolution. */
 @Component
 public class ApplicationAuthSupport {
 
@@ -43,11 +38,7 @@ public class ApplicationAuthSupport {
         this.authenticator = new ApplicationAuthenticator(objectMapper);
     }
 
-    /**
-     * Applique {@code request} a {@code application}. {@code request == null}
-     * : NONE a la creation, inchange a la mise a jour. Leve
-     * LoadConfigurationException (400) si un champ requis par le type manque.
-     */
+    /** Applique {@code request} a {@code application} ; null : NONE a la creation, inchange a la mise a jour. */
     public void apply(ApplicationAuthRequest request, Application application, boolean creating) {
         if (request == null) {
             if (creating) {
@@ -62,12 +53,9 @@ public class ApplicationAuthSupport {
             application.setAuthConfig(null);
             return;
         }
-        // Secrets conserves uniquement si le type ne change pas.
         ApplicationAuthConfig previous = type == application.getAuthType() ? read(application.getAuthConfig()) : ApplicationAuthConfig.empty();
 
-        // Regles et messages IDENTIQUES a validateAuthForm (frontend,
-        // ApplicationAuthFields.tsx) - toute modification doit etre faite
-        // des deux cotes.
+        // Memes regles et messages que validateAuthForm (ApplicationAuthFields.tsx).
         ApplicationAuthConfig config = switch (type) {
             case BEARER_TOKEN -> {
                 String token = keep(request.token(), previous.token());
@@ -112,8 +100,7 @@ public class ApplicationAuthSupport {
                 }
                 String loginBody = keep(request.loginBody(), previous.loginBody());
                 require(loginBody, "Indiquez les identifiants envoyés (JSON).");
-                // Source du jeton : corps JSON (defaut) ou en-tete de reponse (tokenJsonPath = nom de l'en-tete).
-                // Jamais HTML : la connexion automatique envoie du JSON, pas un formulaire HTML.
+                // Source du jeton : corps JSON (defaut) ou en-tete de reponse.
                 if (request.tokenSource() == CaptureSource.HTML) {
                     throw new LoadConfigurationException("La connexion automatique ne lit pas le jeton dans une page HTML : "
                             + "pour un formulaire de connexion, faites de la connexion une étape du scénario.");
@@ -158,7 +145,7 @@ public class ApplicationAuthSupport {
         application.setAuthConfig(write(config));
     }
 
-    /** Vue SANS secret, utilisee par ApplicationMapper#toResponse. */
+    /** Vue sans secret. */
     @Named("applicationAuthResponse")
     public ApplicationAuthResponse toResponse(Application application) {
         ApplicationAuthType type = application.getAuthType() != null ? application.getAuthType() : ApplicationAuthType.NONE;
@@ -187,8 +174,7 @@ public class ApplicationAuthSupport {
         return new ApplicationAuthSpec(application.getAuthType(), read(application.getAuthConfig()));
     }
 
-    /** Resolution reelle (connexion comprise pour LOGIN_TOKEN) - voir
-     * ApplicationAuthenticator. Leve ApplicationAuthenticationException. */
+    /** Resout l'authentification (connexion comprise pour LOGIN_TOKEN). */
     public ResolvedAuth resolve(Application application, long timeoutSeconds) {
         return authenticator.authenticate(toSpec(application), application.getUrl(), timeoutSeconds,
                 com.loadpilot.backend.service.http.NetworkProfile.of(application));
@@ -199,7 +185,6 @@ public class ApplicationAuthSupport {
         try {
             return objectMapper.readValue(json, ApplicationAuthConfig.class);
         } catch (JsonProcessingException e) {
-            // Jamais le contenu (secrets) dans un message ou un log.
             throw new IllegalStateException("Configuration d'authentification illisible.");
         }
     }

@@ -28,42 +28,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/**
- * Implementation reelle unique (Java 21 java.net.http.HttpClient + threads
- * virtuels, aucune dependance ajoutee) - envoie de vraies requetes HTTP
- * concurrentes, un thread virtuel par utilisateur virtuel (VU). Voir
- * rapport P0-A pour le choix argumente face a JMeter/Gatling.
- *
- * COMPORTEMENT PAR DEFAUT (LoadTestSpec.singlePass(), soit un Scenario
- * jamais configure pour la charge) : EXACTEMENT le comportement historique
- * (Phase 9) - 1 VU, 1 iteration, sans think time. Aucune regression sur
- * les Scenario/Execution existants.
- *
- * POLITIQUE D'ARRET PAR ITERATION (documentee, Phase 9, inchangee) : au
- * sein d'UNE iteration d'UN VU, un Step qui echoue arrete cette iteration -
- * les Steps suivants de cette iteration ne sont pas executes. Les AUTRES
- * VUs, et les iterations SUIVANTES du meme VU, continuent normalement.
- *
- * POLITIQUE DE STATUT GLOBAL (decision documentee P0-A, section 28) :
- * PROBLEME - quel statut final pour une charge avec plusieurs VUs/
- * iterations, ou certaines requetes reussissent et d'autres echouent ?
- * OPTIONS - (a) FAILED des qu'au moins une requete echoue ; (b) FAILED
- * seulement si un seuil de taux d'erreur est depasse.
- * CHOIX - (a), par coherence stricte avec le comportement historique
- * (ou tout echec unique faisait deja FAILED) - (b) introduirait un seuil
- * arbitraire non demande. Le taux d'erreur reel reste consultable via
- * Metric.errorRate (jamais binaire, jamais invente).
- *
- * FORMAT DES HEADERS / EVALUATION DE SUCCES : inchanges (voir Phase 9).
- *
- * DECOUPAGE : cette classe orchestre l'execution (authentification, lancement et attente des VU,
- * collecte des resultats, statut) et envoie chaque etape (executeStep : requete, controles, detail ;
- * executeStepWithRenewal : jeton renouvele sur un 401). Le reste est delegue :
- *   - VirtualUserLoop : boucle d'un VU (ramp-up, iterations, debit cible, pauses, think time) ;
- *   - VirtualUserClients : clients HTTP d'un VU ; ActiveDeadline : duree en temps actif ;
- *   - RetryAfterHandler : 429 Too Many Requests (Retry-After, rejeux) ;
- *   - ResponseCaptures : captures de valeurs (JSON, en-tete, HTML).
- */
+/** Moteur de charge : un thread virtuel par utilisateur virtuel, qui rejoue les etapes du scenario avec java.net.http.HttpClient. */
 @Component
 public class HttpClientExecutionEngine implements ExecutionEngine {
 
@@ -73,7 +38,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
     private final ObjectMapper objectMapper;
     private final ExecutorService vuExecutor;
     private final ApplicationAuthenticator authenticator;
-    /** Identifiant du proxy d'entreprise, ajoute aux requetes qui passent par lui (voir ProxyAuthorization). */
+    /** Identifiant du proxy d'entreprise. */
     private final com.loadpilot.backend.service.http.ProxyAuthorization proxyAuthorization;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -94,43 +59,12 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         this.authenticator = new ApplicationAuthenticator(objectMapper, proxyAuthorization);
     }
 
-    /**
-     * PROBLEME (constat REEL fait pendant cette phase, voir tests de
-     * ramp-up) : sur une JVM tout juste demarree, le tout premier appel a
-     * java.net.http.HttpClient.send(...) du processus initialise
-     * paresseusement des ressources internes couteuses au niveau JDK (thread
-     * gestionnaire de selecteur, pipeline de traitement des reponses). Ce
-     * cout ponctuel (mesure : jusqu'a ~1s) peut a lui seul absorber tout
-     * l'intervalle de ramp-up du tout premier test de charge lance apres
-     * chaque demarrage du backend : les utilisateurs virtuels restent
-     * "colles" les uns aux autres malgre des Thread.sleep(startDelayMs)
-     * correctement espaces (voir runVirtualUser).
-     * OPTIONS : (a) ne rien faire - risque reel et silencieux sur le
-     * premier test de charge de chaque redemarrage ; (b) "rechauffer" via
-     * une tentative de connexion vouee a l'echec (mesure pendant cette
-     * phase : insuffisant, le spread reste parfois sous le seuil attendu) ;
-     * (c) un vrai aller-retour HTTP reussi en local (loopback) au demarrage.
-     * CHOIX : (c) - seul un aller-retour HTTP reellement complete
-     * initialise de maniere fiable l'ensemble des ressources internes
-     * concernees (mesure : spread ~700-800ms des le premier test sur JVM
-     * froide avec ce warm-up, contre parfois <10ms sans lui). Cout paye une
-     * seule fois au demarrage du backend (jamais pendant un test reel d'un
-     * utilisateur), strictement local (loopback uniquement, aucune
-     * exposition reseau), et strictement best-effort : toute exception est
-     * capturee et journalisee en debug seulement - un warm-up manque
-     * degraderait uniquement la precision du tout premier test, il ne doit
-     * jamais empecher le demarrage du backend ni faire echouer quoi que ce
-     * soit d'autre. Execute sur un thread virtuel dedie pour ne jamais
-     * retarder le demarrage de l'application.
-     */
+    /** Premier appel a HttpClient fait au demarrage, pour que le premier test ne paie pas l'initialisation du client. */
     @PostConstruct
     void scheduleHttpClientWarmup() {
         Thread.ofVirtual().name("http-client-warmup").start(this::warmUpHttpClient);
     }
 
-    /** Visibilite package-private (plutot que private) uniquement pour permettre a
-     * HttpClientExecutionEngineTest de declencher un warm-up synchrone et bloquant
-     * en @BeforeAll (une seule fois pour toute la classe de test, JVM partagee). */
     void warmUpHttpClient() {
         HttpServer warmServer = null;
         try {
@@ -177,12 +111,10 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
     public ScenarioExecutionOutcome execute(List<StepExecutionSpec> steps, String applicationBaseUrl,
             ApplicationAuthSpec auth, LoadTestSpec loadSpec, RunningExecutionHandle handle, VariableSources sources,
             com.loadpilot.backend.service.http.NetworkProfile networkProfile) {
-        // Proxy de l'application (voir NetworkProfile) : clients de chaque VU, connexion et reconnexion.
+        // Reglages reseau de l'application.
         com.loadpilot.backend.service.http.NetworkProfile network = networkProfile == null
                 ? com.loadpilot.backend.service.http.NetworkProfile.inherit() : networkProfile;
-        // Authentification de l'Application resolue UNE fois pour toute
-        // l'Execution (une seule connexion pour LOGIN_TOKEN, jeton partage
-        // par les VUs). Echec -> aucune etape jouee, cause explicite.
+        // Authentification resolue une fois pour toute l'execution ; en cas d'echec, aucune etape n'est jouee.
         ResolvedAuth resolvedAuth;
         try {
             resolvedAuth = authenticator.authenticate(auth, applicationBaseUrl, timeoutSeconds, network);
@@ -199,35 +131,26 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         }
 
         int virtualUsers = Math.max(1, loadSpec.virtualUsers());
-        // Etalement reel du ramp-up : chaque VU demarre staggerMs apres le
-        // precedent, jamais tous instantanement (voir rapport P0-A section 8).
+        // Montee en charge : chaque utilisateur virtuel demarre staggerMs apres le precedent.
         long staggerMs = (virtualUsers > 1 && loadSpec.rampUpSeconds() > 0)
                 ? (loadSpec.rampUpSeconds() * 1000L) / virtualUsers
                 : 0L;
-        // Duree en temps ACTIF : le temps passe en pause (voir RunningExecutionHandle) n'est pas
-        // decompte - un test de 20 s travaille vraiment 20 s, meme avec une pause au milieu.
+        // Duree mesuree en temps actif (pauses exclues).
         ActiveDeadline deadline = loadSpec.durationSeconds() != null
                 ? new ActiveDeadline(System.nanoTime(), loadSpec.durationSeconds() * 1_000_000_000L, handle)
                 : null;
-        // Master prompt final (Lot A) - UN SEUL PacingGate partage par tous
-        // les VUs de cette Execution (jamais un par VU, sinon le debit reel
-        // serait targetRps * virtualUsers) ; null = aucun pacing configure,
-        // comportement historique inchange.
+        // Pacing partage par tous les utilisateurs virtuels de l'execution ; null = aucun pacing.
         PacingGate pacingGate = loadSpec.targetRps() != null ? new PacingGate(loadSpec.targetRps()) : null;
         handle.startLiveStats(steps);
-        // Correction L5 : jeton partage par tous les VUs, renouvele sur un 401 en « Connexion automatique ».
+        // Jeton partage, renouvele sur un 401 en "Connexion automatique".
         RenewableApplicationAuth sharedAuth = new RenewableApplicationAuth(auth, resolvedAuth, applicationBaseUrl, timeoutSeconds,
                 authenticator, recorder, network);
 
-        // Resultats de chaque VU tenus ICI, pas dans son Future : un Future annule (annulation manuelle,
-        // frein, pause trop longue, limite memoire - Future.cancel(true) interrompt les requetes en vol)
-        // leve toujours CancellationException sur get(), et les resultats deja obtenus etaient perdus.
+        // Resultats de chaque utilisateur virtuel, recuperables meme apres une annulation.
         List<VirtualUserRun> runs = new ArrayList<>();
         List<Future<?>> futures = new ArrayList<>();
-        // Ecriture au fil du test (ResultStream) : chaque resultat part vers le tampon d'ecriture au lieu
-        // de rester dans la liste du VU. Sans flux (tests du moteur), comportement d'avant.
+        // Resultats ecrits au fil du test (ResultStream).
         ResultStream stream = handle.resultStream();
-        // Boucle de chaque VU (voir VirtualUserLoop) ; l'envoi d'une etape reste ici (executeStepWithRenewal).
         VirtualUserLoop.Shared shared = new VirtualUserLoop.Shared(steps, loadSpec, handle, deadline, pacingGate, sources, network,
                 timeoutSeconds, this::newCookieJar,
                 (clients, step, stepNumber, variables, virtualUser, iteration, retryAfter) -> executeStepWithRenewal(clients, step,
@@ -235,10 +158,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                         retryAfter));
         for (int vu = 0; vu < virtualUsers; vu++) {
             long startDelayMs = vu * staggerMs;
-            // Contexte de variables PROPRE a ce VU (jamais partage entre threads) : captures
-            // videes a chaque iteration, ligne CSV attribuee selon la distribution du scenario
-            // (une ligne par VU, ou une nouvelle ligne par iteration via le compteur partage
-            // thread-safe de VariableSources), variables du scenario, ${authToken}.
+            // Contexte de variables propre a cet utilisateur virtuel ; ligne CSV selon la distribution du scenario.
             VariableContext variables = new VariableContext(sources.scenarioVariables(), resolvedAuth.token());
             int virtualUser = vu;
             VirtualUserRun run = new VirtualUserRun();
@@ -261,7 +181,6 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             try {
                 future.get();
             } catch (java.util.concurrent.CancellationException e) {
-                // Annulation : ses resultats deja obtenus sont recuperes ci-dessous.
                 log.debug("Utilisateur virtuel annule avant completion.");
             } catch (ExecutionException e) {
                 log.warn("Utilisateur virtuel termine en erreur inattendue : {}", e.getCause() != null ? e.getCause().getClass().getSimpleName() : e.getClass().getSimpleName());
@@ -270,10 +189,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             }
         }
 
-        // Apres une annulation, get() rend la main sans attendre la fin reelle du VU : on attend qu'il
-        // soit vraiment arrete (interrompu, c'est immediat) pour que sa liste soit complete. Attente
-        // bornee : un VU qui ne s'arreterait pas ne bloque jamais la finalisation (sa liste, protegee,
-        // est alors lue telle quelle). Un VU annule avant d'avoir demarre n'a rien a attendre.
+        // Apres une annulation, attente (bornee) de l'arret reel de l'utilisateur virtuel.
         long waitUntil = System.nanoTime() + TimeUnit.SECONDS.toNanos(STOP_WAIT_SECONDS);
         List<StepOutcome> allOutcomes = new ArrayList<>();
         for (VirtualUserRun run : runs) {
@@ -292,7 +208,6 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             }
         }
 
-        // Resultats deja confies au flux d'ecriture : seuls ses totaux sont rendus (la liste reste vide).
         ResultSummary summary = stream != null ? stream.summary() : ResultSummary.of(allOutcomes);
         boolean anyFailure = summary.failures() > 0;
         ExecutionStatus status = (summary.total() > 0 && !anyFailure) ? ExecutionStatus.SUCCESS : ExecutionStatus.FAILED;
@@ -306,29 +221,20 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
     /** Attente maximale de l'arret reel des VU apres une annulation (secondes). */
     static final long STOP_WAIT_SECONDS = 5;
 
-    /**
-     * Un VU : ses resultats (liste propre, synchronisee - verrou jamais dispute pendant le test, seul
-     * son VU y ecrit) et la fin reelle de sa tache.
-     */
+    /** Un utilisateur virtuel : ses resultats et sa tache. */
     private static final class VirtualUserRun {
         final List<StepOutcome> results = java.util.Collections.synchronizedList(new ArrayList<>());
         final java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean();
         final java.util.concurrent.CountDownLatch finished = new java.util.concurrent.CountDownLatch(1);
     }
 
-    /** Pot de cookies d'un nouveau VU (package-private et redefinissable : tests de non-retention memoire). */
+    /** Pot de cookies d'un nouvel utilisateur virtuel. */
     VirtualUserCookieJar newCookieJar() {
         return new VirtualUserCookieJar();
     }
 
 
-    /**
-     * Correction L5 - envoie l'etape avec le jeton en vigueur. En « Connexion automatique », une
-     * reponse 401 qui fait echouer l'etape, sur une requete qui portait le jeton de l'application,
-     * declenche UN renouvellement (partage entre VUs, voir RenewableApplicationAuth) puis UN seul
-     * rejeu avec le nouveau jeton ; son resultat remplace celui du 401. Reconnexion impossible :
-     * l'echec du 401 remonte tel quel, avec la raison. Autres modes : comportement inchange.
-     */
+    /** Envoie l'etape ; en "Connexion automatique", un 401 obtenu avec le jeton de l'application declenche un renouvellement puis un nouvel essai. */
     private StepOutcome executeStepWithRenewal(VirtualUserClients client, StepExecutionSpec step, int stepNumber, String applicationBaseUrl,
             RenewableApplicationAuth sharedAuth, VariableContext variables, VariableSources sources, int virtualUser, int iteration,
             RequestDetailRecorder recorder, RetryAfterHandler retryAfter) {
@@ -351,11 +257,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 iteration, recorder, retryAfter);
     }
 
-    /**
-     * La requete portait-elle le jeton de l'application ? Oui si l'etape utilise ${authToken}, ou si
-     * un en-tete d'authentification de l'application a ete ajoute (l'etape ne le definit pas elle-meme).
-     * Une etape qui envoie son propre jeton (ex. capture ${userToken}) n'est jamais concernee.
-     */
+    /** true si la requete portait le jeton de l'application (variable ${authToken} ou en-tete d'authentification ajoute). */
     private boolean usesApplicationToken(StepExecutionSpec step, ResolvedAuth auth) {
         String marker = "${" + ResolvedAuth.TOKEN_VARIABLE + "}";
         for (String template : new String[] {step.url(), step.headers(), step.body(), step.pathParams()}) {
@@ -370,17 +272,14 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             ResolvedAuth resolvedAuth, VariableContext variables, VariableSources sources, int virtualUser, int iteration,
             RequestDetailRecorder recorder, RetryAfterHandler retryAfter) {
         HttpClient client = clients.forStep(step);
-        // Requete reelle construite depuis les gabarits de l'etape (voir RequestBuilder) :
-        // variables de chemin / query encodees, priorite capture > CSV > scenario > authToken.
+        // Requete construite a partir des gabarits de l'etape (priorite : capture > CSV > scenario > authToken).
         RequestBuilder.BuiltRequest built = RequestBuilder.build(step, applicationBaseUrl, variables::get, objectMapper);
         String requestUrl = traceableUrl(built.url());
         long effectiveTimeoutSeconds = step.timeoutSeconds() != null ? step.timeoutSeconds() : timeoutSeconds;
-        // Detail des requetes (echecs + echantillon) : voir RequestDetailRecorder. Desactive (NONE ou
-        // aucune politique), le comportement historique est strictement inchange.
         boolean detailOn = recorder != null && recorder.enabled();
         DetailContext detail = detailOn ? new DetailContext(recorder, step, stepNumber, iteration, variables, resolvedAuth) : null;
         if (!built.missing().isEmpty()) {
-            // Jamais de requete envoyee avec un ${...} brut : echec explicite avant l'envoi.
+            // Variable introuvable : echec avant l'envoi.
             StepOutcome outcome = new StepOutcome(step.stepId(), null, 0, false,
                     RequestBuilder.missingMessage(built.missing(), stepNumber, sources.captureStepByVariable()),
                     Instant.now(), virtualUser, iteration, requestUrl);
@@ -395,37 +294,34 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         HttpRequest request = null;
         try {
             request = buildRequest(step, url, built, resolvedAuth, effectiveTimeoutSeconds, clients.network());
-            // Capture depuis un en-tete : le corps n'est pas necessaire pour elle.
             boolean readBody = hasAssertion || step.hasJsonAssertion() || ResponseCaptures.needsBody(step);
             int statusCode;
             java.net.http.HttpHeaders responseHeaders;
             String body = null;
             CappedBody keptBody = null;
             if (readBody) {
-                // Assertion de contenu ou capture : corps complet necessaire.
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
                 statusCode = response.statusCode();
                 responseHeaders = response.headers();
                 body = response.body();
                 if (detailOn) keptBody = CappedBody.of(body, RequestDetailRecorder.BODY_LIMIT_BYTES);
             } else if (detailOn) {
-                // Detail actif : seuls les 10 premiers Ko du corps sont gardes en memoire.
                 HttpResponse<CappedBody> response = client.send(request, CappedBody.handler(RequestDetailRecorder.BODY_LIMIT_BYTES));
                 statusCode = response.statusCode();
                 responseHeaders = response.headers();
                 keptBody = response.body();
             } else {
-                // P0-B : corps jamais lu ni stocke par defaut (discarding).
+                // Corps non lu.
                 HttpResponse<String> response = client.send(request, discardingAsString());
                 statusCode = response.statusCode();
                 responseHeaders = response.headers();
             }
             long elapsed = elapsedMs(startedAt);
-            // 429 : delai demande par la cible, lu ici (seul endroit ou les en-tetes sont disponibles).
+            // 429 : delai demande par la cible.
             if (retryAfter != null) retryAfter.recordResponse(statusCode, responseHeaders);
             boolean statusOk = evaluateSuccess(step, statusCode);
             boolean assertionOk = !hasAssertion || body.contains(step.assertionBodyContains());
-            // Controles optionnels (temps de reponse maximal, assertion JSON) : en plus des precedents.
+            // Controles optionnels : temps de reponse maximal et assertion JSON.
             String jsonProblem = statusOk && assertionOk ? StepChecks.jsonAssertionProblem(objectMapper, body,
                     step.assertionJsonPath(), step.assertionJsonOperator(), step.assertionJsonValue()) : null;
             String timeProblem = StepChecks.responseTimeProblem(step.maxResponseTimeMs(), elapsed);
@@ -436,9 +332,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                     ? missingContentMessage(step.assertionBodyContains())
                     : jsonProblem != null ? jsonProblem
                     : timeProblem;
-            // Capture apres evaluation, quel que soit le resultat de l'assertion ; propre a ce VU
-            // et a l'iteration en cours (VariableContext, videe au debut de chaque iteration).
-            // Capture HTML d'un element dont le nom ressemble a un jeton (csrf, token...) : valeur masquee dans le detail.
+            // Capture faite quel que soit le resultat de l'assertion ; valeur propre a cet utilisateur virtuel et a l'iteration.
             ResponseCaptures.Captured capture = ResponseCaptures.extract(step, body, responseHeaders, objectMapper);
             ResponseCaptures.store(step, capture, variables);
             String captured = capture.value();
@@ -483,11 +377,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         return request != null ? headerMap(request.headers()) : built.headers();
     }
 
-    /**
-     * Construction du detail d'UNE requete, seulement si la politique le retient (echec dans les
-     * quotas, ou echantillon) : secrets masques (authentification, variables au nom sensible,
-     * en-tetes sensibles, champs JSON sensibles), corps limites a 10 Ko.
-     */
+    /** Detail d'une requete conservee : secrets masques, corps limites. */
     private record DetailContext(RequestDetailRecorder recorder, StepExecutionSpec step, int stepNumber, int iteration,
             VariableContext variables, ResolvedAuth resolvedAuth) {
 
@@ -520,7 +410,7 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             return accepted ? outcome.withDetail(detail) : outcome;
         }
 
-        /** En-tetes d'authentification de l'application et en-tetes au nom sensible (X-Auth-Token…), en minuscules. */
+        /** En-tetes a masquer : authentification de l'application et noms sensibles, en minuscules. */
         private java.util.Set<String> sensitiveHeaderNames(Map<String, String> headers) {
             java.util.Set<String> names = new java.util.HashSet<>();
             resolvedAuth.headers().keySet().forEach(n -> names.add(n.toLowerCase(java.util.Locale.ROOT)));
@@ -542,16 +432,13 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         }
     }
 
-    /** URL finale conservee dans les resultats : parametres sensibles masques, 2048 caracteres max. */
+    /** URL enregistree dans les resultats : parametres sensibles masques, 2048 caracteres au plus. */
     private static String traceableUrl(String url) {
         String masked = TestRunMasking.maskUrl(url, java.util.Set.of(), java.util.Set.of());
         return masked != null && masked.length() > 2048 ? masked.substring(0, 2048) : masked;
     }
 
-    /** Meme garantie que BodyHandlers.discarding() (rien bufferise) mais
-     * type Void->String pour partager la meme signature client.send(...)
-     * que le cas "assertion" (readBody=true) ci-dessus - jamais de corps
-     * lu ici, body() renvoie simplement null. */
+    /** Handler qui ne lit pas le corps ; body() renvoie null. */
     private HttpResponse.BodyHandler<String> discardingAsString() {
         return responseInfo -> HttpResponse.BodySubscribers.replacing(null);
     }
@@ -588,8 +475,6 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         try {
             return objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() { });
         } catch (Exception e) {
-            // Jamais logger le contenu des headers (potentiellement sensible) -
-            // uniquement le type d'erreur de parsing.
             log.debug("Headers de l'etape illisibles ({}), ignores.", e.getClass().getSimpleName());
             return Map.of();
         }
@@ -599,14 +484,11 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
         if (step.expectedStatus() != null) {
             return actualStatus == step.expectedStatus();
         }
-        // Recommandation Phase 9 : sans expectedStatus explicite, 200-399 = succes.
+        // Sans expectedStatus, 200-399 = succes.
         return actualStatus >= 200 && actualStatus < 400;
     }
 
-    /**
-     * Message d'echec d'une reponse au bon code HTTP mais sans le contenu attendu (meme libelle que
-     * « Tester ») ; texte attendu tronque a 200 caracteres pour garder un message lisible.
-     */
+    /** Message d'echec quand le contenu attendu est absent (texte attendu tronque a 200 caracteres). */
     public static String missingContentMessage(String expected) {
         String text = expected.length() > 200 ? expected.substring(0, 200) + "…" : expected;
         return "Contenu attendu introuvable : " + text;

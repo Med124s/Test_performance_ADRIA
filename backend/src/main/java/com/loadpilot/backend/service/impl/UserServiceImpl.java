@@ -29,12 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/**
- * Keycloak (via KeycloakAdminClient) est l'unique source de verite pour les
- * utilisateurs et leurs roles (Phase 25) - aucun stockage local, aucun mot
- * de passe manipule ici. Seul le nombre d'executions lancees vient de la
- * base LoadPilot.
- */
+/** Administration des comptes dans Keycloak ; le nombre d'executions lancees vient de la base LoadPilot. */
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
@@ -46,7 +41,7 @@ public class UserServiceImpl implements UserService {
     private final AuditLogService auditLogService;
     private final ExecutionRepository executionRepository;
 
-    /** Informations complementaires calculees une fois par appel (jamais par utilisateur). */
+    /** Informations calculees une fois par appel. */
     private record Activity(Map<String, Instant> lastLogins, Map<String, Long> executionCounts) {
         Instant lastLogin(String userId) {
             return lastLogins.get(userId);
@@ -121,7 +116,7 @@ public class UserServiceImpl implements UserService {
         }
         String userId;
         try {
-            // Le mot de passe va directement a Keycloak (verifie selon la politique du realm), puis est oublie.
+            // Mot de passe transmis a Keycloak sans etre conserve.
             userId = keycloakAdminClient.createUser(new NewKeycloakUser(username, email,
                     blankToNull(request.firstName()), blankToNull(request.lastName()),
                     withPassword ? request.password() : null, temporary));
@@ -134,7 +129,7 @@ public class UserServiceImpl implements UserService {
         try {
             keycloakAdminClient.replaceUserAppRole(userId, request.role());
         } catch (RuntimeException e) {
-            // Jamais un compte laisse sans role applicatif : la creation est annulee.
+            // Compte sans role applicatif : la creation est annulee.
             try {
                 keycloakAdminClient.deleteUser(userId);
             } catch (RuntimeException cleanup) {
@@ -156,12 +151,11 @@ public class UserServiceImpl implements UserService {
                 invitationSent = true;
                 credential = "Lien de choix du mot de passe envoyé par e-mail";
             } catch (KeycloakAdminException e) {
-                // Compte cree et utilisable : l'administrateur pourra renvoyer le lien plus tard.
                 credential = "L’e-mail de choix du mot de passe n’a pas pu être envoyé";
                 log.warn("Compte {} cree mais e-mail d'invitation non envoye : {}", username, e.getMessage());
             }
         }
-        // Journal d'audit : jamais le mot de passe, seulement la facon dont il a ete fixe.
+        // Journal : seulement la facon dont le mot de passe a ete fixe.
         auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.USER)
                 .target(AuditTargetType.USER, userId, username)
                 .change("Rôle", null, request.role().label())
@@ -177,7 +171,6 @@ public class UserServiceImpl implements UserService {
         AuditEvent audit = AuditEvent.of(AuditAction.PASSWORD_SET, AuditModule.SECURITY).target(AuditTargetType.USER, userId, user.username());
         try {
             keycloakAdminClient.setPassword(userId, password, temporary);
-            // Jamais le mot de passe : seulement le fait qu'il a ete defini.
             auditLogService.record(audit.description(temporary
                     ? "Nouveau mot de passe défini par l’administrateur, à changer à la prochaine connexion"
                     : "Nouveau mot de passe défini par l’administrateur"));
@@ -216,8 +209,7 @@ public class UserServiceImpl implements UserService {
         try {
             lastLogins = keycloakAdminClient.lastLoginByUser();
         } catch (KeycloakAdminException e) {
-            // Evenements Keycloak desactives ou droit "view-events" absent : la
-            // liste reste utilisable, simplement sans date de derniere connexion.
+            // Evenements Keycloak indisponibles : liste sans date de derniere connexion.
             log.warn("Dernieres connexions indisponibles : {}", e.getMessage());
             lastLogins = Map.of();
         }
@@ -248,11 +240,7 @@ public class UserServiceImpl implements UserService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    /** Le seul des 3 AppRole reellement present dans les roles realm de cet
-     * utilisateur - "null" si aucun (jamais un role invente par defaut).
-     * Renvoie le nom de l'enum AppRole (ex: "SUPER_ADMIN"), pas le nom de
-     * role Keycloak prefixe (ex: "ROLE_SUPER_ADMIN") - c'est ce que le
-     * contrat BackendAppRole cote frontend attend. */
+    /** Role applicatif de l'utilisateur (nom de l'enum AppRole) ; null si aucun. */
     private String resolveAppRoleName(Set<String> realmRoleNames) {
         for (AppRole role : AppRole.values()) {
             if (realmRoleNames.contains(role.toKeycloakRoleName())) {

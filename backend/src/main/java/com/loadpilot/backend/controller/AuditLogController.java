@@ -29,18 +29,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/audit-logs - journal d'audit, RESERVE AU SUPER_ADMIN (@PreAuthorize au
- * niveau de la classe : liste, detail, utilisateurs, statistiques et export).
- *
- * Lecture seule (aucun POST/PUT/PATCH/DELETE) : les entrees ne sont jamais
- * creees, modifiees ni supprimees via cette API - uniquement ecrites par le
- * backend lui-meme (AuditLogService.record) et purgees automatiquement apres
- * la duree de conservation (AuditRetentionJob).
- *
- * "/stats", "/actors" et "/export" sont des segments litteraux : Spring MVC
- * les fait toujours correspondre en priorite sur "/{id}".
- */
+/** API du journal d'audit (lecture et export), reservee au Super administrateur. */
 @RestController
 @RequestMapping("/api/audit-logs")
 @RequiredArgsConstructor
@@ -100,7 +89,6 @@ public class AuditLogController {
             @RequestParam(required = false) Instant to) {
         AuditLogFilterRequest filter = new AuditLogFilterRequest(q, actor, category, userId, username, action, module, result, from, to);
         byte[] csvBytes = auditLogService.exportCsv(filter).getBytes(StandardCharsets.UTF_8);
-        // Un export est une vraie sortie de donnees : toujours journalise.
         auditLogService.record(AuditEvent.of(AuditAction.EXPORT_CSV, AuditModule.ADMIN)
                 .target(AuditTargetType.SETTINGS, "audit-log", "Journal d’audit")
                 .description("Export du journal d’audit au format CSV"));

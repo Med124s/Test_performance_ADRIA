@@ -21,12 +21,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * Verifie GET /api/profile de bout en bout (SecurityFilterChain reel,
- * JwtAuthConverter reel, ProfileController -> ProfileServiceImpl ->
- * AppUserRepository sur H2 reel) - seul JwtDecoder est mocke, pour ne
- * dependre d'aucun Keycloak reel (voir Phase 4/5).
- */
+/** GET /api/profile de bout en bout ; seul JwtDecoder est simule. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -150,9 +145,7 @@ class ProfileControllerTest {
 
     @Test
     void profile_realmRoleWithoutRolePrefix_isNormalizedWithRolePrefix() throws Exception {
-        // JwtAuthConverter prefixe idempotemment (voir Phase 5) - un role
-        // Keycloak fourni SANS prefixe "ROLE_" doit quand meme en obtenir un
-        // seul, jamais un double-prefixe et jamais un role brut inutilisable.
+        // Role sans prefixe "ROLE_" : un seul prefixe ajoute.
         Jwt jwt = jwtFor("token-unprefixed", "sub-unprefixed", "raw", null, null, List.of("VIEWER"));
         when(jwtDecoder.decode("token-unprefixed")).thenReturn(jwt);
 
@@ -161,9 +154,7 @@ class ProfileControllerTest {
                 .andExpect(jsonPath("$.roles", containsInAnyOrder("ROLE_VIEWER")));
     }
 
-    // ------------------------------------------------------------
-    // P1-D — timezone (GET expose la valeur reelle persistee, PATCH la modifie)
-    // ------------------------------------------------------------
+    // ---- Fuseau horaire (GET renvoie la valeur enregistree, PATCH la modifie) ----
 
     @Test
     void profile_neverSetTimezone_returnsNullTimezone_neverInvented() throws Exception {
@@ -208,8 +199,7 @@ class ProfileControllerTest {
 
     @Test
     void updateProfile_neverAllowsChangingUsernameNameOrEmail() throws Exception {
-        // Une tentative de modifier son identite par la route des preferences est REFUSEE (403),
-        // jamais ignoree en silence ; rien n'est modifie (voir aussi ProfileIdentityTest).
+        // Modifier son identite par la route des preferences : refuse (403), rien n'est modifie.
         Jwt jwt = jwtFor("token-tz-noop-fields", "sub-noop", "original", "Original Name", "original@example.com", List.of("ROLE_VIEWER"));
         when(jwtDecoder.decode("token-tz-noop-fields")).thenReturn(jwt);
 

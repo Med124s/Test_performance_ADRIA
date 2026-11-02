@@ -3,10 +3,7 @@ import { zonedToIso } from '../scheduling/scheduleModel'
 import { BackendExecutionHistoryResponse } from '../../types/backendContracts'
 import { formatNumber } from '../../utils/numberFormat'
 
-// ============================================================
-// Page Exécutions : période, formats d'affichage (durée, date relative,
-// taux d'erreur) et statuts. Fonctions pures, testées.
-// ============================================================
+// Page Exécutions : période, formats d'affichage (durée, date relative, taux d'erreur) et statuts.
 
 export type Period = '' | '24h' | '7d' | '30d' | '90d' | 'custom'
 
@@ -20,10 +17,7 @@ export const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 
 const PERIOD_HOURS: Record<string, number> = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24 }
 
-/**
- * Bornes envoyées au serveur. Périodes glissantes : depuis maintenant moins 24 h / 7 j / 30 j / 90 j (3 mois).
- * Personnalisée : journées entières (AAAA-MM-JJ, heure locale), bornes incluses.
- */
+/** Bornes envoyées au serveur : période glissante (24 h, 7 j, 30 j, 90 j) ou journées entières, bornes incluses. */
 /** Début (00:00) et fin (23:59:59.999) d'un jour aaaa-mm-jj dans le fuseau de l'utilisateur. */
 export function dayStartIso(isoDay: string): string | null {
   return zonedToIso(isoDay, '00:00', getUserTimezone())
@@ -115,14 +109,10 @@ export function formatRequests(total: number, errorRate: number | null): { total
 /** Libellé et badge d'un statut : voir utils/executionStatus (table unique, statut inconnu en gris). */
 export { statusLabel, statusPill } from '../../utils/executionStatus'
 
-/** Seuil d'écart de P95 (en %) par défaut au-delà duquel la flèche passe en rouge (régression) ou en
- * vert (amélioration) : le seuil de régression réglable (Paramètres > Système), 20 % par défaut. */
+/** Seuil d'écart de P95 (%) par défaut pour la flèche rouge ou verte. */
 export const P95_CHANGE_THRESHOLD = 20
 
-/**
- * Écart de P95 avec l'exécution précédente du même scénario : « ↑ +12 % » rouge si > +10 %, « ↓ −15 % » vert
- * si < −10 %, gris sinon ; sans exécution précédente (ou sans P95), « — » gris.
- */
+/** Écart de P95 avec l'exécution précédente du même scénario : rouge au-delà du seuil, vert en dessous de -seuil, gris sinon. */
 export function p95Delta(current: number | null | undefined, previous: number | null | undefined, threshold: number = P95_CHANGE_THRESHOLD): { text: string; tone: 'worse' | 'better' | 'same' | 'none'; percent: number | null } {
   if (current == null || previous == null || previous <= 0) return { text: '—', tone: 'none', percent: null }
   const percent = Math.round(((current - previous) * 1000) / previous) / 10

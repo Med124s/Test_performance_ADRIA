@@ -7,21 +7,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 
-/**
- * Master prompt final (Lot C) — verifie le CONTENU DECLARE du profil "prod"
- * (application-prod.yml) sans demarrer de contexte Spring complet sous ce
- * profil : un vrai demarrage necessiterait un PostgreSQL/Keycloak de
- * production reels (aucune valeur par defaut n'est fournie dans ce
- * fichier, par conception - voir son en-tete), non disponibles dans cet
- * environnement. Ce test est donc un test STATIQUE de configuration
- * (le fichier existe, contient exactement les cles attendues, sans defaut
- * dangereux) — le comportement runtime complet sous SPRING_PROFILES_ACTIVE=prod
- * reste NON VERIFIE dans cet environnement (voir rapport de phase).
- *
- * SnakeYAML est deja une dependance reelle transitive de spring-boot-starter
- * (utilisee en interne par Spring Boot lui-meme pour parser les YAML) —
- * aucune nouvelle dependance ajoutee pour ce test.
- */
+/** Contenu du profil "prod" (application-prod.yml), lu sans demarrer de contexte Spring. */
 class ProdProfileConfigTest {
 
     @SuppressWarnings("unchecked")
@@ -60,8 +46,7 @@ class ProdProfileConfigTest {
         Map<String, Object> yaml = loadProdYaml();
         Map<String, Object> datasource = nested(yaml, "spring", "datasource");
 
-        // Pas de "${DB_URL:valeur-par-defaut}" - uniquement "${DB_URL}",
-        // jamais de fallback localhost dangereux en production.
+        // Aucune valeur par defaut pour l'URL de la base.
         assertThat(datasource.get("url")).isEqualTo("${DB_URL}");
         assertThat(datasource.get("username")).isEqualTo("${DB_USERNAME}");
         assertThat(datasource.get("password")).isEqualTo("${DB_PASSWORD}");
@@ -87,9 +72,7 @@ class ProdProfileConfigTest {
 
     @Test
     void noRealSecretOrCredential_onlyPlaceholders() {
-        // Balayage textuel simple du fichier entier : aucune valeur en
-        // clair ressemblant a un mot de passe/secret reel, uniquement des
-        // placeholders "${...}".
+        // Aucune valeur en clair ressemblant a un secret : seulement des placeholders "${...}".
         String content;
         try (InputStream in = getClass().getClassLoader().getResourceAsStream("application-prod.yml")) {
             content = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);

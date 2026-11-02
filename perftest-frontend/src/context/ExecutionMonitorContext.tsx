@@ -6,16 +6,7 @@ import { BackendExecutionReportResponse, BackendExecutionStatus, BackendExecutio
 import { TERMINAL_EXECUTION_STATUSES, executionStatusMeta } from '../utils/executionStatus'
 import './executionMonitor.css'
 
-// ============================================================
-// Suivi en direct des exécutions lancées depuis l'interface.
-//
-// Monté dans MainLayout : il survit aux changements de page (rien n'est
-// perdu en naviguant), et la liste des exécutions suivies est conservée en
-// sessionStorage (rechargement de l'onglet). Interrogation de
-// GET /api/executions/{id}/status toutes les secondes (compteurs en mémoire
-// du moteur côté backend, aucune lecture lourde), puis à la fin : rapport
-// (P95…) et modale de résultat.
-// ============================================================
+// Suivi en direct des exécutions lancées depuis l'interface, conservé d'une page à l'autre.
 
 export const TERMINAL_STATUSES: BackendExecutionStatus[] = TERMINAL_EXECUTION_STATUSES
 const POLL_INTERVAL_MS = 1000
@@ -54,11 +45,11 @@ export function progressOf(s: BackendExecutionStatusResponse | null): { percent:
   if (isTerminal(s)) return { percent: 100, label: liveStatusLabel(s.status) }
   if (s.status === 'QUEUED') return { percent: 0, label: 'En attente de démarrage' }
   const live = s.live
-  // Tous les utilisateurs ont terminé : le backend enregistre les résultats et calcule les métriques.
+  // Tous les utilisateurs virtuels ont terminé : le backend enregistre les résultats.
   if (live && live.startedVirtualUsers > 0 && live.activeVirtualUsers === 0) {
     return { percent: 99, label: 'Finalisation des résultats…' }
   }
-  // Temps de travail réel (pauses exclues) : la progression ne bouge pas pendant une pause.
+  // Temps de travail (pauses exclues).
   const workedMs = s.activeElapsedMs ?? live?.elapsedMs ?? 0
   const prefix = s.status === 'PAUSED' ? 'En pause · ' : ''
   if (s.durationSeconds && live) {

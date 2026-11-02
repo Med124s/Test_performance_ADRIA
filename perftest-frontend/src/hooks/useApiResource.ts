@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-/**
- * Charge une liste de données depuis un service API (services/api/*) et
- * expose loading/error/refetch — pattern réutilisé par toutes les pages
- * qui consomment JSON Server, pour éviter de dupliquer cette logique.
- */
+/** Charge une liste depuis un service API et expose loading, error et refetch. */
 export function useApiList<T>(fetcher: () => Promise<T[]>, deps: unknown[] = []) {
   const [data, setData] = useState<T[]>([])
   const [loading, setLoading] = useState(true)
@@ -31,7 +27,7 @@ export function useApiList<T>(fetcher: () => Promise<T[]>, deps: unknown[] = [])
   return { data, loading, error, refetch, setData }
 }
 
-/** Même principe pour une ressource unique (ex: un scénario par ID). */
+/** Même principe pour une ressource unique. */
 export function useApiItem<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)

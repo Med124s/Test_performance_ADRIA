@@ -27,11 +27,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Prepare un test detaille (voir StepTestRunner) dans une transaction courte en lecture
- * seule : memes etapes, meme ordre, meme authentification et meme CSV qu'une Execution
- * (voir ExecutionTransactionHelper.prepareAndStart) - mais rien n'est cree en base.
- */
+/** Prepare un test detaille dans une transaction courte : memes etapes, authentification et CSV qu'une execution. */
 @Service
 @RequiredArgsConstructor
 public class TestRunPlanner {
@@ -55,7 +51,7 @@ public class TestRunPlanner {
         return plan(scenario, steps, null, Map.of());
     }
 
-    /** Une seule etape, avec les variables fournies (ex. transferId capture lors d'un test precedent). */
+    /** Une seule etape, avec les variables fournies. */
     @Transactional(readOnly = true)
     public TestRunPlan forStep(UUID stepId, Map<String, String> providedVariables) {
         Step step = stepRepository.findById(stepId)
@@ -66,11 +62,7 @@ public class TestRunPlanner {
         return plan(scenario, allSteps, step.getId(), providedVariables == null ? Map.of() : providedVariables);
     }
 
-    /**
-     * Version NON enregistree d'un scenario (page de modification, « Tester cette étape ») : meme
-     * plan que forScenario, construit depuis le corps recu - rien n'est persiste. upToStep (1..n) :
-     * ne jouer que les etapes 1..upToStep (les precedentes fournissent leurs captures).
-     */
+    /** Version non enregistree d'un scenario ; upToStep (1..n) : ne jouer que les etapes 1..upToStep. */
     @Transactional(readOnly = true)
     public TestRunPlan forDraft(UUID scenarioId, ScenarioFullRequest draft, Integer upToStep) {
         Scenario scenario = scenarioRepository.findById(scenarioId)
@@ -110,7 +102,7 @@ public class TestRunPlanner {
                 numbers.add(i + 1);
             }
         }
-        // Utilisateur virtuel n°1 du moteur, premiere iteration : premiere ligne du CSV.
+        // Premiere iteration : premiere ligne du CSV.
         List<Map<String, String>> rows = CsvDataSource.parse(scenario.getCsvData());
         Map<String, String> provided = new LinkedHashMap<>();
         providedVariables.forEach((name, value) -> {

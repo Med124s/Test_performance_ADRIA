@@ -1,10 +1,7 @@
 import { BackendInjectorStatus } from '../types/backendContracts'
 import InfoTip from './InfoTip'
 
-// ============================================================
-// Suivi en direct : LoadPilot lui-même (l'injecteur). Un injecteur
-// saturé fausse les temps de réponse mesurés : avertissement visible.
-// ============================================================
+// Suivi en direct de LoadPilot lui-même (l'injecteur), avec un avertissement s'il sature.
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${v.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`)
 

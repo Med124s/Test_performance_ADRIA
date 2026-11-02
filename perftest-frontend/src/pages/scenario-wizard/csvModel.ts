@@ -1,9 +1,4 @@
-// ============================================================
-// Jeu de données CSV d'un scénario — MÊMES règles et messages que le moteur
-// (backend : service/execution/CsvDataSource.java) : BOM ignoré, séparateur
-// « , » ou « ; » détecté sur la ligne d'en-tête, guillemets RFC 4180, lignes
-// vides ignorées, noms de colonnes = variables ${colonne}.
-// ============================================================
+// Jeu de données CSV d'un scénario : mêmes règles et messages que le moteur (CsvDataSource.java).
 
 import type { DraftStep } from './wizardModel'
 import { stepVariableNames } from './variablesModel'

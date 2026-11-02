@@ -4,11 +4,7 @@ import com.loadpilot.backend.dto.response.MetricResponse;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Lecture SEULE. Une « metric » = une requete d'une execution terminee, lue directement dans
- * execution_step_result (plus de copie dans une table metric, voir MetricServiceImpl) : son temps de
- * reponse, son code HTTP, et le debit et le taux d'erreurs de son execution.
- */
+/** Metriques (lecture seule) : une metrique = une requete d'une execution terminee. */
 public interface MetricService {
 
     List<MetricResponse> getAll();
@@ -23,8 +19,6 @@ public interface MetricService {
 
     List<MetricResponse> getByExecution(UUID executionId);
 
-    /** Filtre combinable (logique ET) - un parametre null est ignore. Toute
-     * id fournie qui ne correspond a aucune ressource existante declenche
-     * un ResourceNotFoundException (404). */
+    /** Filtres combinables ; un parametre null est ignore. 404 si un id ne correspond a aucune ressource. */
     List<MetricResponse> search(UUID applicationId, UUID scenarioId, UUID stepId, UUID executionId);
 }

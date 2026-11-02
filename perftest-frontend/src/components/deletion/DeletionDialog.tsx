@@ -3,13 +3,7 @@ import { BackendDeletionImpact } from '../../types/backendContracts'
 import { ApiError } from '../../services/api/httpClient'
 import './deletionDialog.css'
 
-// ============================================================
-// Modale de suppression cohérente : affiche l'impact réel (scénarios,
-// étapes, exécutions…) AVANT de confirmer, propose l'archivage par défaut
-// (historique conservé, restaurable) et la suppression définitive en
-// cascade (SUPER_ADMIN, confirmation par saisie du nom). Toute action est
-// impossible tant qu'une exécution est en cours.
-// ============================================================
+// Modale de suppression : impact affiché avant confirmation, archivage par défaut ou suppression définitive.
 
 export type DeletionMode = 'ARCHIVE' | 'PERMANENT'
 
@@ -26,7 +20,7 @@ interface DeletionDialogProps {
   onClose: () => void
 }
 
-/** Message lisible : jamais une erreur technique brute. */
+/** Message d'erreur lisible. */
 function readableError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 403) return "Action refusée : votre rôle ne permet pas cette opération."

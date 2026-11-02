@@ -7,14 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
-/**
- * Nouveau compte. Deux facons de fixer le mot de passe :
- * - "password" renseigne : defini tout de suite (temporaryPassword = changement
- *   impose a la premiere connexion) ; l'e-mail est alors facultatif ;
- * - "password" vide : un lien est envoye par e-mail (l'e-mail est obligatoire).
- * Le mot de passe est transmis a Keycloak puis oublie : jamais enregistre,
- * jamais renvoye, jamais journalise (toString masque).
- */
+/** Nouveau compte : mot de passe defini tout de suite si "password" est renseigne, sinon lien envoye par e-mail. */
 public record CreateUserRequest(
         @NotBlank(message = "Le nom d'utilisateur est obligatoire.")
         @Size(min = 3, max = 50, message = "Le nom d'utilisateur doit faire entre 3 et 50 caractères.")
@@ -40,7 +33,6 @@ public record CreateUserRequest(
         Boolean temporaryPassword
 ) {
 
-    /** Creation avec envoi d'un lien par e-mail (aucun mot de passe). */
     public CreateUserRequest(String username, String email, String firstName, String lastName, AppRole role) {
         this(username, email, firstName, lastName, role, null, null);
     }

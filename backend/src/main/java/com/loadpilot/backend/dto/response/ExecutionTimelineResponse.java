@@ -2,15 +2,7 @@ package com.loadpilot.backend.dto.response;
 
 import java.util.List;
 
-/**
- * Analyse dans le temps d'une execution (GET /api/executions/{id}/timeline) : series alignees sur
- * les memes instants "t" (debut de chaque intervalle, en secondes depuis le debut du test), une
- * entree par intervalle de "bucketSeconds" secondes. Une valeur null = pas de donnee a cet instant
- * (intervalle entierement en pause, ou aucune requete pour le P95).
- *
- * source : RECORDED (utilisateurs actifs enregistres pendant l'execution), DERIVED (deduits des
- * requetes : premiere a derniere requete de chaque VU), NONE (aucune requete).
- */
+/** Analyse dans le temps d'une execution : series alignees sur les instants "t" (secondes depuis le debut). */
 public record ExecutionTimelineResponse(
         String source,
         boolean virtualUsersAvailable,

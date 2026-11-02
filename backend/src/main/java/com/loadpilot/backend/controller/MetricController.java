@@ -15,26 +15,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/metrics - lecture seule (voir MetricService), ouverte a tout
- * utilisateur authentifie quel que soit son role (couvert par
- * SecurityConfig : anyRequest().authenticated()) - pas de @PreAuthorize
- * necessaire, aucun endpoint de creation/modification/suppression n'existe.
- */
+/** API des metriques (lecture seule). */
 @RestController
 @RequestMapping("/api/metrics")
 @RequiredArgsConstructor
-@Tag(name = "Metrics", description = "Mesures reelles (responseTime/throughput/errorRate/cpu/ram/disk/network) generees automatiquement apres une Execution - lecture seule")
+@Tag(name = "Metrics", description = "Mesures par requete des executions terminees (temps de reponse, code HTTP, debit, taux d'erreurs) - lecture seule")
 public class MetricController {
 
     private final MetricService metricService;
 
-    /**
-     * Filtres combinables (logique ET) applicationId/scenarioId/stepId/
-     * executionId - tous optionnels ; aucun filtre fourni = toutes les
-     * Metric. Un id fourni qui ne correspond a aucune ressource existante
-     * renvoie 404 (voir MetricServiceImpl).
-     */
+    /** Filtres combinables applicationId, scenarioId, stepId et executionId ; sans filtre, toutes les metriques. */
     @GetMapping
     @Operation(summary = "Lister/filtrer les metriques", description = "Filtres combinables en ET ; aucune Metric n'est creable via l'API, elles sont generees par le backend apres chaque Execution.")
     @ApiResponse(responseCode = "404", description = "Un des ids de filtre fourni ne correspond a aucune ressource existante")

@@ -6,15 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.IntStream;
 
-/**
- * Tout ce dont StepTestRunner a besoin, copie dans une transaction courte (voir
- * TestRunPlanner) : le test reel se deroule ensuite hors de toute transaction.
- *
- * Memes sources que le moteur, pour l'utilisateur virtuel n°1 et sa premiere iteration :
- * premiere ligne du CSV, variables du scenario, ${authToken} ; "providedVariables" (test d'une
- * seule etape) sont traitees comme des captures des etapes precedentes (priorite maximale).
- * "stepNumbers" : numero (1..n) de chaque etape jouee dans l'ordre du scenario.
- */
+/** Donnees d'un test detaille, copiees avant le test. */
 public record TestRunPlan(
         UUID scenarioId,
         String applicationBaseUrl,
@@ -25,10 +17,9 @@ public record TestRunPlan(
         Map<String, String> providedVariables,
         List<Integer> stepNumbers,
         Map<String, Integer> captureStepByVariable,
-        /** Proxy pour joindre l'application (voir NetworkProfile) ; null = proxy du serveur. */
+        /** Reglages reseau pour joindre l'application ; null = proxy du serveur. */
         com.loadpilot.backend.service.http.NetworkProfile network
 ) {
-    /** Compatibilite : variables initiales traitees comme la ligne CSV, etapes numerotees 1..n. */
     public TestRunPlan(UUID scenarioId, String applicationBaseUrl, ApplicationAuthSpec auth, List<StepExecutionSpec> steps,
             Map<String, String> initialVariables) {
         this(scenarioId, applicationBaseUrl, auth, steps, initialVariables, Map.of(), Map.of(),
@@ -40,7 +31,6 @@ public record TestRunPlan(
         if (network == null) network = com.loadpilot.backend.service.http.NetworkProfile.inherit();
     }
 
-    /** Compatibilite : proxy du serveur. */
     public TestRunPlan(UUID scenarioId, String applicationBaseUrl, ApplicationAuthSpec auth, List<StepExecutionSpec> steps,
             Map<String, String> csvRow, Map<String, String> scenarioVariables, Map<String, String> providedVariables,
             List<Integer> stepNumbers, Map<String, Integer> captureStepByVariable) {

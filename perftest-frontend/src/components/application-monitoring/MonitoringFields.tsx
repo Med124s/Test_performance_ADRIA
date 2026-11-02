@@ -9,10 +9,7 @@ import {
 import InfoTip from '../InfoTip'
 import '../application-auth/applicationAuth.css'
 
-// ============================================================
-// Section « Monitoring » (optionnelle) du formulaire d'application :
-// type, URL, authentification, intervalle, « Tester le monitoring ».
-// ============================================================
+// Section « Monitoring » du formulaire d'application.
 
 const TYPES: { type: BackendMonitoringType; hint: string }[] = [
   { type: 'NONE', hint: 'Aucune mesure CPU / RAM.' },
@@ -42,7 +39,7 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
   const err = (k: keyof MonitoringErrors) => (showErrors || value.url ? errors[k] : undefined)
   const current = TYPES.find((t) => t.type === value.type) ?? TYPES[0]
   const keptSecret = !!existing?.secretConfigured && existing.authType === value.authType
-  // « Aucun proxy » dans l'onglet Réseau (lu à chaque changement) : « Monitoring sans proxy » n'a rien à contourner.
+  // « Aucun proxy » : « Monitoring sans proxy » n'a rien à contourner.
   const noProxy = network?.proxyMode === 'NONE'
 
   const chooseType = (type: BackendMonitoringType) => {
@@ -99,8 +96,7 @@ export default function MonitoringFields({ value, onChange, errors, showErrors, 
           </div>
 
           <div className="form-check mb-2">
-            {/* Sans proxy pour l'application (onglet Réseau), la lecture est déjà directe : case sans effet, grisée.
-                Sa valeur est gardée telle quelle et reprend effet si un proxy est de nouveau choisi. */}
+            {/* Sans proxy pour l'application, la case est sans effet et grisée ; sa valeur est conservée. */}
             <input className="form-check-input" type="checkbox" id="mon-without-proxy" checked={value.withoutProxy}
               disabled={noProxy} aria-describedby={noProxy ? 'mon-without-proxy-hint' : undefined}
               onChange={(e) => { if (!noProxy) set({ withoutProxy: e.target.checked }) }} />

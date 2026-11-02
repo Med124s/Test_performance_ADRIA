@@ -23,12 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Verifie /api/audit-logs : securite (VIEWER exclu, voir Phase 12, section
- * 13), routage /stats et /export non avales par /{id}, filtres, pagination,
- * export CSV. Les vraies entrees d'audit exploitees ici proviennent d'une
- * vraie action metier (POST /api/applications), jamais fabriquees a la main.
- */
+/** /api/audit-logs : securite, routage de /stats et /export, filtres, pagination et export CSV. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -146,9 +141,7 @@ class AuditLogControllerTest {
 
     @Test
     void stats_routesCorrectly_isNeverInterpretedAsAnId() throws Exception {
-        // Si "stats" etait avale par /{id}, Spring tenterait de le convertir
-        // en UUID et renverrait 400 (voir getById_invalidUuid ci-dessus) au
-        // lieu du vrai contenu de AuditStatsResponse.
+        // Si "stats" etait pris pour un {id}, la reponse serait 400.
         mockMvc.perform(get("/api/audit-logs/stats").with(AS_SUPER_ADMIN))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalActions").value(greaterThanOrEqualTo(0)))
@@ -202,9 +195,7 @@ class AuditLogControllerTest {
                 .andExpect(jsonPath("$.content[?(@.summary=='Export CSV du journal d’audit')]").exists());
     }
 
-    // ------------------------------------------------------------
-    // Filtres / pagination - donnees reelles issues d'une vraie action
-    // ------------------------------------------------------------
+    // ---- Filtres / pagination ----
 
     @Test
     void list_filterByModuleAndAction_findsTheRealApplicationCreationAudit() throws Exception {

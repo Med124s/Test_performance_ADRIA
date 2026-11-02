@@ -1,9 +1,6 @@
 package com.loadpilot.backend.service.keycloak;
 
-/** Compte a creer dans Keycloak. "password" : mot de passe initial choisi par
- * l'administrateur (null = aucun, l'utilisateur le choisira via un lien
- * e-mail, voir KeycloakAdminClient#sendActionsEmail). Il est transmis tel quel
- * a Keycloak et jamais conserve ni journalise par LoadPilot (toString masque). */
+/** Compte a creer dans Keycloak ; "password" null = l'utilisateur le choisira via un lien e-mail. */
 public record NewKeycloakUser(
         String username,
         String email,

@@ -11,10 +11,6 @@ import org.mapstruct.MappingTarget;
 @Mapper(componentModel = "spring", uses = MapperSupport.class)
 public interface ScenarioMapper {
 
-    // virtualUsers/rampUpSeconds/durationSeconds/iterations/thinkTimeMs :
-    // ignores ici volontairement - ScenarioServiceImpl les applique
-    // explicitement avec les valeurs par defaut reelles (jamais un null
-    // MapStruct copie tel quel dans une colonne NOT NULL, voir ScenarioRequest).
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "application", ignore = true)
     @Mapping(target = "status", ignore = true)

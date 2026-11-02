@@ -1,10 +1,6 @@
 package com.loadpilot.backend.service.keycloak;
 
-/**
- * Evenement de securite lu dans Keycloak (GET /admin/realms/{realm}/events).
- * typedUsername : nom saisi a la connexion (details.username), utile pour un
- * echec sur un compte inconnu. Jamais de mot de passe : Keycloak ne l'enregistre pas.
- */
+/** Evenement de securite lu dans Keycloak ; typedUsername = nom saisi a la connexion. */
 public record KeycloakSecurityEvent(
         String id,
         String type,

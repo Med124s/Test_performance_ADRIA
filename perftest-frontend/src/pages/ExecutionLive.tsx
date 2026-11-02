@@ -10,12 +10,7 @@ import { NoFailedSteps, OnlyFailedToggle, StepPagerFooter, useStepPaging } from 
 import LiveResources from '../components/application-monitoring/LiveResources'
 import LiveInjector from '../components/LiveInjector'
 
-// ============================================================
-// Suivi en direct d'une exécution (/executions/live/:id) : statut, progression,
-// utilisateurs actifs, requêtes, succès / échecs, débit, temps moyen, compteur
-// par étape, pause / reprise, annulation. Les données viennent du suivi global
-// (ExecutionMonitorContext) : quitter la page puis revenir ne perd rien.
-// ============================================================
+// Suivi en direct d'une exécution (/executions/live/:id).
 
 /** « 1 min 05 s », « 42 s ». */
 export function formatPause(ms: number): string {
@@ -25,11 +20,7 @@ export function formatPause(ms: number): string {
   return min > 0 ? `${min} min ${String(sec).padStart(2, '0')} s` : `${sec} s`
 }
 
-/**
- * Message clair pour un refus d'action. Le serveur explique lui-même un refus métier
- * (exécution terminée, déjà en pause…) ; un 404 sans explication signifie que le serveur
- * ne connaît pas cette action (backend lancé avant la mise à jour) — jamais un « Erreur 404 » brut.
- */
+/** Message pour un refus d'action (annuler, mettre en pause, reprendre). */
 export function describeActionError(err: unknown, action: 'cancel' | 'pause' | 'resume'): string {
   const verb = action === 'cancel' ? 'Annulation' : action === 'pause' ? 'Mise en pause' : 'Reprise'
   if (err instanceof ApiError) {

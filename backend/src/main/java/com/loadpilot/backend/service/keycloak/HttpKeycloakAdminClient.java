@@ -29,25 +29,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/**
- * Implementation reelle unique (java.net.http.HttpClient, aucune dependance
- * ajoutee - meme choix que service.monitoring.HttpMonitoringClient et
- * service.execution.HttpClientExecutionEngine) de l'Admin REST API Keycloak,
- * via le compte de service "loadpilot-backend-admin" (client confidentiel,
- * serviceAccountsEnabled=true, roles realm-management view-users/
- * manage-users/query-users UNIQUEMENT - provisionne separement dans
- * Keycloak, jamais dans ce depot).
- *
- * Le token du compte de service (grant_type=client_credentials) est mis en
- * cache en memoire et rafraichi automatiquement avant expiration - jamais
- * demande a chaque appel, jamais stocke ni transmis au frontend.
- */
+/** Client de l'Admin REST API Keycloak, via le compte de service loadpilot-backend-admin. */
 @Component
 public class HttpKeycloakAdminClient implements KeycloakAdminClient {
 
     private static final Logger log = LoggerFactory.getLogger(HttpKeycloakAdminClient.class);
-    /** Marge de securite avant l'expiration reelle du token, pour ne jamais
-     * envoyer une requete avec un token qui expire pendant le trajet. */
+    /** Marge avant l'expiration du jeton du compte de service. */
     private static final Duration TOKEN_REFRESH_MARGIN = Duration.ofSeconds(10);
 
     private final KeycloakAdminProperties properties;
@@ -101,10 +88,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
 
     @Override
     public void setUserEnabled(String userId, boolean enabled) {
-        // Keycloak attend une representation complete pour PUT /users/{id} -
-        // on recupere donc l'objet reel, on modifie uniquement "enabled", et
-        // on le renvoie tel quel (jamais reconstruit champ par champ, pour ne
-        // jamais perdre/ecraser un attribut Keycloak existant).
+        // PUT /users/{id} attend la representation complete : on relit l'utilisateur et on change seulement "enabled".
         JsonNode current = getOrThrowNotFound("/admin/realms/" + properties.getRealm() + "/users/" + encode(userId),
                 "Utilisateur introuvable : " + userId);
         ObjectNode updated = current.deepCopy();
@@ -114,7 +98,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
 
     @Override
     public void updateUserIdentity(String userId, String firstName, String lastName, String email) {
-        // Meme principe que setUserEnabled : representation reelle relue, seuls ces trois champs changent.
+        // Representation relue, seuls ces trois champs changent.
         String path = "/admin/realms/" + properties.getRealm() + "/users/" + encode(userId);
         JsonNode current = getOrThrowNotFound(path, "Utilisateur introuvable : " + userId);
         ObjectNode updated = current.deepCopy();
@@ -137,13 +121,6 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
 
     @Override
     public void replaceUserAppRole(String userId, AppRole newRole) {
-        // NB (Phase 25) : lire la representation d'un role via
-        // GET /roles/{name} exige le role Keycloak "view-realm", plus large
-        // que le strict necessaire (voir compte de service
-        // loadpilot-backend-admin, limite a view-users/manage-users/
-        // query-users). On utilise donc exclusivement des endpoints
-        // "sous-ressource utilisateur" (role-mappings/realm[/available]),
-        // couverts par manage-users/view-users - jamais /roles/{name}.
         String rolesMappingPath = "/admin/realms/" + properties.getRealm() + "/users/" + encode(userId) + "/role-mappings/realm";
 
         JsonNode currentMappings = getOrThrowNotFound(rolesMappingPath, "Utilisateur introuvable : " + userId);
@@ -160,9 +137,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
             }
         }
 
-        // 1) Assigner D'ABORD le nouveau role (si pas deja present) : en cas
-        // d'echec (ex: role non trouve), l'utilisateur garde son role actuel
-        // au lieu de se retrouver sans aucun role applicatif.
+        // Nouveau role assigne d'abord, puis les anciens roles applicatifs retires.
         if (!alreadyHasTargetRole) {
             JsonNode targetRole = findAvailableRole(rolesMappingPath + "/available", newRole.toKeycloakRoleName(), userId);
             ArrayNode toAdd = objectMapper.createArrayNode();
@@ -170,8 +145,6 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
             post(rolesMappingPath, toAdd);
         }
 
-        // 2) Retirer ENSUITE les autres roles applicatifs precedemment
-        // assignes (seulement une fois le nouveau role confirme assigne).
         if (!toRemove.isEmpty()) {
             delete(rolesMappingPath, toRemove);
         }
@@ -179,8 +152,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
 
     @Override
     public Map<String, Instant> lastLoginByUser() {
-        // Evenements renvoyes du plus recent au plus ancien : le premier vu
-        // pour un utilisateur est sa derniere connexion.
+        // Evenements du plus recent au plus ancien : le premier vu pour un utilisateur est sa derniere connexion.
         JsonNode events = get("/admin/realms/" + properties.getRealm() + "/events?type=LOGIN&first=0&max=" + properties.getLoginEventsMax());
         Map<String, Instant> result = new HashMap<>();
         if (events.isArray()) {
@@ -205,8 +177,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
         body.put("enabled", true);
         body.put("emailVerified", false);
         if (user.password() != null) {
-            // Mot de passe initial : verifie par Keycloak selon la politique du realm ;
-            // "temporary" ajoute l'action requise UPDATE_PASSWORD (changement a la 1re connexion).
+            // "temporary" impose le changement du mot de passe a la premiere connexion.
             body.putArray("credentials").add(passwordCredential(user.password(), user.temporaryPassword()));
         }
         String path = "/admin/realms/" + properties.getRealm() + "/users";
@@ -266,7 +237,6 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
 
     @Override
     public String getPasswordPolicy() {
-        // Necessite le role realm-management "view-realm" pour le compte de service.
         JsonNode realm = get("/admin/realms/" + properties.getRealm());
         return realm.path("passwordPolicy").asText("");
     }
@@ -288,7 +258,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
 
     @Override
     public List<KeycloakSession> accountSessions(String userAccessToken) {
-        // API « compte » : appelee avec le jeton de l'utilisateur lui-meme (jamais le compte de service).
+        // API "compte", appelee avec le jeton de l'utilisateur.
         HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getServerUrl() + "/realms/" + properties.getRealm()
                         + "/account/sessions/devices"))
                 .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
@@ -355,7 +325,6 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
     public KeycloakSmtpInfo smtpInfo() {
         JsonNode smtp = get("/admin/realms/" + properties.getRealm()).path("smtpServer");
         if (!smtp.isObject() || text(smtp, "host") == null) return null;
-        // Jamais "user" ni "password" : seuls l'hote, le port et l'expediteur sont lus.
         return new KeycloakSmtpInfo(text(smtp, "host"), text(smtp, "port"), text(smtp, "from"), text(smtp, "fromDisplayName"),
                 "true".equalsIgnoreCase(text(smtp, "auth")));
     }
@@ -382,7 +351,7 @@ public class HttpKeycloakAdminClient implements KeycloakAdminClient {
         return credential;
     }
 
-    /** 400 de Keycloak pour un mot de passe refuse -> message francais (sans jamais le mot de passe). */
+    /** Traduit le refus d'un mot de passe (400) en message francais. */
     private void rejectPasswordPolicyViolation(HttpResponse<String> response) {
         if (response.statusCode() == 400) {
             String message = PasswordPolicyMessages.fromKeycloakError(response.body(), objectMapper);

@@ -1,9 +1,6 @@
 package com.loadpilot.backend.service.execution;
 
-/** Echec d'authentification aupres de l'Application cible. Le message est
- * destine a l'utilisateur, sans prefixe (l'appelant ajoute
- * "Authentification : ") et ne contient jamais de secret ni le corps de la
- * reponse de login. */
+/** Echec d'authentification aupres de l'application testee ; message destine a l'utilisateur, sans secret. */
 public class ApplicationAuthenticationException extends RuntimeException {
 
     public enum Kind {

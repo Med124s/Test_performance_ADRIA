@@ -20,29 +20,18 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/notification-preferences — PERSONNEL a l'utilisateur authentifie
- * courant (meme convention que /api/notifications, voir
- * NotificationController) : aucun parametre "userId" nulle part, toujours
- * resolu depuis le Jwt. Ouvert a tout role authentifie - gerer SES PROPRES
- * preferences n'est jamais une action privilegiee.
- *
- * P1-D — remplace la page NotificationsPreferences.tsx precedemment 100%
- * fictive (canaux Slack/Teams/SMS/Email non implementes, regles d'alerte
- * sur seuils CPU/RAM inexistants) : ici, seul le canal in-app REEL (voir
- * P1-B) peut etre coupe par type d'evenement.
- */
+/** Preferences de notification de l'utilisateur connecte. */
 @RestController
 @RequestMapping("/api/notification-preferences")
 @RequiredArgsConstructor
-@Tag(name = "Notification Preferences", description = "Preferences reelles (in-app uniquement) de l'utilisateur authentifie par type de notification")
+@Tag(name = "Notification Preferences", description = "Preferences de notification de l'utilisateur connecte, par type (dans l'application et par e-mail)")
 public class NotificationPreferenceController {
 
     private final NotificationPreferenceService notificationPreferenceService;
     private final com.loadpilot.backend.service.mail.MailService mailService;
 
     @GetMapping
-    @Operation(summary = "Lister mes preferences de notification", description = "Les 5 types reels de Notification (voir NotificationType), chacun avec son etat reel (actif par defaut).")
+    @Operation(summary = "Lister mes preferences de notification", description = "Chaque type de notification (voir NotificationType) avec son etat pour l'utilisateur ; actif par defaut.")
     public List<NotificationPreferenceResponse> list(@AuthenticationPrincipal Jwt jwt) {
         return notificationPreferenceService.list(jwt.getSubject());
     }

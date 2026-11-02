@@ -3,12 +3,7 @@ package com.loadpilot.backend.dto.response;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Politique de mot de passe du realm (GET /api/users/password-policy), pour la
- * validation en direct dans le formulaire. Keycloak reste seul juge : il
- * re-verifie chaque mot de passe a l'enregistrement.
- * 0 = pas d'exigence ; maxLength 0 = pas de maximum.
- */
+/** Politique de mot de passe du realm Keycloak ; 0 = pas d'exigence. */
 public record PasswordPolicyResponse(
         int minLength,
         int maxLength,

@@ -14,11 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
-/**
- * Taille de la base et bilan des purges automatiques (Parametres > Systeme). Bilans enregistres par
- * ResultsRetentionJob et AuditRetentionJob a chaque passage ; prochain passage calcule depuis leur
- * expression cron (heure du serveur).
- */
+/** Taille de la base et bilan des purges automatiques (Parametres > Systeme). */
 @Service
 @RequiredArgsConstructor
 public class StorageInfoService {

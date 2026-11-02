@@ -13,16 +13,12 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     if (returnTo) clearReturnTo()
   }, [returnTo, clearReturnTo])
 
-  // Laisse le temps à AuthProvider de traiter un éventuel retour de Keycloak
-  // (?code=&state=) avant de décider — sans cette attente, un utilisateur
-  // réellement authentifié serait renvoyé vers Keycloak dans une boucle, le
-  // temps que l'échange du code se termine.
+  // Attend le traitement d'un éventuel retour de Keycloak avant de décider.
   if (isLoading) {
     return null
   }
 
-  // Pas de page intermédiaire : direction la page de connexion LoadPilot
-  // (thème Keycloak), puis retour sur la page demandée.
+  // Non connecté : redirection vers la page de connexion, puis retour sur la page demandée.
   if (!isAuthenticated) {
     return <LoginRedirect returnTo={here} />
   }

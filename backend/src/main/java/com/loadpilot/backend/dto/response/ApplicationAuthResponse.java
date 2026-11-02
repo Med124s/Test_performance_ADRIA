@@ -3,10 +3,7 @@ package com.loadpilot.backend.dto.response;
 import com.loadpilot.backend.enums.ApiKeyLocation;
 import com.loadpilot.backend.enums.ApplicationAuthType;
 
-/**
- * Vue de l'authentification d'une Application SANS aucun secret : les
- * valeurs sensibles sont remplacees par un simple indicateur "configure".
- */
+/** Authentification d'une application, sans les secrets (remplaces par un indicateur "configure"). */
 public record ApplicationAuthResponse(
         ApplicationAuthType type,
         String apiKeyName,

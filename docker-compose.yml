@@ -1,28 +1,10 @@
-# Reproductibilité complète de la stack LoadPilot (PostgreSQL → Keycloak →
-# Backend → Frontend). Ceci est une VOIE SUPPLÉMENTAIRE, pas un
-# remplacement : les procédures manuelles documentées dans
-# postgresql/README.md, keycloak/README.md et le README principal
-# (`mvn spring-boot:run` / `npm run dev`) restent valides et ne sont pas
-# retirées.
-#
-# Master prompt final (Lot E) — backend/frontend AJOUTÉS (Dockerfiles
-# multi-stage réels : backend/Dockerfile, perftest-frontend/Dockerfile),
-# après évaluation que l'architecture actuelle (Maven/pom.xml Java 21,
-# package.json/vite build) le permet proprement sans inventer de nouvelle
-# convention.
-#
-# IMPORTANT : la disponibilité de Docker sur la machine où ce fichier a été
-# écrit N'A JAMAIS pu être vérifiée (`docker` introuvable dans tout
-# l'environnement de développement de ce projet) — seules la syntaxe YAML
-# et la cohérence statique (ports/variables/dépendances) ont été validées.
-# DOCKER RUNTIME TEST — NOT VERIFIED (voir rapport de phase).
+# Stack LoadPilot complète : PostgreSQL, Keycloak, Mailpit, backend et frontend.
 #
 # Utilisation :
 #   cp .env.example .env   # puis renseigner de vrais mots de passe locaux
 #   docker compose up -d --build
 #
-# Aucun secret réel dans ce fichier : toutes les valeurs sensibles viennent
-# de variables d'environnement (voir .env.example à la racine).
+# Les valeurs sensibles viennent du fichier .env (voir .env.example).
 
 services:
   postgres:
@@ -68,19 +50,12 @@ services:
     ports:
       - "8081:8080"
     volumes:
-      # Import automatique au demarrage (realm/roles/clients reels, voir
-      # keycloak/README.md) - aucun utilisateur, aucun secret reel dans ce
-      # fichier (secret du client confidentiel masque a l'export).
+      # Realm loadpilot (roles, clients) importe au demarrage.
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-      # Theme de connexion LoadPilot (FreeMarker, herite de keycloak.v2) :
-      # charge au demarrage ; en start-dev le cache des themes est desactive,
-      # une modification des fichiers est visible au rechargement de la page.
+      # Theme de connexion LoadPilot (FreeMarker, herite de keycloak.v2).
       - ./keycloak/themes/loadpilot:/opt/keycloak/themes/loadpilot:ro
 
-  # Serveur SMTP local de developpement / demo : capture TOUS les e-mails
-  # envoyes par Keycloak (rien n'est reellement delivre) et les affiche sur
-  # http://localhost:8025. Inutile en production si KC_SMTP_HOST pointe
-  # vers un vrai serveur.
+  # Serveur SMTP de developpement : capture les e-mails (rien n'est delivre) et les affiche sur http://localhost:8025.
   mailpit:
     image: axllent/mailpit:v1.31.4
     restart: unless-stopped
@@ -91,12 +66,7 @@ services:
       - "8025:8025" # interface web
       - "1025:1025" # SMTP
 
-  # Master prompt final (Lot E) — build reel depuis backend/Dockerfile
-  # (multi-stage Maven, voir ce fichier). "keycloak: service_started"
-  # uniquement (jamais "service_healthy") : ce realme Keycloak (start-dev,
-  # sans son endpoint /health active) n'expose ici aucun healthcheck
-  # verifie - attendre seulement son demarrage est une simplification
-  # honnete, jamais une garantie qu'il repond deja reellement.
+  # Backend Spring Boot (backend/Dockerfile).
   backend:
     build:
       context: ./backend
@@ -108,10 +78,7 @@ services:
         condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: dev
-      # Noms de service Docker internes (reseau compose), jamais
-      # "localhost" - le backend tourne DANS un conteneur distinct de
-      # postgres/keycloak, "localhost" y designerait le conteneur backend
-      # lui-meme.
+      # Noms des services sur le reseau Docker.
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-loadpilot}
       DB_USERNAME: ${DB_USERNAME:-loadpilot}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD doit etre defini (voir .env.example)}
@@ -120,13 +87,11 @@ services:
       # Serveur e-mail de LoadPilot (notifications par e-mail) : Mailpit en developpement.
       LOADPILOT_MAIL_HOST: ${LOADPILOT_MAIL_HOST:-mailpit}
       LOADPILOT_MAIL_PORT: ${LOADPILOT_MAIL_PORT:-1025}
-      # Genere par Keycloak a l'import du realm (jamais une valeur connue a
-      # l'avance) - voir keycloak/README.md, section "Apres l'import".
+      # Secret du client loadpilot-backend-admin, genere par Keycloak a l'import (voir keycloak/README.md).
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:?KEYCLOAK_ADMIN_CLIENT_SECRET doit etre recupere dans la Console Admin Keycloak apres import (voir keycloak/README.md)}
       # Cle de chiffrement des secrets des applications testees (voir docs/SECRETS.md).
       LOADPILOT_SECRETS_KEY: ${LOADPILOT_SECRETS_KEY:?LOADPILOT_SECRETS_KEY doit etre definie (cle AES-256 en Base64, voir docs/SECRETS.md)}
-      # Origine du NAVIGATEUR (cote hote, voir frontend ci-dessous) - jamais
-      # un nom de service Docker interne.
+      # Origine du frontend vue par le navigateur.
       FRONTEND_ORIGIN: http://localhost:3000
       # Application cible (voir backend/start.sh et .env.example) : toutes optionnelles, vides par
       # defaut = ignorees. Les chemins des certificats sont ceux VUS DANS LE CONTENEUR (voir le
@@ -187,13 +152,7 @@ services:
     ports:
       - "8080:8080"
 
-  # Master prompt final (Lot E) — build reel depuis
-  # perftest-frontend/Dockerfile (multi-stage Node+nginx). Les URLs
-  # VITE_* sont des ARGS DE BUILD (voir Dockerfile) resolues par le
-  # NAVIGATEUR de l'utilisateur : elles pointent donc vers les ports
-  # EXPOSES A L'HOTE (localhost:8081/8080 ci-dessus), jamais vers les noms
-  # de service internes "keycloak"/"backend" que le navigateur ne peut pas
-  # resoudre.
+  # Frontend (perftest-frontend/Dockerfile) ; les URL VITE_* sont utilisees par le navigateur, donc vers les ports de l'hote.
   frontend:
     build:
       context: ./perftest-frontend

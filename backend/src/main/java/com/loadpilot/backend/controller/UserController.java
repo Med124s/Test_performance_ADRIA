@@ -27,30 +27,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/users - administration reelle des comptes Keycloak (Phase 25).
- * Keycloak est l'unique source de verite (identite/roles/etat active-
- * desactive) ; aucun mot de passe ne transite jamais par cette API (creation
- * et reinitialisation passent par un e-mail Keycloak).
- *
- * Reserve a SUPER_ADMIN uniquement (@PreAuthorize au niveau de la classe,
- * comme AuditLogController) : l'administration des comptes/roles est
- * l'operation la plus sensible du systeme (elle peut notamment accorder
- * ROLE_SUPER_ADMIN a n'importe qui) - contrairement a l'audit (SUPER_ADMIN
- * + PERFORMANCE_ENGINEER), aucune raison metier ne justifie d'y donner
- * acces a PERFORMANCE_ENGINEER (voir rapport Phase 25).
- */
+/** Administration des comptes utilisateurs (dans Keycloak). */
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('SUPER_ADMIN')")
-@Tag(name = "Users", description = "Administration reelle des utilisateurs Keycloak (identite/statut/role) - reserve a SUPER_ADMIN")
+@Tag(name = "Users", description = "Administration des utilisateurs Keycloak (identite, statut, role) - reserve a SUPER_ADMIN")
 public class UserController {
 
     private final UserService userService;
 
     @GetMapping
-    @Operation(summary = "Lister les utilisateurs Keycloak reels",
+    @Operation(summary = "Lister les utilisateurs Keycloak",
             description = "Avec la derniere connexion (evenements LOGIN Keycloak) et le nombre d'executions lancees.")
     public List<UserSummaryResponse> list() {
         return userService.list();
@@ -68,7 +56,7 @@ public class UserController {
     }
 
     @PutMapping("/{id}/role")
-    @Operation(summary = "Modifier le role reel d'un utilisateur", description = "Modifie reellement les realm roles Keycloak de l'utilisateur (jamais un champ local).")
+    @Operation(summary = "Modifier le role d'un utilisateur", description = "Modifie les realm roles de l'utilisateur dans Keycloak.")
     @ApiResponse(responseCode = "404", description = "Utilisateur ou role Keycloak introuvable")
     @ApiResponse(responseCode = "409", description = "Un administrateur ne peut pas retirer son propre role Administrateur")
     public UserSummaryResponse updateRole(@PathVariable String id, @Valid @RequestBody UpdateUserRoleRequest request,
@@ -77,7 +65,7 @@ public class UserController {
     }
 
     @PutMapping("/{id}/status")
-    @Operation(summary = "Activer/desactiver reellement un utilisateur", description = "Modifie reellement le champ 'enabled' du compte Keycloak.")
+    @Operation(summary = "Activer ou desactiver un utilisateur", description = "Modifie le champ 'enabled' du compte Keycloak.")
     @ApiResponse(responseCode = "404", description = "Utilisateur introuvable")
     @ApiResponse(responseCode = "409", description = "Un administrateur ne peut pas desactiver son propre compte")
     public UserSummaryResponse updateStatus(@PathVariable String id, @Valid @RequestBody UpdateUserStatusRequest request,
@@ -98,7 +86,7 @@ public class UserController {
     @PutMapping("/{id}/password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Definir le mot de passe d'un utilisateur",
-            description = "Transmis a Keycloak (politique du realm verifiee), jamais enregistre ni renvoye ni journalise. "
+            description = "Transmis a Keycloak (politique du realm verifiee), sans etre enregistre, renvoye ni journalise par LoadPilot. "
                     + "temporary = changement impose a la prochaine connexion.")
     @ApiResponse(responseCode = "400", description = "Mot de passe refuse par la politique (message en francais)")
     public void setPassword(@PathVariable String id, @Valid @RequestBody SetPasswordRequest request) {

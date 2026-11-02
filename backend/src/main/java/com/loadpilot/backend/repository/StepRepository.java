@@ -10,7 +10,5 @@ public interface StepRepository extends JpaRepository<Step, UUID> {
 
     List<Step> findByScenarioId(UUID scenarioId, Sort sort);
 
-    /** Utilise par ScenarioService pour empecher la suppression d'un
-     * Scenario ayant encore des Steps rattaches (voir Phase 8). */
     boolean existsByScenarioId(UUID scenarioId);
 }

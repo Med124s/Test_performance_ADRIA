@@ -17,8 +17,7 @@ interface PaginationProps {
   alertLabel?: string
 }
 
-/** Génère la liste des numéros de page à afficher, avec "..." pour les
- * pages intermédiaires quand il y en a beaucoup (ex: 1 2 3 ... 125). */
+/** Numéros de page à afficher, avec "..." entre les pages éloignées (ex. 1 2 3 ... 125). */
 function getPageNumbers(current: number, total: number): (number | '...')[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
   const pages: (number | '...')[] = [1]

@@ -12,14 +12,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Un tableau en CSV « Excel en francais » : UTF-8 avec BOM (accents reconnus), separateur « ; »,
- * virgule decimale, dates jj/mm/aaaa hh:mm:ss a l'heure locale, une ligne d'en-tete en francais
- * avec unites, fins de ligne CRLF. Guillemets autour de toute valeur contenant « ; », un guillemet,
- * un retour a la ligne ou des espaces en bordure (guillemet interne double). Protection contre
- * l'injection de formule : un TEXTE commencant par = + - @ (ou tabulation) est prefixe d'une
- * apostrophe ; les nombres negatifs restent des nombres.
- */
+/** Tableau CSV pour Excel en francais : UTF-8 avec BOM, separateur ";", virgule decimale, fins de ligne CRLF. */
 public final class CsvTableWriter {
 
     private CsvTableWriter() {

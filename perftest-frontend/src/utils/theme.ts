@@ -1,19 +1,11 @@
 import { useSyncExternalStore } from 'react'
 
-// ============================================================
-// Apparence : UN SEUL état pour toute l'application (bouton de la barre latérale,
-// Paramètres > Mon profil), trois choix :
-//   - « light » / « dark » : imposés ;
-//   - « system » : suit le réglage de l'appareil (prefers-color-scheme), en direct.
-// Mémorisée dans ce navigateur (affichage immédiat au chargement) ET sur le profil
-// (retrouvée sur un autre appareil, voir applyProfileTheme). L'attribut `data-theme`
-// de <html> reste la seule chose lue par le CSS.
-// ============================================================
+// Apparence de l'application : clair, sombre ou système (suit l'appareil), partagée par tous les composants.
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 
 const STORAGE_KEY = 'pt_theme'
-/** Ancienne clé (interrupteur clair / sombre) : relue une fois pour ne rien perdre. */
+// Ancienne clé (clair / sombre), relue une fois.
 const LEGACY_KEY = 'pt_dark_mode'
 
 type Listener = () => void
@@ -57,7 +49,7 @@ function apply() {
 
 apply()
 
-// « Système » : suit les changements de l'appareil sans recharger la page.
+// « Système » : suit les changements de l'appareil.
 try {
   const media = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null
   media?.addEventListener?.('change', () => { if (preference === 'system') apply() })

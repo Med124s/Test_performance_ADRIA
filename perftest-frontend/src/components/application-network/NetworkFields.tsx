@@ -4,13 +4,7 @@ import { formatDate } from '../../utils/dateFormat'
 import { NetworkErrors, NetworkForm, PROXY_MODE_LABELS } from './networkModel'
 import '../application-auth/applicationAuth.css'
 
-// ============================================================
-// Section « Réseau » du formulaire d'application : proxy du serveur
-// (défaut, comme avant), aucun proxy, ou proxy propre à l'application ;
-// autorité de certification TLS optionnelle (PEM).
-// Même présentation que ApplicationAuthFields (mot de passe jamais
-// réaffiché : vide = conservé).
-// ============================================================
+// Section « Réseau » du formulaire d'application : proxy (du serveur, aucun ou propre à l'application) et autorité de certification TLS.
 
 const MODES: { mode: BackendProxyMode; hint: string }[] = [
   { mode: 'INHERIT', hint: 'Proxy défini globalement sur le serveur LoadPilot, commun à toutes les applications qui choisissent cette option. Sans proxy configuré sur le serveur, la connexion est directe.' },

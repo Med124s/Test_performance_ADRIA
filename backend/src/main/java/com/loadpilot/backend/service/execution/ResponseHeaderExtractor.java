@@ -3,21 +3,7 @@ package com.loadpilot.backend.service.execution;
 import java.net.http.HttpHeaders;
 import java.util.List;
 
-/**
- * Extraction d'une valeur depuis un EN-TETE de la reponse HTTP (capture de source HEADER, voir
- * CaptureSource), pendant de JsonPathExtractor pour le corps JSON.
- *
- * Le « chemin » est simplement le nom de l'en-tete (ex. "X-CSRF-Token"), recherche sans tenir
- * compte de la casse comme tout en-tete HTTP. Regles :
- *   - plusieurs valeurs pour le meme en-tete : la PREMIERE est retenue, telle quelle (espaces de
- *     debut et de fin retires) ;
- *   - "Set-Cookie:NOM" : valeur du cookie NOM (ce qui suit "NOM=" jusqu'au premier ";", sans les
- *     guillemets eventuels), cherchee dans TOUS les en-tetes Set-Cookie (un par cookie) ; le nom du
- *     cookie respecte la casse. Aucune gestion de cookie (expiration, domaine, renvoi automatique).
- *
- * Ne leve JAMAIS d'exception : en-tete absent ou vide = null ; {@link #explain} donne la raison
- * pour les messages affiches a l'utilisateur (meme style que JsonPathExtractor#explain).
- */
+/** Extraction d'une valeur dans un en-tete de reponse ("X-CSRF-Token"), ou dans un cookie ("Set-Cookie:NOM"). */
 final class ResponseHeaderExtractor {
 
     static final String SET_COOKIE = "Set-Cookie";
@@ -29,11 +15,7 @@ final class ResponseHeaderExtractor {
         return evaluate(headers, spec).value();
     }
 
-    /**
-     * Raison lisible pour laquelle {@link #extract} ne trouve rien (ex. « en-tête « X-CSRF-Token »
-     * absent de la réponse »), en minuscule et sans point final. null si une valeur est trouvee, ou si
-     * les en-tetes ou le nom sont vides.
-     */
+    /** Raison pour laquelle {@link #extract} ne trouve rien, ou null. */
     static String explain(HttpHeaders headers, String spec) {
         return evaluate(headers, spec).reason();
     }

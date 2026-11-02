@@ -24,11 +24,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Verifie le module Scenarios de bout en bout (SecurityFilterChain reel,
- * ScenarioController -> ScenarioServiceImpl -> ScenarioRepository sur H2
- * reel). Seul JwtDecoder est mocke (aucun Keycloak reel necessaire).
- */
+/** Module Scenarios de bout en bout ; seul JwtDecoder est simule. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -216,8 +212,7 @@ class ScenarioControllerTest {
 
     @Test
     void create_withCsvData_persistsAndReturnsItVerbatim() throws Exception {
-        // P1-Q Etape B - CSV data source (variables ${nom} pour le moteur) :
-        // round-trip complet requete -> persistence -> reponse.
+        // Donnees CSV : aller-retour requete -> base -> reponse.
         String appId = createApplicationAndGetId("csv-data-app");
         String csv = "username,password\nuser1,pass1\nuser2,pass2";
         var node = objectMapper.createObjectNode();

@@ -6,16 +6,7 @@ import com.loadpilot.backend.enums.CaptureSource;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-/**
- * Authentification d'une Application. Seuls les champs du type choisi sont
- * lus ; les regles propres a chaque type sont verifiees par
- * ApplicationAuthSupport (400 explicite).
- *
- * SECRETS (token, apiKeyValue, password, loginBody) : en mise a jour, un
- * champ secret vide ou absent CONSERVE la valeur deja enregistree pour ce
- * meme type - l'API ne renvoyant jamais les secrets, le formulaire ne peut
- * pas les re-soumettre.
- */
+/** Authentification d'une application ; seuls les champs du type choisi sont lus. Secret vide en mise a jour : valeur enregistree conservee. */
 public record ApplicationAuthRequest(
 
         @NotNull(message = "Le type d'authentification est obligatoire.")
@@ -53,18 +44,14 @@ public record ApplicationAuthRequest(
         @Size(max = 50, message = "Le prefixe du jeton ne doit pas depasser 50 caracteres.")
         String tokenPrefix,
 
-        /** Obligatoire pour BEARER_TOKEN, API_KEY et BASIC : endpoint protege
-         * (relatif a l'URL de l'application ou absolu) sur lequel le test de
-         * connectivite verifie reellement les identifiants. */
+        /** Endpoint protege utilise par le test de connectivite (BEARER_TOKEN, API_KEY, BASIC). */
         @Size(max = 1000, message = "L'endpoint de verification ne doit pas depasser 1000 caracteres.")
         String verificationPath,
 
-        /** LOGIN_TOKEN : JSON (defaut, null) = tokenJsonPath est un chemin dans le corps ; HEADER =
-         * tokenJsonPath est le nom de l'en-tete de reponse qui contient le jeton. */
+        /** LOGIN_TOKEN : JSON (defaut) = tokenJsonPath est un chemin dans le corps ; HEADER = nom de l'en-tete de reponse. */
         CaptureSource tokenSource
 ) {
 
-    /** Compatibilite : requete sans endpoint de verification. */
     public ApplicationAuthRequest(ApplicationAuthType type, String token, String apiKeyName, String apiKeyValue,
             ApiKeyLocation apiKeyLocation, String username, String password, String loginPath, String loginBody,
             String tokenJsonPath, String tokenHeaderName, String tokenPrefix) {
@@ -72,7 +59,6 @@ public record ApplicationAuthRequest(
                 tokenJsonPath, tokenHeaderName, tokenPrefix, null, null);
     }
 
-    /** Compatibilite : jeton lu dans le corps JSON (source non precisee). */
     public ApplicationAuthRequest(ApplicationAuthType type, String token, String apiKeyName, String apiKeyValue,
             ApiKeyLocation apiKeyLocation, String username, String password, String loginPath, String loginBody,
             String tokenJsonPath, String tokenHeaderName, String tokenPrefix, String verificationPath) {

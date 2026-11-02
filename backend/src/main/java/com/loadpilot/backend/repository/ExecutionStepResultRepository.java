@@ -11,17 +11,8 @@ import org.springframework.data.repository.query.Param;
 public interface ExecutionStepResultRepository extends JpaRepository<ExecutionStepResult, UUID>,
         org.springframework.data.jpa.repository.JpaSpecificationExecutor<ExecutionStepResult> {
 
-    /**
-     * Resultats d'une Execution, dans l'ordre chronologique reel (= ordre
-     * d'execution des Steps), avec le Step associe deja initialise (JOIN
-     * FETCH) pour construire les reponses sans requete supplementaire ni
-     * risque de LazyInitializationException.
-     */
-    /**
-     * Colonnes utiles a l'analyse dans le temps uniquement (pas d'entites) :
-     * [captured_at, response_time_ms, success, http_status, error, step.id, step_name, step.name,
-     * step_method, step.method, virtual_user] - rapide meme avec plusieurs dizaines de milliers de lignes.
-     */
+    /** Resultats d'une execution dans l'ordre chronologique, avec leur etape. */
+    /** Colonnes utiles a l'analyse dans le temps : [captured_at, response_time_ms, success, http_status, error, step.id, step_name, step.name, step_method, step.method, virtual_user]. */
     @Query("SELECT r.timestamp, r.responseTime, r.success, r.httpStatus, r.error, s.id, r.stepName, s.name, r.stepMethod, s.method, "
             + "r.virtualUser FROM ExecutionStepResult r LEFT JOIN r.step s WHERE r.execution.id = :executionId")
     List<Object[]> findTimelineRows(@Param("executionId") UUID executionId);
@@ -42,10 +33,7 @@ public interface ExecutionStepResultRepository extends JpaRepository<ExecutionSt
     @Query("SELECT COUNT(r) FROM ExecutionStepResult r WHERE r.execution.id = :executionId AND r.responseTime IS NOT NULL")
     long countMeasured(@Param("executionId") UUID executionId);
 
-    // ---- Phase 11 (Dashboard) - "steps reellement executes" = nombre de
-    // lignes ExecutionStepResult, PAS le nombre de Step configures sur les
-    // scenarios (voir Phase 9 : politique stop-on-failure). Une seule
-    // requete COUNT par statistique, jamais de N+1. ----
+    // ---- Tableau de bord ----
 
     long countBySuccess(boolean success);
 
@@ -55,26 +43,18 @@ public interface ExecutionStepResultRepository extends JpaRepository<ExecutionSt
     @Query("SELECT COUNT(r) FROM ExecutionStepResult r WHERE r.execution.scenario.application.id = :applicationId AND r.success = :success")
     long countByApplicationIdAndSuccess(@Param("applicationId") UUID applicationId, @Param("success") boolean success);
 
-    // ---- P1-C - Dashboard enrichi (plage temporelle) - "from"/"to"
-    // toujours non-null au moment de l'appel (voir DashboardServiceImpl). ----
+    // ---- Tableau de bord sur une periode ----
 
     long countByTimestampBetween(Instant from, Instant to);
 
     long countBySuccessAndTimestampBetween(boolean success, Instant from, Instant to);
 
-    /** Resultats enregistres d'une execution (garde-fou avant un chargement complet, voir ResultLoadGuard). */
+    /** Nombre de resultats d'une execution. */
     @Query("SELECT COUNT(r) FROM ExecutionStepResult r WHERE r.execution.id = :executionId")
     long countAllByExecutionId(@Param("executionId") UUID executionId);
 
-    // ---- Moyennes de performance (Dashboard, /api/metrics), calculees directement sur les resultats -
-    // remplacent l'ancienne table metric (une copie de chaque resultat). Une ligne par execution TERMINEE
-    // (statuts actifs exclus, comme l'etaient les metric, generees apres la fin) : [execution.id,
-    // requetes retenues, somme et nombre des temps de reponse]. Regroupement sur la seule cle etrangere,
-    // sans jointure (PostgreSQL peut lire l'index (execution_id, response_time_ms) seul) ; les colonnes
-    // des executions sont lues ensuite (executionTotals) - voir PerformanceAggregates pour les formules. ----
+    // ---- Moyennes de performance, calculees sur les resultats des executions terminees ----
 
-    // Executions en cours exclues PAR LEUR IDENTIFIANT (activeIds, quelques-unes au plus, jamais vide : voir
-    // PerformanceAggregates) plutot que par une sous-requete, que certains moteurs evaluent ligne a ligne.
     String EXECUTION_GROUP_SELECT = "SELECT r.execution.id, COUNT(r), SUM(r.responseTime), COUNT(r.responseTime) "
             + "FROM ExecutionStepResult r WHERE r.execution.id NOT IN :activeIds ";
     String EXECUTION_GROUP_BY = " GROUP BY r.execution.id";
@@ -99,7 +79,6 @@ public interface ExecutionStepResultRepository extends JpaRepository<ExecutionSt
      */
     String FINISHED_TOTALS = "SELECT e.id, e.successfulSteps, e.failedSteps, e.duration, e.pausedDurationMs FROM Execution e "
             + "WHERE e.status NOT IN :active AND e.resultsPurgedAt IS NULL AND (e.successfulSteps + e.failedSteps) > 0 "
-            // Au moins un resultat en base (index execution_id) : une execution sans requete enregistree n'avait pas de metric.
             + "AND EXISTS (SELECT 1 FROM ExecutionStepResult x WHERE x.execution.id = e.id)";
 
     @Query(FINISHED_TOTALS)

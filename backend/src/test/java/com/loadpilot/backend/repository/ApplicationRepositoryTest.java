@@ -13,11 +13,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * Verifie ApplicationRepository avec H2 reel (voir application-test.yml) -
- * en particulier countByStatus (Phase 11), jamais teste isolement jusqu'ici
- * (seulement indirectement via DashboardServiceImplIntegrationTest).
- */
+/** ApplicationRepository sur H2, notamment countByStatus. */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")
@@ -62,8 +58,7 @@ class ApplicationRepositoryTest {
 
     @Test
     void save_withoutStatus_isAllowed() {
-        // Aucun test de disponibilite encore lance - status null (voir
-        // ApplicationStatus, jamais de valeur devinee).
+        // Jamais testee : status null.
         Application saved = save("never-tested-" + UUID.randomUUID(), null);
 
         assertThat(applicationRepository.findById(saved.getId()).orElseThrow().getStatus()).isNull();
@@ -71,9 +66,7 @@ class ApplicationRepositoryTest {
 
     @Test
     void countByStatus_countsOnlyMatchingStatus_deltaAcrossThreeStatuses() {
-        // Comparaison delta avant/apres (base H2 partagee entre classes de
-        // test dans le meme fork Surefire, voir MetricRepositoryTest) plutot
-        // qu'un compte absolu - fiable independamment de l'ordre d'execution.
+        // Comparaison avant / apres : la base H2 est partagee entre classes de test.
         long connectedBefore = applicationRepository.countByStatus(ApplicationStatus.CONNECTED);
         long failedBefore = applicationRepository.countByStatus(ApplicationStatus.FAILED);
         long errorBefore = applicationRepository.countByStatus(ApplicationStatus.ERROR);
@@ -84,7 +77,7 @@ class ApplicationRepositoryTest {
 
         assertThat(applicationRepository.countByStatus(ApplicationStatus.CONNECTED)).isEqualTo(connectedBefore + 2);
         assertThat(applicationRepository.countByStatus(ApplicationStatus.FAILED)).isEqualTo(failedBefore + 1);
-        // ERROR non touche par ce test - doit rester strictement inchange.
+        // ERROR n'est pas touche par ce test.
         assertThat(applicationRepository.countByStatus(ApplicationStatus.ERROR)).isEqualTo(errorBefore);
     }
 

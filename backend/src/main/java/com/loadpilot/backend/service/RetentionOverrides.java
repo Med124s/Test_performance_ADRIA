@@ -9,13 +9,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
-/**
- * Durees de conservation de test, pour verifier les purges en local sans attendre (variables
- * LOADPILOT_*_RETENTION_OVERRIDE, ex. 10m, 2h, 3d). Lues UNIQUEMENT par les jobs de purge
- * (AuditRetentionJob, ResultsRetentionJob) : Parametres > Systeme, sa validation et les durees
- * affichees restent inchangees. Vide = duree reglee dans Parametres. Refusees en profil "prod"
- * (demarrage annule) : jamais de conservation raccourcie en production.
- */
+/** Durees de conservation de test (variables LOADPILOT_*_RETENTION_OVERRIDE, ex. 10m, 2h, 3d), lues par les jobs de purge. */
 @Component
 public class RetentionOverrides {
 
@@ -63,7 +57,7 @@ public class RetentionOverrides {
         return new Retention(override, label(override) + " (durée de test " + variable + ")");
     }
 
-    /** null si vide ; unite obligatoire (« 10 » serait lu en millisecondes par Spring). */
+    /** null si vide ; l'unite est obligatoire. */
     static Duration parse(String variable, String raw) {
         String value = raw == null ? "" : raw.trim();
         if (value.isEmpty()) return null;

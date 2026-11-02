@@ -5,13 +5,7 @@ import type { BackendRequestDetailMode, BackendThresholdSettings } from '../../t
 import { setCachedThresholds, withDefaults } from '../../utils/thresholds'
 import { describeSettingsError } from './settingsErrors'
 
-// Seuils par défaut (Paramètres > Système, Super administrateur) :
-//  - taux d'erreurs et P95 maximaux proposés aux NOUVEAUX scénarios (les existants ne changent pas) ;
-//  - seuil de régression : même valeur pour le Dashboard, la liste des exécutions, la planification
-//    et les notifications ;
-//  - réglages proposés aux NOUVEAUX scénarios : frein automatique, ralentissement sur 429, détail des
-//    requêtes. Écrits dans chaque scénario à sa création : les modifier ne change aucun scénario existant.
-// Chaque changement est inscrit au journal d'audit (avant → après).
+// Seuils par défaut (Super administrateur) : seuils proposés aux nouveaux scénarios et seuil de régression.
 
 const isNumber = (v: string) => /^\d+([.,]\d+)?$/.test(v.trim())
 const toNumber = (v: string) => Number(v.trim().replace(',', '.'))

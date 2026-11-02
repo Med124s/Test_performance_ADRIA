@@ -4,10 +4,7 @@ import com.loadpilot.backend.enums.AuditAction;
 import com.loadpilot.backend.enums.AuditModule;
 import com.loadpilot.backend.enums.AuditResult;
 
-/**
- * Libelles francais du journal d'audit (page, panneau de detail, export CSV) :
- * jamais de code brut (CREATE, SUPER_ADMIN...) affiche a l'utilisateur.
- */
+/** Libelles francais du journal d'audit (page, detail, export CSV). */
 public final class AuditLabels {
 
     private AuditLabels() {
@@ -34,7 +31,6 @@ public final class AuditLabels {
             case TRIGGER -> "Déclenchement";
             case VIEW_HISTORY -> "Consultation de l’historique";
             case VIEW_REPORT -> "Consultation du rapport";
-            // Ancien code pose a tort sur les consultations : seules les lignes « Report viewed... » en sont.
             case EXPORT_REPORT -> legacyDescription != null && legacyDescription.startsWith("Report view")
                     ? "Consultation du rapport" : "Export du rapport";
             case EXPORT_CSV -> "Export CSV du rapport";

@@ -6,10 +6,7 @@ import { ApiError } from '../../services/api/httpClient'
 import type { BackendAuditSettings, BackendStorageInfo } from '../../types/backendContracts'
 import StorageStatus from '../settings/StorageStatus'
 
-// Réglages du journal d'audit (Paramètres > Système, Super administrateur) :
-//  - journaliser aussi les consultations (désactivé par défaut) ;
-//  - durée de conservation (365 jours par défaut, purge automatique chaque nuit).
-// Chaque modification est elle-même inscrite au journal par le serveur.
+// Réglages du journal d'audit : journaliser les consultations, durée de conservation (365 jours par défaut).
 
 export const RETENTION_MIN = 30
 export const RETENTION_MAX = 3650

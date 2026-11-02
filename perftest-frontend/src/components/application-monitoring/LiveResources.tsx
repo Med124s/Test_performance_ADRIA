@@ -1,11 +1,7 @@
 import { BackendExecutionResources } from '../../types/backendContracts'
 import { MONITORING_SCOPE_TEXT, MONITORING_TYPE_LABELS, formatCpu, formatRam, sparklinePaths } from './monitoringModel'
 
-// ============================================================
-// Suivi en direct : CPU et RAM du processus de l'application testée
-// (dernière mesure + mini-courbe des dernières mesures ; une fois
-// l'exécution terminée : moyenne et maximum enregistrés).
-// ============================================================
+// Suivi en direct du CPU et de la RAM de l'application testée.
 
 function Mini({ values, label }: { values: (number | null)[]; label: string }) {
   const paths = sparklinePaths(values, 110, 26)

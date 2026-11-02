@@ -24,12 +24,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * Une execution reelle d'un Scenario (voir service.execution). "startedAt"
- * est fixe explicitement par le service au moment ou l'execution demarre
- * reellement - pas un @CreationTimestamp generique. "finishedAt"/"duration"
- * restent null tant que le statut est RUNNING (voir ExecutionStatus).
- */
+/** Execution d'un scenario ; finishedAt et duration restent null tant qu'elle n'est pas terminee. */
 @Entity
 @Table(name = "execution")
 @Getter
@@ -58,13 +53,7 @@ public class Execution {
     @Column(name = "status", nullable = false)
     private ExecutionStatus status;
 
-    /**
-     * Copie figee des parametres de charge du Scenario au moment du
-     * lancement (P0-A) - jamais recalculee depuis le Scenario courant, pour
-     * que l'historique reste fidele meme si le Scenario est reconfigure
-     * plus tard (meme principe de denormalisation deja utilise par
-     * Metric.throughput/errorRate, voir PerformanceAggregates).
-     */
+    /** Parametres de charge copies du scenario au lancement. */
     @Builder.Default
     @Column(name = "virtual_users", nullable = false)
     private Integer virtualUsers = 1;
@@ -88,7 +77,7 @@ public class Execution {
     @Column(name = "failed_steps", nullable = false)
     private Integer failedSteps;
 
-    /** Millisecondes - colonne "duration_ms" pour la clarte. */
+    /** Duree en millisecondes. */
     @Column(name = "duration_ms")
     private Long duration;
 
@@ -153,15 +142,7 @@ public class Execution {
     @Column(name = "stats_computed_at")
     private Instant statsComputedAt;
 
-    /**
-     * P1-B — utilisateur reellement a l'origine de cette Execution (celui
-     * qui a clique "Lancer", ou le proprietaire de la ScheduledExecution qui
-     * l'a declenchee) - null pour toute Execution creee AVANT cette
-     * migration (jamais reconstruit retroactivement, voir 011). Sert
-     * UNIQUEMENT a determiner le destinataire de la Notification
-     * EXECUTION_SUCCESS/FAILED/CANCELLED (voir ExecutionServiceImpl et
-     * ExecutionRecoveryRunner) - jamais un remplacement d'AuditLog.
-     */
+    /** Utilisateur qui a lance l'execution, ou proprietaire de la planification ; null pour les anciennes executions. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "triggered_by_app_user_id", updatable = false)
     private AppUser triggeredBy;

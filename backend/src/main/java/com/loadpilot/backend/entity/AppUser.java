@@ -16,17 +16,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-/**
- * Projection LOCALE, non-authoritative, d'un utilisateur authentifie via
- * Keycloak - sert uniquement de point de jonction pour de futures relations
- * (ex: AuditLog.userId) et de cache d'affichage (username/name/email tels
- * que vus au dernier login), jamais pour l'authentification elle-meme.
- *
- * INTERDIT ICI (voir Phase 5 - authentification 100% deleguee a Keycloak) :
- * aucun mot de passe, hash, credential, refresh token ou client secret.
- * L'identite et les roles reels viennent toujours du Jwt (voir CurrentUser),
- * jamais de cette table.
- */
+/** Copie locale d'un utilisateur Keycloak, mise a jour a chaque connexion. */
 @Entity
 @Table(name = "app_user")
 @Getter
@@ -41,7 +31,7 @@ public class AppUser {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    /** Claim "sub" du Jwt Keycloak - identifiant externe stable, immuable. */
+    /** Claim "sub" du JWT Keycloak. */
     @Column(name = "keycloak_subject", nullable = false, unique = true, updatable = false)
     private String keycloakSubject;
 
@@ -57,16 +47,7 @@ public class AppUser {
     @Column(name = "enabled", nullable = false)
     private boolean enabled;
 
-    /**
-     * P1-D — PREFERENCE reelle de l'utilisateur (jamais ecrasee par
-     * AppUserSyncService.sync, qui ne touche jamais ce champ - contrairement
-     * a username/name/email, resynchronises a chaque login depuis le Jwt).
-     * Identifiant de fuseau horaire IANA (ex: "Africa/Casablanca"), valide
-     * via ZoneId.of() avant toute ecriture (voir ProfileServiceImpl) -
-     * nullable : aucune valeur par defaut fabriquee, un utilisateur qui n'a
-     * jamais choisi de fuseau n'en a simplement pas (le frontend propose son
-     * propre fuseau navigateur comme suggestion, jamais un choix impose).
-     */
+    /** Fuseau horaire IANA choisi par l'utilisateur ; null si jamais choisi. */
     @Column(name = "timezone")
     private String timezone;
 

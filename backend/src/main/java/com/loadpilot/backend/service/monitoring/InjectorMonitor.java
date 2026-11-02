@@ -7,13 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/**
- * Surveillance de LoadPilot lui-meme pendant une execution (voir InjectorTrack) : CPU du processus et
- * de la machine (com.sun.management.OperatingSystemMXBean), tas de la JVM, threads de plateforme. Les
- * threads virtuels actifs, eux, sont exactement les utilisateurs virtuels actifs (un thread virtuel par
- * VU, voir LiveStats) : le JDK 21 n'expose pas de compteur dedie. Un thread virtuel par execution,
- * meme frequence que la lecture CPU / RAM de la cible (5 s par defaut) ; jamais bloquant.
- */
+/** Surveillance de LoadPilot pendant une execution : CPU du processus et de la machine, tas de la JVM, threads. */
 @Component
 public class InjectorMonitor {
 
@@ -64,7 +58,7 @@ public class InjectorMonitor {
                     Thread.sleep(intervalMs);
                 }
             } catch (InterruptedException e) {
-                // fin du test
+                // Fin du test.
             } catch (RuntimeException e) {
                 log.warn("Surveillance de l'injecteur interrompue : {}", e.getClass().getSimpleName());
             }

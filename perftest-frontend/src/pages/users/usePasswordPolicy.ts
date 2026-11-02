@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react'
 import type { BackendPasswordPolicy } from '../../types/backendContracts'
 import { usersBackendApi } from '../../services/api/usersBackend'
 
-// Politique de mot de passe du realm, chargée une fois par session de page.
-// En cas d'échec : null (seuls « saisi » et « confirmé » sont vérifiés ici ;
-// le serveur applique de toute façon la politique et répond en français).
+// Politique de mot de passe du realm, chargée une fois ; null en cas d'échec.
 
 let cache: Promise<BackendPasswordPolicy | null> | null = null
 

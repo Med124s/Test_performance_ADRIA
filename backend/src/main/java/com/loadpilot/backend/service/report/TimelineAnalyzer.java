@@ -17,19 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/**
- * Calcul PUR (aucun acces base, entierement testable) de l'analyse dans le temps d'une execution :
- * regroupement des requetes par intervalle de temps, utilisateurs virtuels actifs, debit, temps de
- * reponse moyen et P95, par etape, erreurs par type, et resume « Points clés ».
- *
- * Temps : chaque requete est rangee dans l'intervalle de sa FIN (heure enregistree) ; t0 = debut du
- * premier utilisateur virtuel (ou de la premiere requete). Pas de temps : le plus petit de
- * BUCKET_STEPS qui donne au plus MAX_BUCKETS intervalles (1 s pour un test de 5 min, 2 s pour 10 min,
- * 10 s pour 50 min…) - graphiques lisibles et calcul rapide quelle que soit la duree.
- *
- * Pauses : la duree en pause est retiree du denominateur du debit ; un intervalle entierement en
- * pause n'a ni debit ni temps de reponse (null : la courbe s'interrompt au lieu de tomber a 0).
- */
+/** Analyse dans le temps d'une execution : requetes regroupees par intervalle (utilisateurs actifs, debit, temps de reponse, P95, erreurs) et points cles. */
 public final class TimelineAnalyzer {
 
     static final int MAX_BUCKETS = 300;
@@ -55,12 +43,7 @@ public final class TimelineAnalyzer {
     private TimelineAnalyzer() {
     }
 
-    /**
-     * @param samples          requetes de l'execution (ordre quelconque)
-     * @param recordedVus      intervalles d'activite des VU enregistres pendant l'execution, ou null
-     *                         (anciennes executions : deduits des requetes si le VU est connu)
-     * @param pauses           intervalles de pause (vides si aucune)
-     */
+    /** Analyse d'une execution ; recordedVus null : intervalles d'activite deduits des requetes. */
     public static ExecutionTimelineResponse analyze(List<Sample> samples, List<Interval> recordedVus, List<Interval> pauses,
             Resources resources) {
         List<Interval> pauseList = pauses == null ? List.of() : pauses;
@@ -70,7 +53,7 @@ public final class TimelineAnalyzer {
                     "Aucune requête enregistrée pour cette exécution : analyse dans le temps impossible.");
         }
 
-        // ---- utilisateurs virtuels actifs : enregistres, sinon deduits (premiere a derniere requete de chaque VU)
+        // ---- Utilisateurs virtuels actifs : enregistres, sinon deduits des requetes ----
         List<Interval> vus = recordedVus != null && !recordedVus.isEmpty() ? recordedVus : deriveVirtualUsers(samples);
         String source = recordedVus != null && !recordedVus.isEmpty() ? "RECORDED" : "DERIVED";
         boolean vusAvailable = !vus.isEmpty();
@@ -91,7 +74,7 @@ public final class TimelineAnalyzer {
         int n = (int) Math.max(1, (span + bucketMs - 1) / bucketMs);
         if ((long) n * bucketMs <= span) n++;
 
-        // ---- etapes (ordre de premiere apparition)
+        // ---- Etapes (ordre de premiere apparition) ----
         Map<String, Integer> stepIndex = new LinkedHashMap<>();
         List<String[]> stepInfo = new ArrayList<>();
         List<Sample> sorted = new ArrayList<>(samples);
@@ -104,7 +87,7 @@ public final class TimelineAnalyzer {
         }
         int stepCount = stepInfo.size();
 
-        // ---- regroupement
+        // ---- Regroupement ----
         List<List<Long>> times = newLists(n);
         List<List<List<Long>>> stepTimes = new ArrayList<>();
         for (int i = 0; i < stepCount; i++) stepTimes.add(newLists(n));
@@ -124,7 +107,7 @@ public final class TimelineAnalyzer {
             }
         }
 
-        // ---- series globales
+        // ---- Series globales ----
         List<Integer> t = new ArrayList<>();
         List<Integer> active = new ArrayList<>();
         List<Integer> requests = new ArrayList<>();
@@ -138,8 +121,7 @@ public final class TimelineAnalyzer {
             long from = t0 + b * bucketMs;
             long to = from + bucketMs;
             double paused = overlapMs(pauseList, from, to) / 1000.0;
-            // Dernier intervalle souvent incomplet : debit calcule sur sa duree reelle (jusqu'a la fin du test).
-            // (au moins une demi-largeur : un bout d'intervalle de quelques ms ne cree pas un faux pic de debit).
+            // Dernier intervalle souvent incomplet : debit calcule sur sa duree reelle (au moins une demi-largeur).
             double length = Math.max(bucketSeconds / 2.0, (Math.min(to, tEnd) - from) / 1000.0);
             activeSeconds[b] = Math.max(0, length - paused);
             boolean fullyPaused = activeSeconds[b] < 0.05 * length;
@@ -154,7 +136,7 @@ public final class TimelineAnalyzer {
             pausedRatio.add(round2(Math.min(1, paused / bucketSeconds)));
         }
 
-        // ---- series par etape
+        // ---- Series par etape ----
         List<StepSeries> steps = new ArrayList<>();
         for (int i = 0; i < stepCount; i++) {
             List<Integer> req = new ArrayList<>();
@@ -173,7 +155,7 @@ public final class TimelineAnalyzer {
             steps.add(new StepSeries(info[0], info[1], info[2], req, rps, sp95, PercentileCalculator.percentile(all, 95)));
         }
 
-        // ---- erreurs (points non nuls uniquement)
+        // ---- Erreurs (points non nuls uniquement) ----
         List<ErrorPoint> errorPoints = new ArrayList<>();
         errorCounts.forEach((key, count) -> {
             String[] parts = key.split("\\|");
@@ -195,10 +177,7 @@ public final class TimelineAnalyzer {
                 null);
     }
 
-    /**
-     * Requete la plus rapide (ou la plus lente) : meme ordre que les cartes Minimum / Maximum du
-     * rapport et que GET /extremes (temps de reponse, puis la plus ancienne d'abord).
-     */
+    /** Requete la plus rapide (ou la plus lente), dans le meme ordre que les cartes Minimum / Maximum. */
     static ExtremeMarker extreme(List<Sample> sortedByEnd, long t0, long bucketMs, int n, boolean slowest) {
         Sample best = null;
         for (Sample s : sortedByEnd) {
@@ -267,23 +246,9 @@ public final class TimelineAnalyzer {
         return e.length() > 60 ? e.substring(0, 60) + "…" : e;
     }
 
-    // ------------------------------------------------------------------ « Points clés »
+    // ---- Points cles ----
 
-    /**
-     * Regles simples, volontairement prudentes (indications, jamais des certitudes) :
-     *
-     * 1. Plafond de debit - analysable seulement avec au moins MIN_ACTIVE_BUCKETS intervalles actifs et
-     *    une montee en charge (au moins MIN_RAMP_USERS utilisateurs d'ecart entre le minimum et le
-     *    maximum d'utilisateurs actifs). Le debit est lisse (moyenne glissante sur 3 intervalles) ; son
-     *    niveau de reference est la moyenne des 10 % de valeurs les plus hautes (jamais un pic isole) ;
-     *    tPlateau = premier instant ou il atteint PLATEAU_SHARE (90 %) de ce niveau. Si, APRES cet
-     *    instant, le nombre d'utilisateurs actifs augmente encore d'au moins 25 % (PLATEAU_MORE_USERS)
-     *    sans que le debit ne depasse ce maximum : « le debit plafonne ». Sinon : « aucun plafond ».
-     * 2. Etape la plus degradee - meme calcul que le tableau « Évolution des étapes » (voir
-     *    StepEvolutionAnalyzer : P95 des 20 % du debut et de la fin de la phase stable) : premiere etape
-     *    du tableau si elle est « Dégradée » ou « À surveiller ».
-     * 3. Premieres erreurs - heure de la premiere requete en echec, son type et son etape.
-     */
+    /** Points cles : plafond de debit, degradation, erreurs, a titre indicatif. */
     static List<Insight> insights(List<Sample> sorted, long t0, int bucketSeconds, List<Integer> active, List<Double> throughput,
             List<Long> p95, StepEvolution evolution, boolean vusAvailable) {
         List<Insight> out = new ArrayList<>();
@@ -379,7 +344,7 @@ public final class TimelineAnalyzer {
                 + " (" + errorType(firstError) + " sur " + firstError.stepName() + ") ; " + total + " erreur(s) au total.");
     }
 
-    // ------------------------------------------------------------------ outils
+    // ---- Outils ----
 
     static List<Interval> deriveVirtualUsers(List<Sample> samples) {
         Map<Integer, long[]> byVu = new HashMap<>();

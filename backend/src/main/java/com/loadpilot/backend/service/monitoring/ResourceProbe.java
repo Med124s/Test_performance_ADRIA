@@ -11,18 +11,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 
-/**
- * Lecture du CPU et de la RAM du PROCESSUS de l'application testee (une instance par execution :
- * garde la lecture precedente, le CPU Prometheus etant un compteur cumule).
- *
- * CPU : toujours en % d'UN coeur (100 % = un coeur entierement occupe, 250 % = deux coeurs et demi).
- *   Prometheus : (temps CPU cumule - precedent) / temps ecoule ; null a la premiere lecture.
- *   Actuator   : process.cpu.usage (0..1 de toute la machine) x system.cpu.count.
- * RAM : en Mo. Prometheus : process_resident_memory_bytes (memoire residente du processus) ;
- *   Actuator : jvm.memory.used (memoire utilisee par la JVM : tas + hors tas).
- *
- * Toute erreur devient une MonitoringException au message lisible (jamais le secret).
- */
+/** Lecture du CPU (% d'un coeur) et de la RAM (Mo) du processus de l'application testee. */
 public class ResourceProbe {
 
     static final Duration TIMEOUT = Duration.ofSeconds(3);
@@ -93,8 +82,7 @@ public class ResourceProbe {
             throw new MonitoringException("URL de monitoring invalide : " + url + ".");
         }
         config.authHeaders().forEach(builder::header);
-        // Proxy d'entreprise avec identifiant : en-tete ajoute seulement si la requete passe par lui.
-        // Identifiant du proxy de l'application (ou du serveur), seulement si la requete passe par un proxy.
+        // En-tete Proxy-Authorization si la requete passe par un proxy.
         config.network().applyTo(builder, URI.create(url), com.loadpilot.backend.service.http.ProxyAuthorization.current());
         try {
             HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());

@@ -24,12 +24,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * « Comparer des executions » : 2 a 4 executions terminees, chacune calculee EXACTEMENT comme son
- * rapport (PerformanceStatisticsService, debit hors pauses) - les colonnes et les rapports affichent
- * toujours les memes valeurs. Colonnes dans l'ordre chronologique ; etapes rapprochees par nom et
- * methode (ordre de premiere apparition).
- */
+/** Comparaison de 2 a 4 executions terminees, chacune calculee comme son rapport. */
 @Service
 @RequiredArgsConstructor
 public class ExecutionComparisonService {
@@ -61,8 +56,7 @@ public class ExecutionComparisonService {
         }
         executions.sort(Comparator.comparing(Execution::getStartedAt));
 
-        // Resultats de chaque execution comparee (sauf rapport fige) charges et gardes jusqu'a la fin :
-        // memoire reservee pour leur somme (voir ResultLoadGuard).
+        // Memoire reservee pour les resultats de toutes les executions comparees.
         long results = 0;
         for (Execution e : executions) {
             if (!ReportSnapshots.purged(e)) results += resultRepository.countAllByExecutionId(e.getId());

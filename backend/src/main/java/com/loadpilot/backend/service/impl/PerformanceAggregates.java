@@ -11,41 +11,24 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/**
- * Moyennes de performance du Dashboard (temps de reponse, debit, taux d'erreurs), calculees par
- * agregats SQL sur execution_step_result - plus aucune copie des resultats (ancienne table metric).
- *
- * MEMES VALEURS que l'ancien calcul, qui faisait la moyenne, sur les lignes metric (une par requete
- * d'une execution terminee), de :
- *   - responseTime : le temps de reponse de la requete ;
- *   - throughput : le debit de SON execution, ThroughputCalculator(requetes, duree active), 3 decimales ;
- *   - errorRate : le taux d'erreurs de SON execution, echecs x 100 / requetes, 2 decimales.
- * Le SQL regroupe par execution (nombre de requetes retenues, somme des temps) ; ce composant combine
- * ces groupes - quelques centaines ou milliers, jamais les resultats eux-memes - avec exactement ces
- * formules et ces arrondis : debit et taux d'erreurs sont ponderes par le nombre de requetes retenues,
- * comme l'etait chaque ligne metric. Executions en cours exclues (leurs metric n'existaient pas encore).
- */
+/** Moyennes de performance du tableau de bord (temps de reponse, debit, taux d'erreurs), calculees en SQL sur les resultats. */
 @Component
 @RequiredArgsConstructor
 public class PerformanceAggregates {
 
-    /** Statuts d'une execution pas encore terminee : ses resultats ne comptent pas (comme les anciennes metric). */
+    /** Statuts d'une execution pas encore terminee : ses resultats ne comptent pas. */
     public static final List<ExecutionStatus> ACTIVE = List.of(ExecutionStatus.QUEUED, ExecutionStatus.RUNNING, ExecutionStatus.PAUSED);
 
-    /** Moyennes ; chacune null s'il n'y a rien a moyenner (jamais 0 invente). */
+    /** Moyennes ; chacune null s'il n'y a rien a moyenner. */
     public record Averages(Double responseTime, Double throughput, Double errorRate) {
     }
 
     private final ExecutionStepResultRepository resultRepository;
 
-    /** Nombre d'executions relues par requete (liste IN bornee, quel que soit le SGBD). */
+    /** Nombre d'executions relues par requete. */
     static final int IDS_PER_QUERY = 1000;
 
-    /**
-     * Toutes les requetes : sans plage de dates, chaque execution terminee compte pour toutes ses requetes
-     * (reussies + echecs, compteurs relus en base) - aucun regroupement des resultats necessaire, un seul
-     * parcours pour le temps de reponse.
-     */
+    /** Moyennes sur toutes les requetes des executions terminees. */
     public Averages overall() {
         return whole(resultRepository.responseTimeTotals(activeIds()), resultRepository.finishedExecutionTotals(ACTIVE));
     }
@@ -74,16 +57,13 @@ public class PerformanceAggregates {
         return combine(withTotals(resultRepository.performanceByExecutionBetween(activeIds(), from, to)));
     }
 
-    /** Executions en cours, a exclure ; jamais vide (NOT IN () est refuse par plusieurs SGBD) : un identifiant inexistant sinon. */
+    /** Executions en cours, a exclure ; jamais vide (un identifiant inexistant sinon). */
     private List<UUID> activeIds() {
         List<UUID> ids = resultRepository.activeExecutionIds(ACTIVE);
         return ids.isEmpty() ? List.of(new UUID(0L, 0L)) : ids;
     }
 
-    /**
-     * Complete chaque groupe [execution.id, requetes retenues, somme des temps, nombre de temps] avec les
-     * colonnes de son execution [reussies, echecs, duree, duree en pause], lues par lots d'identifiants.
-     */
+    /** Complete chaque groupe avec les compteurs de son execution, lus par lots. */
     private List<Object[]> withTotals(List<Object[]> groups) {
         java.util.Map<UUID, Object[]> totals = new java.util.HashMap<>();
         List<UUID> ids = groups.stream().map(g -> (UUID) g[0]).toList();
@@ -134,7 +114,7 @@ public class PerformanceAggregates {
                 errorWeight == 0 ? null : errorSum.doubleValue() / errorWeight);
     }
 
-    /** Debit d'une execution terminee : requetes / duree active (pauses exclues), meme formule que le rapport. */
+    /** Debit d'une execution terminee : requetes / duree active (pauses exclues). */
     public static BigDecimal throughput(int requests, Long durationMs, Long pausedMs) {
         if (durationMs == null) return null;
         long active = Math.max(0L, durationMs - (pausedMs == null ? 0L : pausedMs));

@@ -8,19 +8,7 @@ import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Reutilise pour la creation ET la modification (meme convention que
- * ScenarioRequest, voir ScenarioController) - jamais deux DTOs quasi
- * identiques.
- *
- * Validation croisee (cronExpression requis SSI RECURRING_CRON, runAt
- * requis et futur SSI ONE_TIME, endAt apres la premiere occurrence) faite
- * dans ScheduleNextRunCalculator (une @NotNull conditionnelle n'est pas
- * exprimable proprement avec les annotations Bean Validation standard).
- *
- * "endAt" (optionnel, recurrente seulement) et "notifyMode" (null = ALWAYS)
- * peuvent etre omis : les clients existants restent valides.
- */
+/** Creation et modification d'une planification : cronExpression pour RECURRING_CRON, runAt (futur) pour ONE_TIME. */
 public record ScheduledExecutionRequest(
         @NotNull(message = "Le scenario est obligatoire.")
         UUID scenarioId,

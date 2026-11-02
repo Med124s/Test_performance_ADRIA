@@ -9,11 +9,7 @@ import java.awt.Color;
 import java.util.List;
 import java.util.function.DoubleFunction;
 
-/**
- * Graphiques vectoriels du rapport PDF (courbes et barres), dessines directement dans le PDF :
- * nets a toutes les echelles, sans image ni bibliotheque de graphiques. Une valeur null est un
- * trou dans la courbe (ex. pause), jamais un zero invente.
- */
+/** Graphiques vectoriels du rapport PDF (courbes et barres) ; une valeur null est un trou dans la courbe. */
 final class PdfCharts {
 
     private PdfCharts() {
@@ -35,10 +31,7 @@ final class PdfCharts {
     private static final float BOTTOM = 18;
     private static final float TOP = 18;
 
-    /**
-     * Courbes sur un axe du temps. xSeconds[i] : seconde (depuis le debut du test) du point i.
-     * Les series de l'axe RIGHT ont leur propre echelle (graduations a droite).
-     */
+    /** Courbes sur un axe du temps ; xSeconds[i] = seconde du point i ; les series RIGHT ont leur propre echelle. */
     static Image lines(PdfWriter writer, BaseFont font, float width, float height, List<Double> xSeconds, List<Series> series,
                        DoubleFunction<String> leftLabel, DoubleFunction<String> rightLabel) throws Exception {
         PdfTemplate t = writer.getDirectContent().createTemplate(width, height);

@@ -1,8 +1,4 @@
-// ============================================================
-// Brouillons de l'assistant « Nouveau scénario » : état sauvegardé dans
-// scenario.draft_state (JSON), reprise (« Reprendre ») et détection des
-// modifications non enregistrées.
-// ============================================================
+// Brouillons de l'assistant : état enregistré (scenario.draft_state), reprise et détection des modifications.
 
 import { inUserZone } from '../../utils/userTimezone'
 import { BackendScenarioFullRequest, BackendScenarioResponse, BackendStepResponse, BackendThresholdSettings } from '../../types/backendContracts'
@@ -37,9 +33,8 @@ export function parseDraft(json: string | null, scenario: BackendScenarioRespons
     if (raw.version !== 1 || !raw.info || !Array.isArray(raw.steps)) return null
     return {
       version: 1,
-      // Valeurs par défaut pour les brouillons enregistrés avant l'ajout des variables du scénario.
       info: { ...EMPTY_INFO, ...raw.info, csvData: raw.info.csvData || scenario.csvData || '' },
-      // Valeurs par défaut d'abord (champs ajoutés depuis l'enregistrement), uid/backendId conservés.
+      // Valeurs par défaut d'abord, uid et backendId conservés.
       steps: raw.steps.map((s) => ({ ...newStep(), ...s })),
       load: { ...DEFAULT_LOAD, ...raw.load },
       maxReached: raw.maxReached ?? 0,
@@ -60,7 +55,7 @@ export function stepFromBackend(step: BackendStepResponse): DraftStep {
     headers = []
   }
   const str = (n: number | null) => (n == null ? '' : String(n))
-  // Paramètres d'une URL historique (query dans l'URL) + paramètres enregistrés séparément.
+  // Paramètres de l'URL + paramètres enregistrés séparément.
   const queryParams = [...parseQueryString(splitUrl(step.url).query),
     ...parseJson<QueryParamRow[]>(step.queryParams, []).map((q) => ({ key: q.key ?? '', value: q.value ?? '', enabled: q.enabled !== false }))]
   return newStep({
@@ -174,11 +169,7 @@ export function workSnapshot(info: ScenarioInfo, steps: DraftStep[], load: LoadC
   return JSON.stringify([info, steps.filter((s) => !isBlankStep(s)).map(({ uid, backendId, ...rest }) => rest), load])
 }
 
-/**
- * Valeurs proposées par Paramètres > Système pour un NOUVEAU scénario, au format du formulaire :
- * seuils, frein automatique (désactivé = taux vide ; la fenêtre reste celle proposée pour qui l'active),
- * ralentissement sur 429, détail des requêtes.
- */
+/** Valeurs proposées par Paramètres > Système pour un nouveau scénario, au format du formulaire. */
 export function suggestedInfo(raw: BackendThresholdSettings): Partial<ScenarioInfo> {
   const t = withDefaults(raw)
   return {

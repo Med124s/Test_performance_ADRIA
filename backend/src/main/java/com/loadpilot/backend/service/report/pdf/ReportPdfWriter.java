@@ -36,16 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * Mise en page du rapport PDF d'une execution terminee, en francais, aux couleurs de LoadPilot :
- * en-tete (scenario, application, date, charge), resultat et seuils, temps de reponse, analyse dans
- * le temps (graphiques), evolution des etapes, detail par etape, erreurs regroupees, CPU / RAM de
- * l'application, points cles et conclusion automatique.
- *
- * Aucun secret : seules les donnees du rapport et de l'analyse dans le temps sont utilisees (jamais
- * les en-tetes, corps, CSV, variables ni l'authentification de l'application) ; URL et messages
- * passent en plus par les filtres de masquage existants.
- */
+/** Mise en page du rapport PDF d'une execution terminee. */
 public final class ReportPdfWriter {
 
     /** Donnees du rapport ; timeline null si l'analyse dans le temps est indisponible. */
@@ -65,7 +56,7 @@ public final class ReportPdfWriter {
     static final Color NEUTRAL = new Color(0x6B, 0x72, 0x80);
     static final Color CYAN = new Color(0x08, 0x91, 0xB2);
 
-    /** Document et rédacteur de l'export en cours : un ReportPdfWriter par export (jamais partagé). */
+    /** Document et redacteur de l'export en cours. */
     private Document doc;
     private PdfWriter pdfWriter;
     private final BaseFont regular;
@@ -96,8 +87,7 @@ public final class ReportPdfWriter {
         Document doc = new Document(PageSize.A4, 40, 40, 78, 46);
         try {
             PdfWriter writer = PdfWriter.getInstance(doc, out);
-            // Texte et graphiques toujours dans l'ordre (un graphique trop haut passe a la page
-            // suivante avec ce qui le suit, jamais apres le texte suivant).
+            // Texte et graphiques toujours dans l'ordre.
             writer.setStrictImageSequence(true);
             writer.setPageEvent(new HeaderFooter(data));
             this.doc = doc;
@@ -129,7 +119,7 @@ public final class ReportPdfWriter {
         return out.toByteArray();
     }
 
-    // ------------------------------------------------------------------ sections
+    // ---- Sections ----
 
     private void title(Document doc, Data data) throws Exception {
         ExecutionReportResponse r = data.report();
@@ -344,7 +334,7 @@ public final class ReportPdfWriter {
         for (String line : ReportConclusion.lines(data.report(), data.timeline())) doc.add(bullet(line));
     }
 
-    // ------------------------------------------------------------------ elements
+    // ---- Elements ----
 
     private void section(Document doc, String title) throws Exception {
         // Moins de 150 points sous le titre : la section commence sur la page suivante.
@@ -473,7 +463,7 @@ public final class ReportPdfWriter {
         return c;
     }
 
-    // ------------------------------------------------------------------ regles
+    // ---- Regles ----
 
     /** Erreurs regroupees par etape, code et message (plus frequentes d'abord), sans secret. */
     static List<Map.Entry<List<String>, Integer>> groupErrors(List<ReportErrorEntry> errors) {
@@ -568,7 +558,7 @@ public final class ReportPdfWriter {
         return s == null ? "" : s;
     }
 
-    // ------------------------------------------------------------------ en-tete et pied de page
+    // ---- En-tete et pied de page ----
 
     /** Bandeau LoadPilot en haut de chaque page ; « Page X sur Y » et date de generation en bas. */
     private final class HeaderFooter extends PdfPageEventHelper {

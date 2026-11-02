@@ -6,12 +6,7 @@ import com.loadpilot.backend.dto.response.ExecutionTimelineResponse;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Rapport fige d'une execution terminee (colonne execution.report_snapshot, JSON) : tout ce que
- * montrent le rapport, l'analyse dans le temps, les cartes Minimum / Maximum et la comparaison,
- * calcule une fois a partir des resultats detailles. Il remplace ces calculs quand le detail a ete
- * purge (voir ResultsRetentionJob). Les erreurs sont limitees a MAX_ERRORS (totalErrors = nombre reel).
- */
+/** Rapport fige d'une execution terminee : rapport, analyse dans le temps, cartes Minimum / Maximum et donnees de comparaison. */
 public record ReportSnapshot(
         int version,
         Instant capturedAt,

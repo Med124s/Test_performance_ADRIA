@@ -4,15 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Pattern;
 
-/**
- * PATCH /api/profile : preferences reellement possedees par l'utilisateur, chacune facultative
- * (null = inchangee) : fuseau horaire (identifiant IANA) et apparence (LIGHT, DARK, SYSTEM).
- *
- * Jamais l'identite : nom, prenom et e-mail se modifient par PUT /api/profile/identity (Super
- * administrateur seulement) ; nom d'utilisateur, role et etat du compte ne se modifient jamais
- * depuis son profil. Ces champs sont lus ici uniquement pour REFUSER la demande (403) au lieu de
- * les ignorer en silence.
- */
+/** Preferences du profil (fuseau horaire IANA, apparence LIGHT / DARK / SYSTEM) ; null = inchange. */
 public record ProfileUpdateRequest(
         String timezone,
         @Pattern(regexp = "LIGHT|DARK|SYSTEM", message = "Apparence attendue : LIGHT, DARK ou SYSTEM.")
@@ -43,7 +35,6 @@ public record ProfileUpdateRequest(
 
     @AssertTrue(message = "Le fuseau horaire est obligatoire (identifiant IANA, ex: Africa/Casablanca).")
     public boolean isTimezoneValidWhenPresent() {
-        // Une demande d'identite ou de champ protege est refusee plus loin (403), jamais en 400.
         if (touchesIdentity() || touchesProtectedFields()) return true;
         return timezone == null ? theme != null : !timezone.isBlank();
     }

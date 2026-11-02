@@ -23,10 +23,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * P1-B — voir NotificationService pour les garanties (jamais de mock, un
- * utilisateur ne voit/ne modifie jamais que SES PROPRES notifications).
- */
+/** Notifications : creation, liste, lecture et suppression (seulement celles de l'utilisateur connecte). */
 @Service
 @RequiredArgsConstructor
 public class NotificationServiceImpl implements NotificationService {
@@ -34,7 +31,7 @@ public class NotificationServiceImpl implements NotificationService {
     private static final Logger log = LoggerFactory.getLogger(NotificationServiceImpl.class);
     private static final int MESSAGE_MAX_LENGTH = 1000;
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt");
-    /** Taille maximale d'une page de la liste (choix 20 / 50 / 100 dans l'interface). */
+    /** Taille maximale d'une page de la liste. */
     static final int MAX_PAGE_SIZE = 100;
 
     private final NotificationRepository notificationRepository;
@@ -48,25 +45,16 @@ public class NotificationServiceImpl implements NotificationService {
     public void create(UUID recipientAppUserId, NotificationType type, String title, String message,
                         UUID relatedExecutionId, UUID relatedScheduleId) {
         if (recipientAppUserId == null) {
-            // Jamais fabrique de destinataire (ex: Execution historique sans
-            // triggeredBy connu, voir Execution.triggeredBy) - simplement
-            // aucune notification n'est generee, jamais une exception qui
-            // ferait echouer l'evenement metier reel appelant.
+            // Destinataire inconnu : aucune notification.
             return;
         }
         try {
             Optional<AppUser> recipient = appUserRepository.findById(recipientAppUserId);
             if (recipient.isEmpty()) {
-                // L'AppUser a disparu entre le declenchement de l'evenement
-                // et cette ecriture (cas theorique, aucune suppression
-                // d'AppUser n'existe a ce jour) - jamais une notification
-                // orpheline creee malgre tout.
+                // Destinataire introuvable : aucune notification.
                 return;
             }
-            // P1-D — respecte reellement la preference de l'utilisateur
-            // (voir NotificationPreferenceService, modele "opt-out") :
-            // jamais un simple affichage cote frontend qui prétendrait
-            // couper des notifications toujours generees cote backend.
+            // Preferences de l'utilisateur pour ce type.
             boolean inApp = notificationPreferenceService.isEnabled(recipientAppUserId, type);
             boolean email = mailService.available() && notificationPreferenceService.isEmailEnabled(recipientAppUserId, type);
             if (email) {
@@ -93,7 +81,7 @@ public class NotificationServiceImpl implements NotificationService {
         }
     }
 
-    /** Copie de la notification par e-mail, en arriere-plan (jamais bloquant, jamais d'exception). */
+    /** Copie de la notification par e-mail, en arriere-plan. */
     private void sendEmail(AppUser recipient, String title, String message, UUID relatedExecutionId) {
         String to = recipient.getEmail();
         if (to == null || to.isBlank()) return;
@@ -124,7 +112,7 @@ public class NotificationServiceImpl implements NotificationService {
             return new PagedResponse<>(java.util.List.of(), safePage, safeSize, 0, 0);
         }
         boolean allTypes = types == null || types.isEmpty();
-        // Tri stable (date puis id) : deux notifications de la meme milliseconde ne changent jamais de page.
+        // Tri stable : date puis id.
         PageRequest pageRequest = PageRequest.of(safePage, safeSize, NEWEST_FIRST.and(Sort.by(Sort.Direction.DESC, "id")));
         Page<Notification> result = notificationRepository.search(recipient.get().getId(), readFilter, allTypes,
                 allTypes ? java.util.List.of(NotificationType.EXECUTION_SUCCESS) : types, pageRequest);

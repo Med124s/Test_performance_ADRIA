@@ -14,8 +14,7 @@ function TopBarIcons({ onOpenMobileMenu }: TopBarIconsProps) {
   const location = useLocation()
   const userName = user?.name || 'Utilisateur'
 
-  // Carte utilisateur : ouvre le panneau « Mon compte » sous la carte. Fermeture au clic à
-  // l'extérieur, avec Échap (focus rendu à la carte) et après une navigation.
+  // Carte utilisateur : ouvre le panneau « Mon compte ».
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)

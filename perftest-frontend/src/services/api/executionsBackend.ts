@@ -1,25 +1,4 @@
-// ============================================================
-// Phase 20 (mise à jour P0-A) — CRUD/actions réels contre le backend Spring
-// Boot pour le module Executions UNIQUEMENT. Distinct de
-// services/api/executions.ts (JSON Server), toujours utilisé tel quel par le
-// workflow legacy (useScenarioLauncher, useScheduledExecutions,
-// ExecutionDetail.tsx, ExecutionReport.tsx) — même raison qu'en Phases 17-19 :
-// les Executions JSON Server référencent des Scenario/Step JSON Server,
-// jamais les UUID Spring Boot.
-//
-// P0-A — le moteur d'exécution backend (HttpClientExecutionEngine, threads
-// virtuels Java 21) est désormais ASYNCHRONE : POST /api/executions répond
-// immédiatement (202 Accepted) avec l'Execution QUEUED (ou déjà RUNNING —
-// voir ExecutionServiceImpl, la tâche réelle peut démarrer avant même la
-// sérialisation de la réponse), jamais le résultat final. Le frontend doit
-// suivre la progression via GET /{id} ou GET /{id}/status (polling — voir
-// Scenarios.tsx/Executions.tsx/ExecutionDetail.tsx) jusqu'à un statut
-// terminal (SUCCESS/FAILED/CANCELLED). `cancel` interrompt réellement une
-// Execution QUEUED ou RUNNING (voir ExecutionServiceImpl.cancel) — plus
-// seulement un endpoint sans fenêtre d'usage réelle.
-//
-// Utilise le même client HTTP central (springHttp, voir httpClient.ts).
-// ============================================================
+// Appels API des exécutions (/api/executions). Le lancement est asynchrone : POST répond 202 et l'avancement se suit avec getStatus.
 
 import { springHttp, ApiError, SPRING_API_URL } from './httpClient'
 import { getAccessToken } from '../auth/keycloakClient'
@@ -46,7 +25,6 @@ import {
 
 const RESOURCE = '/api/executions'
 
-/** P1-A — meme convention que auditBackend.ts (buildQuery). */
 function buildHistoryQuery(filters: ExecutionHistoryFilters): string {
   const params = new URLSearchParams()
   if (filters.status) params.set('status', filters.status)
@@ -70,30 +48,22 @@ export const executionsBackendApi = {
   getById: (id: string) => springHttp.get<BackendExecutionDetailResponse>(`${RESOURCE}/${id}`),
   /** Détail sans la liste complète des requêtes (voir getResults, paginé). */
   getSummary: (id: string) => springHttp.get<BackendExecutionDetailResponse>(`${RESOURCE}/${id}?includeResults=false`),
-  /** P0-A — asynchrone : répond 202 avec l'Execution QUEUED (ou déjà RUNNING),
-   * jamais le résultat final. Poller GET /{id} ou getStatus(id) pour suivre
-   * la progression réelle jusqu'à un statut terminal. */
+  /** Lance une exécution : réponse 202 avec l'exécution en attente (QUEUED). */
   execute: (data: BackendExecutionRequest) => springHttp.post<BackendExecutionResponse>(RESOURCE, data),
-  /** P0-A — réponse légère dédiée au polling fréquent (voir
-   * ExecutionController#getStatus / BackendExecutionStatusResponse). */
+  /** État d'une exécution pour le suivi en direct. */
   getStatus: (id: string) => springHttp.get<BackendExecutionStatusResponse>(`${RESOURCE}/${id}/status`),
-  /** P0-A — interrompt réellement une Execution QUEUED ou RUNNING (annulation
-   * réelle des utilisateurs virtuels en cours, voir rapport P0-A) ; 409 si déjà
-   * terminée. */
+  /** Annule une exécution en attente, en cours ou en pause ; 409 si déjà terminée. */
   cancel: (id: string) => springHttp.post<BackendExecutionResponse>(`${RESOURCE}/${id}/cancel`),
   /** Met en pause une Execution RUNNING (plus aucune nouvelle requête) ; 409 sinon. */
   pause: (id: string) => springHttp.post<BackendExecutionResponse>(`${RESOURCE}/${id}/pause`),
   /** Reprend une Execution PAUSED là où elle s'était arrêtée ; 409 sinon. */
   resume: (id: string) => springHttp.post<BackendExecutionResponse>(`${RESOURCE}/${id}/resume`),
-  /** Crée une NOUVELLE Execution pour le même scénario (le backend ne modifie
-   * jamais l'exécution d'origine) — jamais un clone local côté React. */
+  /** Crée une nouvelle exécution du même scénario. */
   retry: (id: string) => springHttp.post<BackendExecutionResponse>(`${RESOURCE}/${id}/retry`),
-  /** P1-A — historique paginé/filtré/trié CÔTÉ BACKEND (voir
-   * ExecutionController#history) — jamais un chargement complet suivi d'un
-   * filtrage/tri en React. */
+  /** Historique paginé, filtré et trié côté serveur. */
   getHistory: (filters: ExecutionHistoryFilters) =>
     springHttp.get<BackendPagedResponse<BackendExecutionHistoryResponse>>(`${RESOURCE}/history${buildHistoryQuery(filters)}`),
-  /** Page de la liste Exécutions : filtres serveur + compteurs par statut (jamais auditée). */
+  /** Page de la liste Exécutions : filtres et compteurs par statut. */
   getPage: (filters: ExecutionHistoryFilters) =>
     springHttp.get<BackendExecutionPageResponse>(`${RESOURCE}/page${buildHistoryQuery(filters)}`),
   /** Requêtes d'une exécution, paginées côté serveur (filtres étape, VU, itération, échecs). */
@@ -125,15 +95,12 @@ export const executionsBackendApi = {
   setKeep: (id: string, keep: boolean) => springHttp.patch<BackendResultsRetention>(`${RESOURCE}/${id}/keep`, { keep }),
   /** Suppression groupée : résultat par exécution (succès partiels possibles). */
   bulkDelete: (ids: string[]) => springHttp.post<BackendBulkActionResponse>(`${RESOURCE}/bulk-delete`, { ids }),
-  /** P1-A — rapport statistique complet (percentiles réels, agrégation par
-   * step, erreurs) — voir GET /api/executions/{id}/report. */
+  /** Rapport statistique d'une exécution. */
   getReport: (id: string) => springHttp.get<BackendExecutionReportResponse>(`${RESOURCE}/${id}/report`),
   /** Excel (.xlsx) : feuilles Résumé, Étapes, Erreurs, Analyse dans le temps (export par défaut). */
   exportReportXlsx: (id: string) => downloadReport(id, 'report/xlsx'),
   /** Rapport PDF d'une exécution terminée, généré par le serveur (journalisé). */
   exportReportPdf: (id: string) => downloadReport(id, 'report/pdf'),
-  // Exports CSV d'un rapport (GET /report/export, /report/export.zip) : retirés de l'interface,
-  // les points d'accès du serveur restent disponibles (API, Swagger).
 }
 
 /** Fichier d'export d'un rapport (nom donné par le serveur) ; message du serveur en cas de refus. */

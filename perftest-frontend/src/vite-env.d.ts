@@ -6,8 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_KEYCLOAK_URL?: string
   readonly VITE_KEYCLOAK_REALM?: string
   readonly VITE_KEYCLOAK_CLIENT_ID?: string
-  /** URL de base du backend Spring Boot réel. Défaut "http://localhost:8080"
-   * si absente. */
+  /** URL de base du backend ; "http://localhost:8080" par défaut. */
   readonly VITE_SPRING_API_URL?: string
 }
 

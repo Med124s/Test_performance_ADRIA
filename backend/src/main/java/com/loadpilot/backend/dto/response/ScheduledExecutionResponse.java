@@ -7,11 +7,7 @@ import com.loadpilot.backend.enums.ScheduleType;
 import com.loadpilot.backend.enums.ScheduledRunOutcome;
 import java.time.Instant;
 
-/**
- * Planification telle qu'affichee : configuration, etat calcule ("state" + "stateReason" en francais),
- * derniere execution lancee (statut, P95, ecart avec la precedente) et dernier lancement non fait
- * (ignore / manque), s'il est plus recent.
- */
+/** Planification : configuration, etat, derniere execution lancee et dernier lancement non fait. */
 public record ScheduledExecutionResponse(
         String id,
         String scenarioId,

@@ -6,13 +6,7 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Modification complete d'un scenario en une seule operation (PUT /api/scenarios/{id}/full) :
- * informations, CSV, variables, charge ET liste ordonnee des etapes. Une etape avec "id" est
- * modifiee, sans "id" creee ; les etapes absentes de la liste sont supprimees ; l'ordre de la
- * liste devient l'ordre d'execution (1..n). Sert aussi de brouillon pour le test detaille d'une
- * version non enregistree (POST /api/scenarios/{id}/test-run avec corps).
- */
+/** Modification complete d'un scenario : informations, CSV, variables, charge et liste ordonnee des etapes. Etape avec "id" modifiee, sans "id" creee, absente supprimee. */
 public record ScenarioFullRequest(
         @NotNull(message = "Les informations du scénario sont obligatoires.")
         @Valid

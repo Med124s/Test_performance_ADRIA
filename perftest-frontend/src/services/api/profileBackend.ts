@@ -1,8 +1,4 @@
-// ============================================================
-// Profil de l'utilisateur connecté (GET/PATCH /api/profile) et sécurité de son compte :
-// sessions ouvertes, déconnexion de tous les appareils, journalisation du changement de
-// mot de passe fait sur la page du système d'authentification (jamais le mot de passe).
-// ============================================================
+// Profil de l'utilisateur connecté et sécurité de son compte (sessions, déconnexion de tous les appareils).
 
 import { springHttp } from './httpClient'
 import { BackendProfileIdentityRequest, BackendProfileResponse, BackendProfileSecurity, BackendProfileUpdateRequest } from '../../types/backendContracts'

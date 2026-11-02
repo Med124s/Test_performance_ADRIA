@@ -35,20 +35,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Verifie DashboardServiceImpl avec de VRAIES donnees H2 (voir
- * application-test.yml) - en particulier les requetes JPQL a chemin
- * imbrique (ex: e.scenario.application.id) qu'un test unitaire avec des
- * mocks ne peut pas valider. Chaque test cree ses propres Application(s)
- * avec un id frais : les assertions "filtrees par Application" restent donc
- * fiables meme si la base H2 (partagee entre classes de test dans le meme
- * fork Surefire, voir MetricRepositoryTest) contient deja des donnees
- * d'autres classes.
- *
- * @Transactional : les ecritures de ce test sont annulees a la fin de
- * chaque methode (n'ajoutent donc pas de pollution supplementaire aux
- * classes suivantes).
- */
+/** DashboardServiceImpl sur H2, notamment les requetes JPQL a chemin imbrique (e.scenario.application.id). */
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional
@@ -155,9 +142,7 @@ class DashboardServiceImplIntegrationTest {
                 .build());
     }
 
-    // ------------------------------------------------------------
-    // Dashboard global - sanite (pas de compte exact possible sur base partagee)
-    // ------------------------------------------------------------
+    // ---- Dashboard global (base partagee : pas de compte exact) ----
 
     @Test
     void getGlobalDashboard_includesDataCreatedInThisTest() {
@@ -165,8 +150,7 @@ class DashboardServiceImplIntegrationTest {
         createScenario(application, "global-scenario", ScenarioStatus.ACTIVE);
 
         DashboardResponse before = dashboardService.getGlobalDashboard();
-        // Nouvelle Application/Scenario visibles : les totaux globaux ne peuvent
-        // que refleter au moins ce qui vient d'etre cree (jamais moins).
+        // Les totaux comptent au moins ce qui vient d'etre cree.
         assertThat(before.applications().totalApplications()).isGreaterThanOrEqualTo(1L);
         assertThat(before.scenarios().totalScenarios()).isGreaterThanOrEqualTo(1L);
     }
@@ -176,9 +160,7 @@ class DashboardServiceImplIntegrationTest {
         assertThat(dashboardService.getGlobalDashboard()).isNotNull();
     }
 
-    // ------------------------------------------------------------
-    // Dashboard par Application - isolation reelle (requetes JPQL a chemin imbrique)
-    // ------------------------------------------------------------
+    // ---- Dashboard par application (isolation) ----
 
     @Test
     void getApplicationDashboard_unknownId_throwsResourceNotFound() {
@@ -275,7 +257,7 @@ class DashboardServiceImplIntegrationTest {
 
         ApplicationDashboardResponse dashboardA = dashboardService.getApplicationDashboard(appA.getId());
 
-        // Moyenne de 100 et 200 = 150 - jamais influencee par les requetes de appB (999).
+        // Moyenne de 100 et 200 = 150, sans les requetes de appB (999).
         assertThat(dashboardA.performance().averageResponseTime()).isEqualByComparingTo("150.00");
         assertThat(dashboardA.performance().averageThroughput()).isEqualByComparingTo("15.000");
         assertThat(dashboardA.performance().averageErrorRate()).isEqualByComparingTo("0.00");
@@ -317,12 +299,10 @@ class DashboardServiceImplIntegrationTest {
         assertThat(response.scenarios().draftScenarios()).isZero();
     }
 
-    // ------------------------------------------------------------
-    // P1-C - Dashboard enrichi (plage temporelle, widget "Top scenarios")
-    // ------------------------------------------------------------
+    // ---- Tableau de bord sur une periode ----
 
     @Test
-    void getGlobalDashboard_noArgs_behavesExactlyAsBeforeP1C_rangeFieldsNullAndAllTimeCounts() {
+    void getGlobalDashboard_withoutRange_returnsNullRangeBounds() {
         DashboardResponse response = dashboardService.getGlobalDashboard();
 
         assertThat(response.rangeFrom()).isNull();
@@ -338,18 +318,14 @@ class DashboardServiceImplIntegrationTest {
         Instant future = Instant.now().plus(365, ChronoUnit.DAYS);
         DashboardResponse response = dashboardService.getGlobalDashboard(future, future.plusSeconds(60));
 
-        // Une fenetre entierement future ne peut structurellement contenir
-        // aucune Execution/Metric reelle - assertion deterministe, immunisee
-        // contre les donnees d'autres classes de test (base H2 partagee).
+        // Une fenetre entierement future ne contient aucune execution.
         assertThat(response.executions().totalExecutions()).isZero();
         assertThat(response.performance().averageResponseTime()).isNull();
         assertThat(response.topScenarios()).isEmpty();
         assertThat(response.rangeFrom()).isEqualTo(future);
         assertThat(response.rangeTo()).isEqualTo(future.plusSeconds(60));
 
-        // "applications"/"scenarios" restent TOUJOURS all-time (voir
-        // DashboardResponse) - notre Application/Scenario fraichement crees
-        // sont donc bien comptes malgre la fenetre future sur executions.
+        // Applications et scenarios : toujours sur tout l'historique.
         assertThat(response.applications().totalApplications()).isGreaterThanOrEqualTo(1);
     }
 

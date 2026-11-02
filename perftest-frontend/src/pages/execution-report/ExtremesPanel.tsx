@@ -7,10 +7,7 @@ import { formatMs, formatNumber } from '../../utils/numberFormat'
 import RequestDetailPanel from '../execution-detail/RequestDetailPanel'
 import './timelineAnalysis.css'
 
-// ============================================================
-// D'où vient la carte Minimum / Maximum : la requête la plus rapide (ou la plus lente), puis les
-// 10 plus rapides (ou plus lentes), avec leur place dans le test. Calcul côté serveur.
-// ============================================================
+// Carte Minimum / Maximum : requête la plus rapide (ou la plus lente) et les 10 suivantes, avec leur place dans le test.
 
 export const DETAIL_NOT_KEPT_TEXT =
   'Détail non enregistré pour cette requête : seuls les échecs et un échantillon des requêtes réussies le sont.'

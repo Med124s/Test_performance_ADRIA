@@ -2,11 +2,7 @@ package com.loadpilot.backend.service.execution;
 
 import java.util.Map;
 
-/**
- * Detail complet d'UNE requete d'une execution, tel qu'il sera enregistre : secrets deja masques,
- * corps deja limites (voir RequestDetailRecorder.BODY_LIMIT_BYTES). "response*" null si aucune
- * reponse n'a ete recue (delai depasse, erreur reseau, variable introuvable avant l'envoi).
- */
+/** Detail d'une requete tel qu'il est enregistre : secrets masques, corps limites ; "response*" null sans reponse. */
 public record RequestDetail(
         Kind kind,
         String method,
@@ -45,7 +41,7 @@ public record RequestDetail(
             total += len(checks.expectedStatus()) + len(checks.assertionText()) + len(checks.captureName())
                     + len(checks.capturePath()) + len(checks.captureValue());
         }
-        return total * 2; // chaines Java : ~2 octets par caractere
+        return total * 2;
     }
 
     private static long len(String s) {

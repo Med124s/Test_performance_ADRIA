@@ -2,10 +2,7 @@ package com.loadpilot.backend.dto.response;
 
 import java.util.Map;
 
-/** Statistiques calculees en temps reel a partir des vrais AuditLog (voir
- * AuditLogServiceImpl.getStats) - jamais de valeur fictive. actionsByModule/
- * actionsByAction sont les cles enum (name()) associees a leur nombre reel
- * d'occurrences. */
+/** Statistiques du journal d'audit ; les cles des maps sont les noms des enums. */
 public record AuditStatsResponse(
         long totalActions,
         long successfulActions,

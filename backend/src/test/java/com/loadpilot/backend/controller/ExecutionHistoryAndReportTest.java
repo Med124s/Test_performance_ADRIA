@@ -33,13 +33,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * P1-A — verifie GET /api/executions/history (pagination/tri/filtres/
- * recherche, reels, cote base), GET /api/executions/{id}/report
- * (statistiques/percentiles/steps/erreurs reels) et
- * GET /api/executions/{id}/report/export (CSV reel), avec de VRAIES
- * executions HTTP (serveur JDK embarque, aucun mock du moteur).
- */
+/** Historique des executions (pagination, tri, filtres, recherche), rapport statistique et export CSV. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -169,16 +163,7 @@ class ExecutionHistoryAndReportTest {
         assertThat(content.get(1).get("id").asText()).isEqualTo(exec2);
     }
 
-    /**
-     * P1-A (prompt sections 27/38) — demonstration a plus grande echelle :
-     * genere reellement 27 executions pour un meme Scenario et verifie que
-     * la pagination DB (LIMIT/OFFSET via Pageable, jamais un filtrage Java
-     * apres chargement complet) reste coherente sur plusieurs pages
-     * completes. Le mecanisme (Specification + Pageable Spring Data) ne
-     * depend structurellement pas du nombre de lignes - ce test demontre
-     * la coherence reelle des compteurs/decoupage, pas une mesure de
-     * performance chiffree.
-     */
+    /** Pagination en base sur 27 executions d'un meme scenario. */
     @Test
     void history_paginatesCorrectlyAcrossManyRealExecutions() throws Exception {
         String appId = createApplicationAndGetId("history-scale-app-" + UUID.randomUUID());
@@ -205,8 +190,7 @@ class ExecutionHistoryAndReportTest {
             int expectedSizeThisPage = (page == expectedPages - 1) ? totalExecutions - page * pageSize : pageSize;
             assertThat(content).hasSize(expectedSizeThisPage);
             for (JsonNode node : content) {
-                // Chaque id ne doit apparaitre EXACTEMENT une fois sur
-                // l'ensemble des pages - jamais un doublon, jamais un trou.
+                // Chaque id apparait exactement une fois sur l'ensemble des pages.
                 assertThat(seenIds.add(node.get("id").asText())).isTrue();
             }
         }
@@ -314,12 +298,7 @@ class ExecutionHistoryAndReportTest {
         }
     }
 
-    /**
-     * P1-C — "triggeredByUsername" (voir P1-B, Execution.triggeredBy) et
-     * "throughput" (meme formule que PerformanceStatisticsService) sont
-     * REELLEMENT presents et non nuls pour une execution reellement lancee
-     * via l'API (donc avec un CurrentUser resolu, voir ExecutionController#execute).
-     */
+    /** "triggeredByUsername" et "throughput" sont renseignes pour une execution lancee par un utilisateur. */
     @Test
     void history_exposesTriggeredByUsernameAndThroughput() throws Exception {
         String appId = createApplicationAndGetId("history-user-throughput-app-" + UUID.randomUUID());
@@ -338,20 +317,13 @@ class ExecutionHistoryAndReportTest {
         assertThat(entry.get("throughput").asDouble()).isGreaterThan(0);
     }
 
-    /**
-     * P1-C (prompt section 11) — chaque consultation de l'historique est
-     * reellement auditee (AuditAction.VIEW_HISTORY, module EXECUTION).
-     */
+    /** Consultation de l'historique : non journalisee par defaut. */
     @Test
     void history_consultation_notAuditedByDefault() throws Exception {
-        // Les consultations ne sont plus journalisees par defaut (reglage « Journaliser
-        // aussi les consultations », desactive par defaut).
+        // Consultations non journalisees par defaut.
         mockMvc.perform(get("/api/executions/history").with(AS_VIEWER)).andExpect(status().isOk());
 
-        // /api/audit-logs est reserve a SUPER_ADMIN/PERFORMANCE_ENGINEER
-        // (VIEWER explicitement exclu, voir AuditLogController) - jamais
-        // AS_VIEWER ici, meme si l'action auditee elle-meme a ete faite par
-        // un VIEWER.
+        // /api/audit-logs est reserve au Super administrateur et a l'Ingenieur performance.
         String auditResponse = mockMvc.perform(get("/api/audit-logs").param("action", "VIEW_HISTORY").param("size", "1").with(AS_SUPER_ADMIN))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -360,10 +332,7 @@ class ExecutionHistoryAndReportTest {
 
     @Test
     void history_rejectsArbitrarySortColumn_fallsBackToDefaultSafely() throws Exception {
-        // "id" n'est pas dans la whitelist (voir ExecutionController.
-        // resolveHistorySort) - ne doit jamais lever, jamais executer un tri
-        // sur une colonne arbitraire, retombe silencieusement sur le tri par
-        // defaut (startedAt desc).
+        // "id" n'est pas un tri autorise : tri par defaut, sans erreur.
         mockMvc.perform(get("/api/executions/history").param("sort", "id,asc").with(AS_VIEWER))
                 .andExpect(status().isOk());
     }
@@ -393,8 +362,7 @@ class ExecutionHistoryAndReportTest {
                 .andExpect(jsonPath("$.statistics.p50").exists())
                 .andExpect(jsonPath("$.statistics.p95").exists())
                 .andExpect(jsonPath("$.statistics.p99").exists())
-                // Ecart-type retire du rapport ; utilisateur ayant
-                // reellement lance cette execution (voir P1-B).
+                // Ecart-type absent du rapport ; utilisateur qui a lance l'execution present.
                 .andExpect(jsonPath("$.statistics.stdDevResponseTime").doesNotExist())
                 .andExpect(jsonPath("$.triggeredByUsername").exists())
                 .andReturn().getResponse().getContentAsString();
@@ -405,8 +373,7 @@ class ExecutionHistoryAndReportTest {
         assertThat(json.get("steps").get(0).has("stdDevResponseTime")).isFalse();
         assertThat(json.get("errors")).hasSize(0);
 
-        // Une simple consultation du rapport n'est plus un « export » : rien n'est
-        // journalise par defaut (ni EXPORT_REPORT, ni VIEW_REPORT).
+        // Consultation du rapport : rien n'est journalise par defaut.
         for (String action : new String[]{"EXPORT_REPORT", "VIEW_REPORT"}) {
             String auditResponse = mockMvc.perform(get("/api/audit-logs").param("action", action).param("size", "1").with(AS_SUPER_ADMIN))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -469,7 +436,7 @@ class ExecutionHistoryAndReportTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray(), java.nio.charset.StandardCharsets.UTF_8);
         assertThat(summary).contains("Identifiant de l’exécution;" + executionId).contains("Lancé par;").contains("Dont pause (s);0,00");
 
-        // Jamais de donnee sensible dans l'export (prompt section 25).
+        // Aucune donnee sensible dans l'export.
         String lower = csv.toLowerCase();
         assertThat(lower).doesNotContain("authorization");
         assertThat(lower).doesNotContain("bearer ");
@@ -477,8 +444,7 @@ class ExecutionHistoryAndReportTest {
         assertThat(lower).doesNotContain("jwt");
         assertThat(lower).doesNotContain("secret");
 
-        // P1-C (prompt section 11) — chaque export CSV est reellement
-        // audite (AuditAction.EXPORT_CSV, module EXECUTION).
+        // Chaque export CSV est journalise (EXPORT_CSV, module EXECUTION).
         String auditResponse = mockMvc.perform(get("/api/audit-logs").param("action", "EXPORT_CSV").param("size", "1").with(AS_SUPER_ADMIN))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(auditResponse).get("totalElements").asInt()).isGreaterThanOrEqualTo(1);
@@ -486,9 +452,7 @@ class ExecutionHistoryAndReportTest {
 
     @Test
     void exportReport_csvInjectionAttempt_isNeutralized() throws Exception {
-        // Un nom de Scenario commencant par '=' pourrait etre interprete
-        // comme une formule par Excel/Sheets a l'ouverture - verifie que
-        // CsvUtils neutralise bien ce cas reel (prompt section 25).
+        // Un nom de scenario commencant par '=' serait une formule dans Excel : il doit etre neutralise.
         String appId = createApplicationAndGetId("csv-injection-app-" + UUID.randomUUID());
         String maliciousName = "=1+1";
         String scenarioId = createScenarioAndGetId(appId, maliciousName);
@@ -500,10 +464,7 @@ class ExecutionHistoryAndReportTest {
                 .andReturn().getResponse().getContentAsByteArray();
         String csv = new String(csvBytes, java.nio.charset.StandardCharsets.UTF_8);
 
-        // La valeur brute "=1+1" ne doit jamais apparaitre en debut de
-        // cellule (donc jamais juste apres un « ; » ou en debut de
-        // ligne) - elle doit avoir ete prefixee d'une apostrophe. Le nom
-        // du scenario figure dans le tableau Resume.
+        // "=1+1" n'apparait jamais en debut de cellule : la valeur est prefixee d'une apostrophe.
         String summary = new String(mockMvc.perform(get("/api/executions/" + executionId + "/report/export").param("table", "summary").with(AS_VIEWER))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray(), java.nio.charset.StandardCharsets.UTF_8);
         assertThat(summary).doesNotContain(";=1+1");

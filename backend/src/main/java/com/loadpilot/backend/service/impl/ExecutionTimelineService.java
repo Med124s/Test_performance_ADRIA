@@ -21,11 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Analyse dans le temps d'une execution (voir TimelineAnalyzer pour le calcul). Lecture des seules
- * colonnes utiles (une requete), jamais d'envoi des requetes au navigateur. Le resultat d'une
- * execution TERMINEE (et completement enregistree) est garde en cache memoire : il ne change plus.
- */
+/** Analyse dans le temps d'une execution ; le resultat d'une execution terminee est mis en cache. */
 @Service
 @RequiredArgsConstructor
 public class ExecutionTimelineService {
@@ -49,7 +45,7 @@ public class ExecutionTimelineService {
 
     @Transactional(readOnly = true)
     public ExecutionTimelineResponse timeline(UUID executionId) {
-        // Existence verifiee d'abord (lecture par cle) : une execution supprimee n'est jamais servie depuis le cache.
+        // Existence verifiee d'abord.
         Execution execution = executionRepository.findById(executionId)
                 .orElseThrow(() -> { cache.remove(executionId); return new ResourceNotFoundException("Execution introuvable : " + executionId); });
         ExecutionTimelineResponse cached = cache.get(executionId);
@@ -65,7 +61,7 @@ public class ExecutionTimelineService {
             }
         }
 
-        // Calcul sur toutes les lignes de resultats : memoire reservee pendant l'appel (voir ResultLoadGuard).
+        // Memoire reservee pendant le calcul.
         try (ResultLoadGuard.Reservation r = resultLoadGuard.reserve(ResultLoadGuard.Load.TIMELINE,
                 resultRepository.countAllByExecutionId(executionId))) {
             return compute(executionId, execution);
@@ -99,7 +95,7 @@ public class ExecutionTimelineService {
         }
 
         ExecutionTimelineResponse response = TimelineAnalyzer.analyze(samples, vus, pauses, resources(execution));
-        // Cache : execution terminee ET tache asynchrone finie (resultats + chronologie enregistres).
+        // Cache : execution terminee et resultats completement enregistres.
         if (!execution.getStatus().isActive() && registry.get(executionId) == null) {
             cache.put(executionId, response);
         }

@@ -4,13 +4,7 @@ import com.loadpilot.backend.enums.CaptureSource;
 import com.loadpilot.backend.enums.HttpMethod;
 import java.util.UUID;
 
-/**
- * Copie immuable des champs d'un Step necessaires a son execution reelle -
- * jamais l'entite JPA elle-meme (voir ExecutionServiceImpl : l'engine
- * s'execute HORS de toute transaction, pendant potentiellement plusieurs
- * vraies requetes HTTP ; lui passer une entite geree exposerait a un
- * LazyInitializationException).
- */
+/** Champs d'une etape necessaires a son execution, copies au lancement. */
 public record StepExecutionSpec(
         UUID stepId,
         String name,
@@ -19,30 +13,23 @@ public record StepExecutionSpec(
         String headers,
         String body,
         Integer expectedStatus,
-        /** P1-Q Etape B — null = pas de pause supplementaire apres cette
-         * etape (en plus du think time de Scenario, applique separement
-         * apres l'iteration complete). */
+        /** Pause apres cette etape (ms) ; null = aucune. */
         Integer thinkTimeMs,
-        /** P1-Q Etape B — null = utilise le timeout global du moteur. */
+        /** null = timeout global. */
         Integer timeoutSeconds,
-        /** P1-Q Etape B — null = comportement global (NORMAL). */
+        /** null = redirections suivies. */
         Boolean followRedirects,
-        /** P1-Q Etape B — null = aucune assertion de contenu (comportement
-         * historique, corps de reponse jamais lu). */
+        /** Texte que le corps de la reponse doit contenir ; null = aucune verification. */
         String assertionBodyContains,
-        /** Master prompt final (Lot B) — nom de variable a produire depuis
-         * la reponse de cette etape ; n'a d'effet que si captureJsonPath
-         * est AUSSI non-null. */
+        /** Nom de la variable a capturer ; utilise seulement si captureJsonPath est renseigne. */
         String captureVariableName,
-        /** Master prompt final (Lot B) — chemin (sous-ensemble simple, voir
-         * JsonPathExtractor) dans le corps JSON de la reponse. */
+        /** Chemin de la valeur a capturer dans la reponse. */
         String captureJsonPath,
         /** Variables de chemin (objet JSON), voir RequestBuilder. */
         String pathParams,
         /** Parametres de requete (tableau JSON), voir RequestBuilder. */
         String queryParams,
-        /** Source de la capture : null/JSON = chemin dans le corps ; HEADER = captureJsonPath est un
-         * nom d'en-tete de reponse (voir ResponseHeaderExtractor). */
+        /** Source de la capture : null / JSON = corps ; HEADER = nom d'en-tete de reponse. */
         CaptureSource captureSource,
         /** Temps de reponse maximal (ms) ; null = aucun controle (voir StepChecks). */
         Integer maxResponseTimeMs,
@@ -51,7 +38,6 @@ public record StepExecutionSpec(
         com.loadpilot.backend.enums.JsonAssertionOperator assertionJsonOperator,
         String assertionJsonValue
 ) {
-    /** Compatibilite : etape sans temps de reponse maximal ni assertion JSON. */
     public StepExecutionSpec(UUID stepId, String name, HttpMethod method, String url, String headers, String body,
             Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
             String assertionBodyContains, String captureVariableName, String captureJsonPath, String pathParams,
@@ -61,7 +47,6 @@ public record StepExecutionSpec(
                 null, null, null, null);
     }
 
-    /** Compatibilite : etape sans parametres de chemin ni de requete separes. */
     public StepExecutionSpec(UUID stepId, String name, HttpMethod method, String url, String headers, String body,
             Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
             String assertionBodyContains, String captureVariableName, String captureJsonPath) {
@@ -69,7 +54,6 @@ public record StepExecutionSpec(
                 assertionBodyContains, captureVariableName, captureJsonPath, null, null);
     }
 
-    /** Compatibilite : capture JSON (source non precisee). */
     public StepExecutionSpec(UUID stepId, String name, HttpMethod method, String url, String headers, String body,
             Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
             String assertionBodyContains, String captureVariableName, String captureJsonPath, String pathParams,
@@ -78,12 +62,12 @@ public record StepExecutionSpec(
                 assertionBodyContains, captureVariableName, captureJsonPath, pathParams, queryParams, null);
     }
 
-    /** Une assertion JSON est configuree (le corps de la reponse doit etre lu). */
+    /** true si une assertion JSON est configuree. */
     public boolean hasJsonAssertion() {
         return StepChecks.hasJsonAssertion(assertionJsonPath);
     }
 
-    /** Capture lue dans un en-tete de reponse (et non dans le corps JSON). */
+    /** Capture lue dans un en-tete de reponse. */
     public boolean capturesFromHeader() {
         return captureSource == CaptureSource.HEADER;
     }

@@ -13,14 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Controleur reserve aux tests de GlobalExceptionHandler (Phase 14) - existe
- * UNIQUEMENT sous src/test/java, jamais empaquete dans l'application reelle
- * (meme convention que security.SecurityTestController, Phase 4). Chaque
- * endpoint declenche volontairement un type d'exception different pour
- * verifier le mapping HTTP/JSON reel de GlobalExceptionHandler, sans jamais
- * dupliquer sa logique.
- */
+/** Controleur de test pour GlobalExceptionHandler (present seulement dans src/test). */
 @Validated
 @RestController
 class ExceptionTestController {

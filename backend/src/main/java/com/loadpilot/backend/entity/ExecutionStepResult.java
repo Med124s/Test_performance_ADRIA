@@ -21,14 +21,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * Resultat REEL d'une etape au sein d'une Execution - jamais une valeur
- * simulee (voir service.execution.HttpClientExecutionEngine).
- *
- * "error" ne doit jamais contenir de header/valeur potentiellement sensible
- * (Authorization, cookies...) - uniquement un message technique generique
- * (code HTTP, classe d'exception reseau).
- */
+/** Resultat d'une requete d'une execution. */
 @Entity
 @Table(name = "execution_step_result")
 @Getter
@@ -47,8 +40,7 @@ public class ExecutionStepResult {
     @JoinColumn(name = "execution_id", nullable = false, updatable = false)
     private Execution execution;
 
-    /** Null si l'etape a ete supprimee depuis (FK ON DELETE SET NULL,
-     * migration 017) - l'historique reste lisible via la copie ci-dessous. */
+    /** null si l'etape a ete supprimee depuis ; voir la copie ci-dessous. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "step_id", updatable = false)
     private Step step;
@@ -64,11 +56,11 @@ public class ExecutionStepResult {
     @Column(name = "step_url", length = 2048)
     private String stepUrl;
 
-    /** Null en cas d'echec technique (timeout/reseau) - aucune reponse HTTP recue. */
+    /** null en cas d'echec technique (aucune reponse HTTP). */
     @Column(name = "http_status")
     private Integer httpStatus;
 
-    /** Millisecondes. */
+    /** Temps de reponse en millisecondes. */
     @Column(name = "response_time_ms")
     private Long responseTime;
 

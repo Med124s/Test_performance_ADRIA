@@ -18,18 +18,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * ANCIENNE copie d'un ExecutionStepResult (une ligne par requete), en fin de vie : plus jamais
- * ecrite ni lue (voir MetricRepository, migration 041). Entite conservee tant que la table contient
- * des lignes anterieures, effacees par la purge a 90 jours ou la suppression de leur execution.
- *
- * "application"/"scenario" sont nullables au niveau du schema : ils sont
- * TOUJOURS renseignes pour un Metric issu d'une Execution (la chaine
- * Execution -> Scenario -> Application est toujours complete), mais le
- * schema laisse la place a une future source de Metric qui n'aurait pas
- * cette chaine complete. "step"/"execution" sont en revanche obligatoires :
- * un Metric issu d'une Execution reference toujours au minimum ces deux-la.
- */
+/** Ancienne table de metriques, plus ecrite ni lue ; ses lignes sont effacees par la purge des resultats. */
 @Entity
 @Table(name = "metric")
 @Getter
@@ -52,7 +41,7 @@ public class Metric {
     @JoinColumn(name = "scenario_id", updatable = false)
     private Scenario scenario;
 
-    /** Null si l'etape a ete supprimee depuis (FK ON DELETE SET NULL, migration 017). */
+    /** null si l'etape a ete supprimee depuis. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "step_id", updatable = false)
     private Step step;
@@ -61,36 +50,22 @@ public class Metric {
     @JoinColumn(name = "execution_id", nullable = false, updatable = false)
     private Execution execution;
 
-    /** Millisecondes - copie de ExecutionStepResult.responseTime correspondant. */
+    /** Temps de reponse en millisecondes. */
     @Column(name = "response_time")
     private Integer responseTime;
 
-    /** Code HTTP reel recu - null en cas d'echec technique (aucune reponse). */
+    /** Code HTTP recu ; null en cas d'echec technique. */
     @Column(name = "status_code")
     private Integer statusCode;
 
-    /**
-     * Requetes/seconde, calcule au niveau de l'EXECUTION entiere (steps
-     * reellement executes / duree totale en secondes) - voir
-     * ThroughputCalculator (aujourd'hui PerformanceAggregates.throughput). Cette meme valeur
-     * execution-level est reportee sur chaque Metric de cette Execution :
-     * ce n'est PAS une mesure individuelle par Step. Null si la duree est
-     * nulle/nulle-ou-egale-a-zero.
-     */
+    /** Debit de l'execution (requetes/seconde). */
     @Column(name = "throughput", precision = 12, scale = 3)
     private BigDecimal throughput;
 
-    /**
-     * Pourcentage (0-100) = failedSteps / STEPS REELLEMENT EXECUTES * 100
-     * (PAS totalSteps : l'execution s'arrete au premier echec, voir
-     * Execution/HttpClientExecutionEngine - totalSteps peut donc etre
-     * superieur au nombre de steps reellement executes). Null si aucun
-     * step execute.
-     */
+    /** Taux d'erreurs de l'execution (%). */
     @Column(name = "error_rate", precision = 5, scale = 2)
     private BigDecimal errorRate;
 
-    /** Reprend le "captured_at" du ExecutionStepResult correspondant. */
     @Column(name = "timestamp", nullable = false, updatable = false)
     private Instant timestamp;
 }

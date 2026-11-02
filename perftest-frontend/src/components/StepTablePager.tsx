@@ -1,12 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import Pagination from './Pagination'
 
-// ============================================================
-// Pagination des tableaux d'étapes (suivi en direct et rapport final) :
-// 10 étapes par page au-delà de 10, repère rouge sur les pages qui contiennent
-// des échecs, option « Afficher seulement les étapes en échec ». La page
-// courante est conservée quand les chiffres changent (mise à jour en direct).
-// ============================================================
+// Pagination des tableaux d'étapes (suivi en direct et rapport) : 10 étapes par page, repère sur les pages en échec, filtre « en échec ».
 
 export const STEP_PAGE_SIZE = 10
 
@@ -23,13 +18,12 @@ export function useStepPaging<T>(items: T[], hasFailure: (item: T) => boolean, p
   const indexed = useMemo(() => items.map((item, i) => ({ item, number: i + 1 })), [items])
   const visible = useMemo(
     () => (onlyFailed ? indexed.filter((s) => hasFailure(s.item)) : indexed),
-    // hasFailure : fonction pure fournie par l'appelant (non suivie comme dépendance).
     [indexed, onlyFailed],
   )
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize))
   const current = Math.min(page, pageCount)
 
-  // Reste sur la page regardée ; seulement ramenée dans les bornes si elle n'existe plus.
+  // Reste sur la page affichée, ramenée dans les bornes si elle n'existe plus.
   useEffect(() => { if (page > pageCount) setPage(pageCount) }, [page, pageCount])
 
   const start = (current - 1) * pageSize

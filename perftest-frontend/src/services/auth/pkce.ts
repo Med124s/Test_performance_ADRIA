@@ -1,12 +1,4 @@
-// ============================================================
-// Phase 16 — PKCE (Proof Key for Code Exchange, RFC 7636) pour le flux
-// OAuth2 "Authorization Code" avec Keycloak.
-//
-// Implémenté avec les seules API natives du navigateur (window.crypto) —
-// AUCUNE dépendance ajoutée (pas de keycloak-js ni d'aucune librairie OIDC) :
-// ce fichier fonctionne immédiatement, sans installation, dès qu'un vrai
-// Keycloak est disponible (voir keycloakClient.ts).
-// ============================================================
+// PKCE (RFC 7636) pour le flux OAuth2 Authorization Code, avec l'API Web Crypto du navigateur.
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = ''

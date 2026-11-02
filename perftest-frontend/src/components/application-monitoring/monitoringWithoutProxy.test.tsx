@@ -10,8 +10,7 @@ import NetworkFields from '../application-network/NetworkFields'
 import { EMPTY_NETWORK_FORM, NetworkForm, networkFormToRequest } from '../application-network/networkModel'
 import { BackendProxyMode } from '../../types/backendContracts'
 
-// « Monitoring sans proxy » n'a d'effet que si l'application a un proxy (onglet Réseau) : grisée et
-// expliquée sous « Aucun proxy », active sinon, et mise à jour dès que le mode réseau change.
+// « Monitoring sans proxy » n'a d'effet que si l'application a un proxy.
 
 /** Les deux onglets du formulaire d'application, reliés comme dans la page (Applications.tsx). */
 function Harness({ mode, withoutProxy = false }: { mode: BackendProxyMode; withoutProxy?: boolean }) {
@@ -46,7 +45,7 @@ describe('« Monitoring sans proxy » selon le mode réseau', () => {
     expect(checkbox().disabled).toBe(true)
     expect(checkbox().getAttribute('aria-describedby')).toBe('mon-without-proxy-hint')
     expect(hint()).toBeTruthy()
-    // Clic sans effet sur la valeur du formulaire (jsdom bascule l'element DOM meme desactive, pas un navigateur).
+    // Clic sans effet sur la valeur du formulaire (jsdom bascule l'élément même désactivé).
     fireEvent.click(checkbox())
     expect(JSON.parse(screen.getByTestId('request').textContent ?? '{}').withoutProxy).toBe(false)
   })

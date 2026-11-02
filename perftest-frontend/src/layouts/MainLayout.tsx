@@ -8,22 +8,12 @@ import { applyProfileTheme, setThemeSaver } from '../utils/theme'
 import { profileBackendApi } from '../services/api/profileBackend'
 import { ExecutionMonitorProvider } from '../context/ExecutionMonitorContext'
 
-// P1-B — useScheduledExecutions() (100% frontend : setInterval + JSON
-// Server, ne survit pas à la fermeture de l'onglet, voir son ancienne
-// Javadoc) est DÉCOMMISSIONNÉ ici : la planification réelle vit désormais
-// côté backend (voir ScheduledExecutionPoller, persistée, survit à un
-// redémarrage). Les deux ne doivent JAMAIS tourner en même temps (double
-// déclenchement d'un même Scenario planifié) — voir le rapport P1-B,
-// section "Décommissionnement de l'ancien scheduler frontend".
-
 function MainLayout() {
   const { darkMode, toggleDarkMode } = useDarkMode()
-  // Tiroir mobile/tablette : fermé par défaut, ouvert via le bouton menu
-  // de la TopBar, fermé au clic sur le fond ou après une navigation.
+  // Tiroir de navigation mobile / tablette.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
-  // Apparence et fuseau horaire mémorisés sur le profil : retrouvés à la connexion ; apparence enregistrée à chaque choix
-  // (bouton de la barre latérale ou Paramètres). Un échec réseau ne change rien à l'affichage.
+  // Apparence et fuseau horaire du profil, chargés à la connexion.
   useEffect(() => {
     setThemeSaver((preference) => {
       profileBackendApi.updateTheme(preference.toUpperCase() as 'LIGHT' | 'DARK' | 'SYSTEM').catch(() => {})
@@ -32,7 +22,7 @@ function MainLayout() {
     return () => setThemeSaver(null)
   }, [])
 
-  // Suivi en direct des exécutions : monté ici pour survivre aux changements de page.
+  // Suivi en direct des exécutions, conservé d'une page à l'autre.
   return (
     <ExecutionMonitorProvider>
       <Sidebar

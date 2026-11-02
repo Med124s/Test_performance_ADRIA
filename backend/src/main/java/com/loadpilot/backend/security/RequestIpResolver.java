@@ -7,19 +7,7 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/**
- * Resolution de l'IP reelle du client d'une requete (journal d'audit).
- *
- * Par defaut : l'adresse du PAIR TCP direct ({@link HttpServletRequest#getRemoteAddr()}),
- * qui est bien l'IP du client sans reverse proxy.
- *
- * Derriere un reverse proxy : declarer son adresse dans
- * {@code app.audit.trusted-proxies} (ex. "10.0.0.5,127.0.0.1"). Seulement
- * dans ce cas, l'en-tete X-Forwarded-For est lu, de droite a gauche, en
- * ignorant les proxies de confiance : la premiere adresse non fiable est celle
- * du client. Un client qui forge lui-meme X-Forwarded-For sans passer par un
- * proxy declare ne peut donc jamais inscrire une fausse IP dans l'audit.
- */
+/** Adresse IP du client d'une requete (journal d'audit). */
 @Component
 public class RequestIpResolver {
 

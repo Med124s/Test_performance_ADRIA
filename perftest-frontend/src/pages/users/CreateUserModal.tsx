@@ -5,11 +5,7 @@ import { RoleOptions, UserDialog, describeUserApiError } from './userParts'
 import PasswordFields, { EMPTY_PASSWORD, PasswordDraft, passwordProblem } from './PasswordFields'
 import { usePasswordPolicy } from './usePasswordPolicy'
 
-// « Ajouter un utilisateur » : le compte est créé avec son rôle, et le mot de passe est
-// - soit défini tout de suite par l'administrateur (par défaut ; temporaire ou non),
-// - soit choisi par la personne via un lien reçu par e-mail.
-// Le mot de passe n'est envoyé qu'au serveur, qui le transmet au service d'authentification
-// sans le conserver ni le journaliser.
+// « Ajouter un utilisateur » : compte créé avec son rôle ; mot de passe défini par l'administrateur ou choisi via un lien e-mail.
 
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,50}$/
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/

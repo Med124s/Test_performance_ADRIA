@@ -8,13 +8,7 @@ import type { BackendIntegrations } from '../types/backendContracts'
 import { describeSettingsError } from './settings/settingsErrors'
 import './settings/settings.css'
 
-// ============================================================
-// Paramètres > « Intégrations » (Super administrateur) — état RÉEL, aucun secret affiché :
-//  - serveur e-mail de LoadPilot (notifications par e-mail) : type, expéditeur, connexion
-//    vérifiée à l'ouverture, e-mail de test à mon adresse ;
-//  - e-mails du service de connexion (mot de passe oublié…) : serveur et expéditeur ;
-//  - monitoring CPU / RAM : une lecture réelle par application configurée.
-// ============================================================
+// Paramètres > « Intégrations » (Super administrateur) : serveur e-mail et monitoring des applications, sans aucun secret.
 
 const MONITORING_TYPE: Record<string, string> = { PROMETHEUS: 'Prometheus', ACTUATOR: 'Spring Boot Actuator' }
 

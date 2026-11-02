@@ -6,18 +6,7 @@ import { useAppVersion } from '../utils/appVersion'
 import LaunchTestModal from './LaunchTestModal'
 import './navigation.css'
 
-// ============================================================
-// Barre latérale de LoadPilot, en français :
-//   Dashboard (seul)
-//   TESTS : Applications, Scénarios, Exécutions (badge : en cours), Planification
-//   ANALYSE : Comparer, Rapports (résultats des tests terminés)
-//   ADMINISTRATION (Super Administrateur) : Utilisateurs et rôles, Journal d'audit, Paramètres
-// « Lancer un test » ouvre le choix du scénario puis le suivi en direct ;
-// thème clair / sombre par un bouton icône ; en bas, « LoadPilot v<version> · © <année> » (discret,
-// non cliquable). Mode réduit : icônes seules avec infobulle (survol ET focus clavier), élément
-// actif marqué d'une barre. Le compte (« Mon compte », déconnexion) et les notifications sont dans
-// la barre du haut.
-// ============================================================
+// Barre latérale : navigation, lancement d'un test, thème et version.
 
 /** Rafraîchissement du badge « en cours » d'Exécutions (une requête légère). */
 const RUNNING_POLL_INTERVAL_MS = 15000
@@ -60,8 +49,7 @@ function Sidebar({ darkMode, toggleDarkMode, mobileOpen, onCloseMobile }: Sideba
   const isSuperAdmin = authProvider === 'keycloak' && rawRoles.includes('ROLE_SUPER_ADMIN')
   const canLaunch = authProvider === 'keycloak' && (isSuperAdmin || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
 
-  // Desktop : déplié (icônes + libellés) ou replié (icônes seules), préférence mémorisée.
-  // Sur mobile/tablette, le tiroir affiche toujours le menu complet.
+  // Desktop : dépliée (icônes + libellés) ou repliée (icônes seules), préférence mémorisée.
   const [isExpanded, setIsExpanded] = useState(() => {
     try { return localStorage.getItem('pt_sidebar_expanded') !== '0' } catch { return true }
   })

@@ -1,14 +1,4 @@
-// ============================================================
-// Client HTTP centralisé. Aucun composant ne doit appeler fetch()
-// directement : ils passent par services/api/*.
-//
-// P1-O — le client JSON Server (`http`, VITE_API_URL) a été retiré avec le
-// reste du legacy : `springHttp` (backend Spring Boot réel,
-// VITE_SPRING_API_URL) est désormais le seul client HTTP de l'application.
-//
-// Ajoute automatiquement `Authorization: Bearer <token>` quand un vrai
-// token Keycloak est disponible (voir services/auth/keycloakClient.ts).
-// ============================================================
+// Client HTTP de l'application : ajoute le jeton Keycloak (Authorization: Bearer) et traduit les erreurs en ApiError.
 
 import { getAccessToken, verifySession } from '../auth/keycloakClient'
 
@@ -43,8 +33,7 @@ function createClient(baseUrl: string, serviceLabel: string) {
     }
 
     if (!response.ok) {
-      // 401 : la session a peut-être été fermée ailleurs -> vérification auprès de Keycloak
-      // (fin de session et retour à la connexion si c'est le cas).
+      // 401 : la session a peut-être été fermée ailleurs, vérification auprès de Keycloak.
       if (response.status === 401) void verifySession()
       let message = `Erreur ${response.status} sur ${path}`
       try {

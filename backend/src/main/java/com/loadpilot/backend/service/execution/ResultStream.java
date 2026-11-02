@@ -8,26 +8,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Ecriture des resultats en base PENDANT le test, et plus seulement a la fin : un plantage du
- * processus ne perd que les resultats pas encore ecrits (au plus un lot, environ une seconde de test),
- * jamais toute l'execution.
- *
- * Fonctionnement :
- *   - accept(), appele par les utilisateurs virtuels : met a jour les totaux (ResultSummary) et ajoute
- *     le resultat a un tampon - jamais d'acces a la base, jamais d'attente (ajout sous verrou court) ;
- *   - un thread virtuel dedie ecrit le tampon par lots (BATCH_SIZE resultats, ou ce qu'il contient
- *     apres FLUSH_INTERVAL_MS), chaque lot dans sa propre transaction (Writer) ;
- *   - close(), a la fin du test : ecrit le reste, puis arrete le thread.
- *
- * Erreur d'ecriture (base momentanement indisponible) : le lot reste dans le tampon et est retente ;
- * le garde-fou memoire (ResultsMemoryGuard, via inMemory()) arrete le test si le tampon grossit trop.
- * A la fermeture, chaque lot restant est retente MAX_CLOSE_ATTEMPTS fois, puis abandonne (compte dans
- * lost()) : la finalisation de l'execution n'est jamais bloquee indefiniment.
- *
- * ReentrantLock (et non synchronized / wait) : avec Java 21, une attente dans un bloc synchronized
- * immobilise le thread porteur du thread virtuel, au detriment des utilisateurs virtuels.
- */
+/** Ecriture des resultats en base pendant le test, par lots, dans un thread dedie. */
 public final class ResultStream {
 
     private static final Logger log = LoggerFactory.getLogger(ResultStream.class);
@@ -74,7 +55,7 @@ public final class ResultStream {
         lock.lock();
         try {
             if (closed) {
-                // VU arrete trop tard (apres la fin du test) : comme avant, son resultat n'est pas garde.
+                // Utilisateur virtuel arrete apres la fin du test : resultat ignore.
                 dropped++;
                 return;
             }
@@ -90,7 +71,7 @@ public final class ResultStream {
         return summary;
     }
 
-    /** Resultats encore en memoire (tampon + lot en cours d'ecriture), pour le garde-fou memoire. */
+    /** Resultats encore en memoire (tampon et lot en cours d'ecriture). */
     public long inMemory() {
         lock.lock();
         try {
@@ -119,10 +100,7 @@ public final class ResultStream {
         }
     }
 
-    /**
-     * Ecrit les resultats restants, puis arrete l'ecriture. Bloquant, borne (MAX_CLOSE_ATTEMPTS par lot).
-     * Idempotent.
-     */
+    /** Ecrit les resultats restants puis arrete l'ecriture ; bloquant, idempotent. */
     public void close() {
         lock.lock();
         try {
@@ -137,7 +115,6 @@ public final class ResultStream {
                 thread.join();
                 break;
             } catch (InterruptedException e) {
-                // L'ecriture finale passe avant : l'interruption est restituee ensuite.
                 interrupted = true;
             }
         }
@@ -159,7 +136,7 @@ public final class ResultStream {
                     try {
                         ready.awaitNanos(left);
                     } catch (InterruptedException e) {
-                        // Jamais d'arret sans avoir ecrit : seule la fermeture termine ce thread.
+                        // Le thread s'arrete seulement a la fermeture.
                     }
                 }
                 closing = closed;
@@ -167,7 +144,7 @@ public final class ResultStream {
                     if (closing) return;
                     continue;
                 }
-                // Au plus un lot a la fois : une transaction courte, jamais tout un tampon accumule.
+                // Au plus un lot par transaction.
                 int n = Math.min(batchSize, buffer.size());
                 batch = new ArrayList<>(buffer.subList(0, n));
                 buffer.subList(0, n).clear();
@@ -193,7 +170,7 @@ public final class ResultStream {
                     closeAttempts = 0;
                     log.error("{} resultat(s) abandonne(s) apres {} tentatives d'ecriture.", batch.size(), MAX_CLOSE_ATTEMPTS);
                 } else {
-                    // Remis en tete du tampon, dans l'ordre : retente au prochain tour.
+                    // Lot remis en tete du tampon, reessaye au prochain tour.
                     buffer.addAll(0, batch);
                 }
             } finally {
@@ -203,7 +180,7 @@ public final class ResultStream {
                 try {
                     Thread.sleep(RETRY_DELAY_MS);
                 } catch (InterruptedException ignored) {
-                    // voir plus haut
+                    // Le thread s'arrete seulement a la fermeture.
                 }
             }
         }

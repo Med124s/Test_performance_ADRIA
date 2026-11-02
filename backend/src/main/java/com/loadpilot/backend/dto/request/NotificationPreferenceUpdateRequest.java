@@ -2,7 +2,7 @@ package com.loadpilot.backend.dto.request;
 
 import jakarta.validation.constraints.AssertTrue;
 
-/** P1-D — PATCH /api/notification-preferences/{type}. */
+/** Mise a jour d'une preference de notification. */
 public record NotificationPreferenceUpdateRequest(
         /** Dans l'application ; null = inchange. */
         Boolean enabled,

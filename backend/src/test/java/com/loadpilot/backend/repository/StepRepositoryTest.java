@@ -19,12 +19,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * Verifie StepRepository avec H2 reel - en particulier l'ORDRE DETERMINISTE
- * (step_order ASC, id ASC en cas d'egalite, voir Phase 8) jamais teste au
- * niveau repository jusqu'ici (seulement indirectement via
- * StepControllerTest/ExecutionEngine).
- */
+/** StepRepository sur H2, notamment l'ordre (step_order ASC, puis id ASC). */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")
@@ -117,16 +112,7 @@ class StepRepositoryTest {
 
     @Test
     void findByScenarioId_tiesBrokenDeterministically_whenOrderIsDuplicated() {
-        // Aucune contrainte d'unicite sur (scenario_id, step_order) - voir
-        // Phase 8, choix deliberee pour un futur reordonnancement. "id" est
-        // un UUID ALEATOIRE (GenerationType.UUID) : le tri SQL par id ASC en
-        // cas d'egalite ne correspond ni a l'ordre d'insertion, NI
-        // necessairement a l'ordre naturel Java (UUID.compareTo() compare
-        // des long SIGNES, alors qu'H2/SQL comparent les octets du UUID -
-        // ces deux ordres peuvent diverger). La SEULE garantie reellement
-        // recherchee et testable ici est la STABILITE : la meme requete
-        // renvoie toujours le meme ordre, jamais un ordre different d'un
-        // appel a l'autre (voir StepServiceImpl, doc du choix ORDER_ASC).
+        // Meme step_order : l'ordre entre elles depend de l'id (UUID aleatoire), seul l'ordre par step_order est verifie.
         save(scenario, "same-order-1", 1);
         save(scenario, "same-order-2", 1);
 

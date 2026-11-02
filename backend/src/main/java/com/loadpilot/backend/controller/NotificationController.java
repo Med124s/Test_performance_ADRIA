@@ -22,18 +22,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/notifications — PERSONNEL a l'utilisateur authentifie courant :
- * aucun parametre "userId" n'existe sur aucun de ces endpoints (jamais
- * fourni par le client) - le destinataire est TOUJOURS resolu depuis le
- * Jwt de la requete (claim "sub", voir NotificationServiceImpl). Ouvert a
- * tout role authentifie (voir SecurityConfig) : consulter/marquer/
- * supprimer SES PROPRES notifications n'est pas une action privilegiee.
- */
+/** Notifications de l'utilisateur connecte. */
 @RestController
 @RequestMapping("/api/notifications")
 @RequiredArgsConstructor
-@Tag(name = "Notifications", description = "Notifications reelles de l'utilisateur authentifie (executions terminees, planifications declenchees)")
+@Tag(name = "Notifications", description = "Notifications de l'utilisateur connecte (fin d'execution, planifications)")
 public class NotificationController {
 
     private final NotificationService notificationService;

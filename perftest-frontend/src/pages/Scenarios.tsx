@@ -31,52 +31,8 @@ import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
 import { statusLabel } from '../utils/executionStatus'
 import { firstError, validateRequired, validateMaxLength, validateStepUrl, validatePairedFields, NAME_MAX_LENGTH, DESCRIPTION_MAX_LENGTH } from '../utils/validation'
 
-// ============================================================
-// Phase 18/19/20 — cette page parle au vrai backend Spring Boot pour les
-// Scénarios (scenariosBackend.ts), les Steps (stepsBackend.ts) et le
-// lancement d'Execution (executionsBackend.ts).
-//
-// P1-G — l'assistant de création JSON Server (CreateScenario/
-// CreateScenarioLanding/CreateStep, "wizard" à 5 écrans) a été retiré : ses
-// routes (/scenarios/new, /scenarios/create, /scenarios/create-step)
-// redirigent désormais vers /scenarios (voir App.tsx). Cette page est
-// maintenant le SEUL point d'entrée réel pour créer/modifier un Scénario et
-// ses Steps — elle couvre déjà tout ce que Spring Boot supporte réellement
-// (métadonnées, paramètres de charge virtualUsers/rampUpSeconds/
-// durationSeconds/iterations/thinkTimeMs, Steps name/method/url/headers/
-// body/order/expectedStatus, lancement d'Execution).
-//
-// P1-Q Étape B (décision produit préalable, voir rapport) — le moteur réel
-// supporte désormais, PAR ÉTAPE : une assertion simple ("la réponse
-// contient"), un think time/timeout/comportement de redirection spécifiques
-// à cette étape (repli sur le réglage global si non renseignés) ; et, au
-// niveau du Scénario : des variables ${nom} alimentées par un jeu de
-// données CSV (une ligne par utilisateur virtuel, cyclique). "${baseUrl}"
-// n'a besoin d'aucune variable dédiée : déjà résolu par UrlResolver côté
-// backend. Restent HORS PÉRIMÈTRE (décision produit non tranchée, voir
-// rapport P1-Q Étape B) : le pacing/débit cible et les variables capturées
-// dynamiquement depuis une réponse précédente (chaînage d'authentification).
-//
-// services/api/scenarios.ts et services/api/steps.ts (JSON Server) restent
-// utilisés tels quels, mais uniquement par les écrans de CONSULTATION de
-// données historiques déjà présentes dans db.json (Applications, Dashboard,
-// Metriques, l'onglet Legacy d'Executions, ExecutionReport/ExecutionDetail)
-// — plus par aucun écran de création (voir rapport P1-G, section 15/16).
-//
-// P0-A — le moteur backend (HttpClientExecutionEngine, threads virtuels
-// Java 21) est un vrai moteur de charge ASYNCHRONE : POST /api/executions
-// répond immédiatement (202, statut QUEUED/RUNNING), la charge réelle
-// (utilisateurs virtuels, ramp-up, durée/itérations — configurés ci-dessous
-// sur le Scénario) s'exécute en arrière-plan. Le bouton "Exécuter" ne
-// bloque donc pas jusqu'à la fin réelle du test — voir handleExecuteScenario
-// et la page Exécutions (Spring Boot) pour suivre la progression réelle
-// jusqu'à un statut terminal.
-// ============================================================
+// Page Scénarios : liste paginée côté serveur, détail et étapes, lancement, activation, archivage et suppression.
 
-/** Traduit une erreur RÉELLE (jamais masquée) en message utilisateur — même
- * politique que Applications.tsx (Phase 17). Le code HTTP prime toujours ;
- * 409/400 réutilisent le message backend tel quel (déjà explicite, ex:
- * "des etapes y sont encore rattachees"). */
 const PAGE_SIZES = [5, 10, 25, 50]
 const DEFAULT_SORT = 'createdAt,desc'
 const SORT_OPTIONS = [
@@ -111,8 +67,7 @@ function describeApiError(err: unknown, fallback: string): string {
       case 409:
         return err.message
       case 429:
-        // P0-B — limite de capacite LoadPilot atteinte (voir
-        // RunningExecutionRegistry) : message backend deja explicite.
+        // Limite de capacité atteinte : message du backend.
         return `Limite de capacité LoadPilot atteinte : ${err.message}`
       default:
         return err.status >= 500 ? 'Erreur du serveur LoadPilot. Réessayez plus tard.' : err.message
@@ -131,22 +86,14 @@ function Scenarios() {
   const queryFilter = searchParams.get('q')
   const initialFilter = appFilter ?? queryFilter ?? ''
 
-  // Le backend Spring Boot exige un JWT réel : en mode "mock" (par défaut),
-  // aucune action d'écriture n'est proposée - la liste elle-même échouera
-  // en 401 (voir scenariosError ci-dessous), affiché tel quel.
   const isKeycloak = authProvider === 'keycloak'
-  // POST/PUT/DELETE /api/scenarios sont réservés à SUPER_ADMIN et
-  // PERFORMANCE_ENGINEER côté backend (voir ScenarioController) — même
-  // rôle pour les trois actions, contrairement à Applications où DELETE
-  // est réservé à SUPER_ADMIN seul.
+  // Création, modification et suppression : Super administrateur et Ingénieur performance.
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
   const canDelete = canWrite
-  // Suppression DÉFINITIVE (cascade) réservée à SUPER_ADMIN ; l'archivage reste ouvert aux rédacteurs.
+  // Suppression définitive : Super administrateur ; l'archivage reste ouvert aux autres rédacteurs.
   const canPermanentDelete = isKeycloak && rawRoles.includes('ROLE_SUPER_ADMIN')
 
-  // ---------------------------------------------------------------- pagination serveur
-  // Page, taille, tri, recherche, statut et vue "archivés" vivent dans l'URL :
-  // l'état survit au rechargement et se partage par lien (comme Applications).
+  // ---- Pagination serveur : page, taille, tri, recherche, statut et vue « archivés » gardés dans l'URL ----
   const showArchived = searchParams.get('archived') === 'true'
   const urlPage = Math.max(1, Number(searchParams.get('page')) || 1)
   const urlSize = PAGE_SIZES.includes(Number(searchParams.get('size'))) ? Number(searchParams.get('size')) : 10
@@ -214,8 +161,7 @@ function Scenarios() {
 
   const { data: applications } = useApiList<BackendApplicationResponse>(() => applicationsBackendApi.getAll())
   const { data: executions, refetch: refetchExecutions } = useApiList<BackendExecutionResponse>(() => executionsBackendApi.getAll())
-  // Étapes de TOUS les scénarios Spring Boot (Phase 19) — sert à afficher un
-  // aperçu réel sous le nom du scénario dans la liste.
+  // Étapes de tous les scénarios, pour l'aperçu affiché sous le nom du scénario.
   const { data: allSteps, refetch: refetchAllSteps } = useApiList<BackendStepResponse>(() => stepsBackendApi.getAll())
 
   /** Brouillon à supprimer (confirmation simple : aucun historique possible pour un brouillon). */
@@ -241,10 +187,8 @@ function Scenarios() {
   const [bulkBusy, setBulkBusy] = useState(false)
   /** Suppression/archivage groupé (la suppression unitaire garde `deleteConfirm`). */
   const [bulkDeletion, setBulkDeletion] = useState<string[] | null>(null)
-  /** Scénarios réactivés qui ont des planifications suspendues : proposition de les réactiver. */
 
-  // Modale Détail (lecture seule pour le scénario, mais gestion réelle des
-  // étapes Spring Boot depuis cette même modale — voir Phase 19)
+  // Modale Détail : scénario en lecture seule et gestion de ses étapes.
   const [selectedScenarioDetail, setSelectedScenarioDetail] = useState<BackendScenarioResponse | null>(null)
   const [showStepsInDetail, setShowStepsInDetail] = useState(false)
   const [detailSteps, setDetailSteps] = useState<BackendStepResponse[]>([])
@@ -261,9 +205,7 @@ function Scenarios() {
   const [deleteStepConfirm, setDeleteStepConfirm] = useState<BackendStepResponse | null>(null)
   const [deletingStep, setDeletingStep] = useState(false)
 
-  // Étapes de chaque scénario Spring Boot, triées dans l'ordre réel (champ
-  // backend `order`, jamais l'index du tableau côté frontend) — pour
-  // l'aperçu affiché sous le nom du scénario dans la liste.
+  // Étapes de chaque scénario, dans leur ordre, pour l'aperçu de la liste.
   const stepsByScenario = useMemo(() => {
     const map = new Map<string, BackendStepResponse[]>()
     for (const step of allSteps) {
@@ -275,7 +217,7 @@ function Scenarios() {
     return map
   }, [allSteps])
 
-  // Dernière exécution réelle par scénario (Spring Boot, Phase 20).
+  // Dernière exécution par scénario.
   const latestExecByScenario = useMemo(() => {
     const map = new Map<string, BackendExecutionResponse>()
     for (const exec of executions) {
@@ -289,10 +231,7 @@ function Scenarios() {
 
   const [launchingScenarioId, setLaunchingScenarioId] = useState<string | null>(null)
 
-  // Vérifie réellement que le scénario a des Steps avant de créer une
-  // Execution (voir Phase 20, section 25) — le backend refuserait de toute
-  // façon (409), mais on évite l'appel réseau inutile et on donne le
-  // message exact demandé, sans jamais créer d'Execution inutilement.
+  // Scénario sans étape : message sans appel au serveur.
   const handleExecuteScenario = async (scenario: BackendScenarioResponse) => {
     if (!canWrite || launchingScenarioId) return
     const stepCount = (stepsByScenario.get(scenario.id) ?? []).length
@@ -302,10 +241,7 @@ function Scenarios() {
     }
     setLaunchingScenarioId(scenario.id)
     try {
-      // P0-A — asynchrone : le backend répond immédiatement (202, statut
-      // QUEUED/RUNNING), jamais le résultat final. On ne prétend donc plus
-      // que le test est "terminé" ici — voir la page Exécutions (Spring
-      // Boot) pour suivre la progression réelle jusqu'à un statut terminal.
+      // Le backend répond tout de suite (202) ; le suivi se fait sur la page Exécutions.
       const execution = await executionsBackendApi.execute({ scenarioId: scenario.id })
       monitor.track(execution.id, scenario.name)
       await refetchExecutions()
@@ -320,10 +256,7 @@ function Scenarios() {
     }
   }
 
-  // Suppression réelle contre Spring Boot : le backend refuse lui-même
-  // (409) si des Steps y sont encore rattachés (voir ScenarioServiceImpl) —
-  // plus de cascade-delete des Steps depuis le frontend (c'était une
-  // logique spécifique à JSON Server, qui ne cascade jamais rien).
+  // Suppression ou archivage, selon le mode choisi.
   const confirmScenarioDeletion = async (mode: DeletionMode) => {
     if (!deleteConfirm) return
     if (mode === 'ARCHIVE') await scenariosBackendApi.archive(deleteConfirm.id)
@@ -422,9 +355,7 @@ function Scenarios() {
   const endIndex = Math.min((page - 1) * urlSize + scenarios.length, totalItems)
   const setPage = (p: number) => updateParams({ page: p > 1 ? String(p) : null }, false)
 
-  // ------------------------------------------------------------
-  // Gestion des Étapes (Spring Boot, Phase 19) — depuis la modale Détail.
-  // ------------------------------------------------------------
+  // ---- Gestion des étapes (modale Détail) ----
 
   const loadDetailSteps = (scenarioId: string) => {
     setDetailStepsLoading(true)
@@ -856,8 +787,6 @@ function Scenarios() {
                           <span style={{ fontSize: '12.5px', color: 'var(--pt-text)' }}>{scenario.createdBy}</span>
                         </div>
                       </td>
-                      {/* Détail exécution : Spring Boot (Phase 20) — la page Exécutions (déjà
-                          migrée) porte sa propre vraie modale de détail. */}
                       <td onClick={(e) => e.stopPropagation()}>
                         {latestExec ? (
                           <button

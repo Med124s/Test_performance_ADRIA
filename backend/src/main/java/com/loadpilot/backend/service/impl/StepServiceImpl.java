@@ -28,17 +28,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Ordre des Steps (voir Phase 8, point 12) : AUCUNE contrainte d'unicite
- * (scenario_id, step_order) en base. Justification : un futur ecran de
- * reordonnancement (drag&drop, comme deja prevu cote frontend existant)
- * doit pouvoir faire transiter plusieurs Steps par des etats intermediaires
- * avec des "order" temporairement dupliques (ex: echanger l'ordre de deux
- * etapes) - une contrainte unique bloquerait ou compliquerait inutilement
- * ces operations tout a fait legitimes. A la place, un ordre DETERMINISTE
- * est garanti par le tri : step_order ASC, puis id ASC en cas d'egalite -
- * jamais un ordre ambigu ou dependant de l'ordre d'insertion en base.
- */
+/** Gestion des etapes d'un scenario. */
 @Service
 @RequiredArgsConstructor
 public class StepServiceImpl implements StepService {
@@ -61,8 +51,6 @@ public class StepServiceImpl implements StepService {
 
             Step step = stepMapper.toEntity(request);
             step.setScenario(scenario);
-            // Choix declaratif de l'utilisateur, vrai des la creation - voir
-            // StepStatus (different d'un resultat d'execution invente).
             step.setStatus(StepStatus.ACTIVE);
 
             Step saved = stepRepository.saveAndFlush(step);
@@ -133,9 +121,7 @@ public class StepServiceImpl implements StepService {
             if (deletionService.runningForScenario(scenarioId) > 0) {
                 throw new ConflictException(DeletionServiceImpl.RUNNING_MESSAGE);
             }
-            // Les resultats d'execution passes gardent leur copie de l'etape
-            // (nom, methode, URL) : la FK passe a NULL (ON DELETE SET NULL,
-            // migration 017), l'historique reste lisible.
+            // Les resultats passes gardent leur copie de l'etape.
             stepRepository.delete(step);
             stepRepository.flush();
             // Renumerotation 1..n des etapes restantes, dans leur ordre actuel.
@@ -157,7 +143,7 @@ public class StepServiceImpl implements StepService {
         }
     }
 
-    /** Memes regles que le frontend (URL, en-tetes, corps JSON, capture) - voir StepRules. */
+    /** Memes regles que le frontend (URL, en-tetes, corps JSON, capture). */
     private void checkRules(StepRequest request) {
         String problem = StepRules.validate(request);
         if (problem != null) throw new BadRequestException(problem);
@@ -173,7 +159,7 @@ public class StepServiceImpl implements StepService {
                 .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + scenarioId));
     }
 
-    /** Nom du scenario pour le journal, sans jamais lever d'exception. */
+    /** Nom du scenario pour le journal ; ne leve jamais d'exception. */
     private String scenarioName(UUID scenarioId) {
         try {
             return scenarioId == null ? null : scenarioRepository.findById(scenarioId).map(Scenario::getName).orElse("Scénario introuvable");

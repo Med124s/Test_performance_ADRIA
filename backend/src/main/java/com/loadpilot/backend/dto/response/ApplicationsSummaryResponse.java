@@ -1,12 +1,6 @@
 package com.loadpilot.backend.dto.response;
 
-/**
- * "totalApplications" compte TOUTES les Applications, y compris celles sans
- * statut (jamais testees, voir ApplicationStatus - nullable). Les 3 autres
- * compteurs se basent strictement sur les 3 valeurs reelles de
- * ApplicationStatus (CONNECTED/FAILED/ERROR) : leur somme peut donc etre
- * inferieure a totalApplications.
- */
+/** Compteurs d'applications par statut ; totalApplications compte aussi celles jamais testees. */
 public record ApplicationsSummaryResponse(
         long totalApplications,
         long connectedApplications,

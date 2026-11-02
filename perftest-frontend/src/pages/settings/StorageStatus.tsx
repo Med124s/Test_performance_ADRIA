@@ -2,8 +2,7 @@ import { inUserZone } from '../../utils/userTimezone'
 import type { BackendStoragePurge } from '../../types/backendContracts'
 import { fullDate } from '../../utils/userDisplay'
 
-// État d'une purge automatique (conservation des résultats, journal d'audit) : taille de la
-// base, date et résultat de la dernière purge, heure de la prochaine.
+// État des purges automatiques : taille de la base, dernière et prochaine purge.
 
 /** « 87 Mo », « 1,2 Go », « 512 Ko ». */
 export function formatBytes(bytes: number | null | undefined): string | null {

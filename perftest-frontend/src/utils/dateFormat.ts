@@ -1,10 +1,6 @@
 import { inUserZone } from './userTimezone'
 
-/**
- * Date et heure courtes, en français, dans le fuseau de l'utilisateur : « 11/10/2026 08:00 »
- * (« 11/10/2026 08:00:15 » avec `seconds`). Une date illisible est renvoyée telle quelle.
- * Utilisée par les pages Exécutions, Scénarios, Applications, Notifications et Détail d'exécution.
- */
+/** Date et heure courtes dans le fuseau de l'utilisateur : « 11/10/2026 08:00 » (avec secondes si `seconds`). */
 export function formatDate(iso: string, options: { seconds?: boolean } = {}): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso

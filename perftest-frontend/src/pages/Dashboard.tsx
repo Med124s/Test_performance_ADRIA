@@ -12,13 +12,7 @@ import PerformanceTrend from './dashboard/PerformanceTrend'
 import RunningExecutions from './dashboard/RunningExecutions'
 import './dashboard/dashboard.css'
 
-// ============================================================
-// Dashboard : répond à « Y a-t-il un problème en ce moment ? » (À surveiller, en cours),
-// « Les performances s'améliorent-elles ? » (dernière exécution par scénario comparée à la
-// précédente, évolution) et « Que faire maintenant ? » (liens de chaque point).
-// Tout vient de GET /api/dashboard/overview (calculé côté serveur, filtré par application et
-// période) ; rien n'est agrégé dans le navigateur.
-// ============================================================
+// Tableau de bord : points à surveiller, exécutions en cours, dernière exécution par scénario, évolution des performances.
 
 function Dashboard() {
   const { data: applications } = useApiList<BackendApplicationResponse>(() => applicationsBackendApi.getAll())
@@ -31,8 +25,7 @@ function Dashboard() {
   const { data, loading, error, refetch } = useApiItem<BackendDashboardOverview>(
     () => dashboardBackendApi.getOverview({ applicationId: appId || undefined, ...range }), [appId, range.from, range.to])
 
-  // Exécutions en cours : le Dashboard se met à jour tout seul toutes les 10 s (tableau paginé compris :
-  // « refresh » change seulement à ce moment-là, un changement de filtre le relit déjà de lui-même).
+  // Exécutions en cours : rafraîchissement toutes les 10 s.
   const hasRunning = (data?.running.length ?? 0) > 0
   const [refresh, setRefresh] = useState(0)
   useEffect(() => {

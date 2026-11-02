@@ -13,14 +13,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-/**
- * Test UNITAIRE pur (Jakarta Bean Validation directement, aucun contexte
- * Spring/HTTP) des contraintes @Valid des DTO de requete - complement aux
- * tests 400 deja realises via MockMvc dans les *ControllerTest (Phase 6-8),
- * qui ne verifient qu'un sous-ensemble de cas via l'API HTTP. Ici, chaque
- * contrainte annoncee dans le DTO est verifiee individuellement et de
- * maniere isolee/rapide.
- */
+/** Contraintes de validation des DTO de requete, verifiees directement avec Jakarta Bean Validation. */
 class RequestValidationTest {
 
     private static ValidatorFactory factory;
@@ -162,7 +155,7 @@ class RequestValidationTest {
 
     @Test
     void stepRequest_relativeUrlWithoutSpaces_isAllowed() {
-        // Volontairement PAS @URL (voir StepRequest) : un chemin relatif est legitime.
+        // Chemin relatif accepte pour l'URL d'une etape.
         StepRequest request = new StepRequest(UUID.randomUUID(), "Step", HttpMethod.GET, "/api/auth/login", null, null, 1, 200,
                 null, null, null, null, null, null);
 
@@ -211,8 +204,7 @@ class RequestValidationTest {
 
     @Test
     void stepRequest_nullExpectedStatus_isAllowed() {
-        // Optionnel (voir StepRequest/HttpClientExecutionEngine : sans lui,
-        // le succes se base sur 200<=status<400).
+        // Optionnel : sans lui, 200 <= status < 400 est un succes.
         StepRequest request = new StepRequest(UUID.randomUUID(), "Step", HttpMethod.GET, "/x", null, null, 1, null,
                 null, null, null, null, null, null);
 

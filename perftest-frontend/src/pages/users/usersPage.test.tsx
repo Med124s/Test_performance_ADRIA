@@ -66,7 +66,7 @@ describe('Onglet Utilisateurs', () => {
     expect(within(row('Eric Engineer')).getByText('hier')).toBeTruthy()
     expect(within(row('viewer-test')).getByText('Lecteur')).toBeTruthy()
     expect(within(row('viewer-test')).getByText('Jamais')).toBeTruthy()
-    // Jamais le code technique d'un rôle, plus de colonne « Créé le ».
+    // Jamais le code technique d'un rôle ni de colonne « Créé le ».
     expect(container.textContent).not.toMatch(/SUPER_ADMIN|PERFORMANCE_ENGINEER|VIEWER|Créé le/)
     expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Utilisateur', 'Rôle', 'Statut', 'Dernière connexion', 'Actions'])
   })

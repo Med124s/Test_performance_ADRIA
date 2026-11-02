@@ -21,14 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * Les quatre tableaux d'un rapport exporte (memes donnees que la page Rapport et le PDF, y compris
- * pour un rapport fige « Résumé seul ») : Resume, Etapes, Erreurs, Analyse dans le temps.
- *
- * Aucun secret : seules les donnees du rapport et de l'analyse dans le temps sont utilisees (jamais
- * en-tetes, corps, CSV, variables ni authentification de l'application) ; URL et messages passent
- * en plus par les filtres de masquage existants.
- */
+/** Les quatre tableaux d'un rapport exporte : Resume, Etapes, Erreurs, Analyse dans le temps. */
 public final class ReportTables {
 
     private ReportTables() {

@@ -8,11 +8,7 @@ import java.net.http.HttpTimeoutException;
 import java.nio.channels.UnresolvedAddressException;
 import javax.net.ssl.SSLException;
 
-/**
- * Traduit une erreur reseau en message lisible, SANS jamais reprendre le
- * message brut de l'exception (qui peut contenir l'URL, donc une cle API
- * passee en parametre de requete).
- */
+/** Traduit une erreur reseau en message lisible, sans reprendre le message brut de l'exception. */
 public final class NetworkErrors {
 
     private NetworkErrors() {
@@ -30,7 +26,6 @@ public final class NetworkErrors {
         }
         if (hasCause(e, java.security.cert.CertPathValidatorException.class)
                 || hasCause(e, java.security.cert.CertPathBuilderException.class)) {
-            // Autorite inconnue (certificat interne, autosigne...) : piste concrete, sans detail brut.
             return "certificat du serveur non reconnu (autorité de certification inconnue) : ajoutez-la dans "
                     + "l'onglet Réseau de l'application";
         }
@@ -43,9 +38,7 @@ public final class NetworkErrors {
         return "erreur réseau (" + e.getClass().getSimpleName() + ")";
     }
 
-    /** URL sans parametres de requete ni identifiants, pour les logs. */
-    /** Categorie stable (TIMEOUT, DNS, TLS, CONNECTION_REFUSED, NETWORK) - meme ordre de
-     * detection que describe(), pour que le frontend puisse proposer une piste adaptee. */
+    /** Categorie de l'erreur : TIMEOUT, DNS, TLS, CONNECTION_REFUSED ou NETWORK. */
     public static String kind(IOException e) {
         if (e instanceof HttpTimeoutException) return "TIMEOUT";
         if (hasCause(e, UnknownHostException.class) || hasCause(e, UnresolvedAddressException.class)) return "DNS";

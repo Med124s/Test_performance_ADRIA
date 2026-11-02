@@ -4,8 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../context/ToastContext'
 import { ApiError } from '../../services/api/httpClient'
 
-// « Mon compte » (carte utilisateur de la barre du haut, seul accès au compte) : contenu par rôle, lecture seule pour l'Ingénieur performance et l'Observateur,
-// « Modifier » (prénom, nom, e-mail) pour le Super administrateur, clavier et fermeture.
+// « Mon compte » : contenu par rôle, lecture seule ou « Modifier », clavier.
 
 type Role = 'SUPER_ADMIN' | 'PERFORMANCE_ENGINEER' | 'VIEWER'
 const PEOPLE: Record<Role, { username: string; first: string; last: string; label: string }> = {

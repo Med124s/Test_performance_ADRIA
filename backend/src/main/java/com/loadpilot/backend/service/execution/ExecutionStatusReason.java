@@ -3,15 +3,10 @@ package com.loadpilot.backend.service.execution;
 import com.loadpilot.backend.entity.Execution;
 import com.loadpilot.backend.enums.ExecutionStatus;
 
-/**
- * Raison principale d'un statut, en quelques mots, affichee sous le badge dans la liste des executions :
- * « Erreurs : 2,5 % », « P95 > seuil », « Authentification échouée », « Application injoignable »,
- * « Annulée par admin-test »... Calculee a la lecture depuis l'execution (jamais stockee) ; null quand
- * il n'y a rien a expliquer (reussite, execution en cours).
- */
+/** Raison courte d'un statut, affichee sous le badge : "Erreurs : 2,5 %", "P95 > seuil", "Annulee par admin-test"... */
 public final class ExecutionStatusReason {
 
-    /** Debut du message d'arret du garde-fou memoire (voir ResultsMemoryGuard). */
+    /** Debut du message d'arret par le garde-fou memoire. */
     public static final String MEMORY_LIMIT_PREFIX = "Arrêt automatique : trop de résultats en mémoire";
 
     private ExecutionStatusReason() {
@@ -26,7 +21,6 @@ public final class ExecutionStatusReason {
         return switch (e.getStatus()) {
             case CANCELLED -> {
                 if (e.getCancelledBy() != null) yield "Annulée par " + e.getCancelledBy();
-                // Avant le frein : les deux messages commencent par « Arrêt automatique : ».
                 if (message.startsWith(MEMORY_LIMIT_PREFIX)) {
                     yield "Arrêt automatique : limite mémoire";
                 }
@@ -48,7 +42,7 @@ public final class ExecutionStatusReason {
         String lower = message.toLowerCase();
         if (lower.contains("restarted") || lower.contains("redémarr") || lower.contains("redemarr")) return "Interrompue (redémarrage du serveur)";
         if (lower.startsWith("aucune requ")) return "Aucune requête exécutée";
-        // Execution anterieure aux seuils : « Echouee » des la premiere requete en erreur.
+        // Execution sans seuils : echouee des la premiere requete en erreur.
         if (e.getMaxErrorRatePercent() == null && failures > 0) return "Erreurs : " + ExecutionVerdict.format(errorRate) + " %";
         return "Erreur interne";
     }

@@ -8,12 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import org.springframework.data.jpa.domain.Specification;
 
-/**
- * Construit dynamiquement le WHERE de GET /api/audit-logs a partir des
- * filtres fournis (tous optionnels, combines en ET - un filtre absent
- * n'ajoute simplement aucun predicat). Voir AuditLogRepository
- * (JpaSpecificationExecutor). Tout le filtrage est fait cote serveur.
- */
+/** Filtres du journal d'audit, tous optionnels et combines en ET. */
 public final class AuditLogSpecifications {
 
     private AuditLogSpecifications() {

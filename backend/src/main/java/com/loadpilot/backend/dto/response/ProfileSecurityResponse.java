@@ -3,11 +3,7 @@ package com.loadpilot.backend.dto.response;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Parametres > Mon profil > Securite : derniere connexion et sessions ouvertes de l'utilisateur
- * connecte. devicesKnown = false : le systeme d'authentification n'a pas donne le navigateur /
- * systeme (sessions lues par l'API d'administration). message : explication si indisponible.
- */
+/** Derniere connexion et sessions ouvertes de l'utilisateur connecte. */
 public record ProfileSecurityResponse(Instant lastLoginAt, String lastLoginIp, List<Session> sessions, boolean devicesKnown,
                                       String message) {
 

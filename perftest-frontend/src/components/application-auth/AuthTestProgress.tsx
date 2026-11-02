@@ -1,10 +1,6 @@
 import { BackendApplicationAuthType, BackendApplicationStatus } from '../../types/backendContracts'
 
-// ============================================================
-// Progression "enregistrement → vérification de l'authentification",
-// puis résultat animé. Utilisé par la modale (Tester et ajouter /
-// Enregistrer et tester) ; accessible (role="status", aria-live).
-// ============================================================
+// Progression « enregistrement → vérification de l'authentification », puis résultat.
 
 export type TestPhase = 'save' | 'verify' | 'test'
 
@@ -14,9 +10,7 @@ export const PHASE_LABELS: Record<TestPhase, string> = {
   test: 'Test de connectivité…',
 }
 
-/** Étape de test selon le type : les 4 modes authentifiés vérifient
- * réellement les identifiants (login réel, ou endpoint de vérification) ;
- * Aucune -> simple test de connectivité de l'URL. */
+/** Étapes du test selon le type : vérification des identifiants pour les modes authentifiés, sinon simple test de l'URL. */
 export function testPhasesFor(type: BackendApplicationAuthType | undefined): TestPhase[] {
   return !type || type === 'NONE' ? ['test'] : ['verify']
 }

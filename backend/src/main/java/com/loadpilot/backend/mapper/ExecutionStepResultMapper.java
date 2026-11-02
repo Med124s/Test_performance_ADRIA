@@ -6,19 +6,10 @@ import com.loadpilot.backend.service.execution.UrlResolver;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
-/**
- * Classe abstraite (pas une interface) : MapStruct genere le mapping des
- * champs simples via toResponseWithoutUrl(), et toResponse() complete
- * ensuite "url" avec la VRAIE url resolue (relative -> absolue via
- * Application.url) - impossible a exprimer comme une simple @Mapping
- * puisque cela necessite l'URL de base de l'Application, non portee par
- * ExecutionStepResult lui-meme (voir Phase 9).
- */
+/** Mapping des resultats ; toResponse() ajoute l'URL resolue. */
 @Mapper(componentModel = "spring", uses = MapperSupport.class)
 public abstract class ExecutionStepResultMapper {
 
-    // Lus via la copie de l'etape (displayStep*) : l'historique reste lisible
-    // meme si l'etape a ete supprimee depuis (step = null, migration 017).
     @Mapping(target = "stepId", expression = "java(result.stepIdOrNull() != null ? result.stepIdOrNull().toString() : null)")
     @Mapping(target = "stepName", expression = "java(result.displayStepName())")
     @Mapping(target = "method", expression = "java(result.displayStepMethod())")

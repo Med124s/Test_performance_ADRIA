@@ -16,12 +16,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * P1-D — verifie GET /api/system/config : 401 sans token, 403 pour
- * VIEWER/PERFORMANCE_ENGINEER (reserve SUPER_ADMIN, voir
- * SystemConfigController), 200 avec les VRAIES valeurs actives (voir
- * application-test.yml/application.yml - jamais une valeur inventee).
- */
+/** GET /api/system/config : 401 sans jeton, 403 hors Super administrateur, 200 avec les valeurs du profil de test. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

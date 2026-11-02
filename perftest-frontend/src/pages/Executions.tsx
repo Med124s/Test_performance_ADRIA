@@ -35,16 +35,7 @@ import ExecutionDeletionDialog, { bulkDeletionMessage, describeExecutionError as
 import './applications.css'
 import './executions/executions.css'
 
-// ============================================================
-// Page Exécutions : liste filtrée, triée et paginée CÔTÉ SERVEUR
-// (GET /api/executions/page : statut, scénario, application, période,
-// recherche, tri, compteurs par statut suivant les mêmes filtres). Filtres,
-// tri, page et recherche vivent dans l'URL (rechargement / partage de
-// lien) ; tout changement de filtre ou de tri ramène à la page 1.
-//
-// Sélection multiple (comparaison, suppression), relance avec suivi en
-// direct, annulation, progression des exécutions en cours dans le tableau.
-// ============================================================
+// Page Exécutions : liste filtrée, triée et paginée côté serveur (GET /api/executions/page), compteurs par statut et actions.
 
 const STATUS_TABS = ['', 'QUEUED', 'RUNNING', 'PAUSED', 'SUCCESS', 'THRESHOLDS_EXCEEDED', 'FAILED', 'CANCELLED'] as const
 type StatusTab = typeof STATUS_TABS[number]
@@ -70,9 +61,7 @@ function isActive(status: BackendExecutionStatus): boolean {
   return status === 'QUEUED' || status === 'RUNNING' || status === 'PAUSED'
 }
 
-// ============================================================
-// Page
-// ============================================================
+// ---- Page ----
 
 function Executions() {
   const navigate = useNavigate()
@@ -83,7 +72,7 @@ function Executions() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const isKeycloak = authProvider === 'keycloak'
-  // Lancement / annulation / relance / suppression : SUPER_ADMIN et PERFORMANCE_ENGINEER (voir ExecutionController).
+  // Lancement, annulation, relance et suppression : Super administrateur et Ingénieur performance.
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
 
   // ---------------------------------------------------------------- filtres dans l'URL
@@ -304,7 +293,7 @@ function Executions() {
     }
   }
 
-  // ---------------------------------------------------------------- nouvelle exécution (inchangé)
+  // ---- Nouvelle exécution ----
   const [showLaunchModal, setShowLaunchModal] = useState(false)
   const [selectedScenarioId, setSelectedScenarioId] = useState('')
   const [launching, setLaunching] = useState(false)

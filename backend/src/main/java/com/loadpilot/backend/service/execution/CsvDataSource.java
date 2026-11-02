@@ -8,18 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/**
- * Jeu de donnees CSV d'un scenario (Scenario.csvData) : premiere ligne = noms de colonnes,
- * utilisables comme variables ${colonne}, puis une ligne par utilisateur virtuel
- * (reutilisation cyclique, voir HttpClientExecutionEngine).
- *
- * Format (memes regles que le frontend, voir csvModel.ts) : BOM UTF-8 ignore, separateur
- * "," ou ";" detecte sur la ligne d'en-tete, guillemets RFC 4180 ("" pour un guillemet,
- * separateur ou retour a la ligne autorises entre guillemets), lignes vides ignorees,
- * valeurs hors guillemets sans espaces de bord.
- *
- * JAMAIS de valeur journalisee (le CSV peut contenir des identifiants de test).
- */
+/** Jeu de donnees CSV d'un scenario : la premiere ligne donne les noms des variables ${colonne}, puis une ligne de donnees par utilisateur virtuel ou par iteration. */
 public final class CsvDataSource {
 
     public static final int MAX_LENGTH = 1_000_000;
@@ -36,11 +25,7 @@ public final class CsvDataSource {
     public record Parsed(List<String> columns, List<List<String>> rows, char separator, String error) {
     }
 
-    /**
-     * Une ligne (Map colonne -> valeur) par ligne de donnees. Tolerant pour le moteur : une
-     * ligne plus courte n'a pas les colonnes manquantes, une ligne plus longue voit ses
-     * valeurs en trop ignorees. CSV vide ou invalide : aucune variable.
-     */
+    /** Une Map colonne -> valeur par ligne de donnees ; CSV vide ou invalide : aucune ligne. */
     public static List<Map<String, String>> parse(String csv) {
         Parsed parsed = analyze(csv);
         if (parsed.columns().isEmpty()) return List.of();
@@ -86,8 +71,7 @@ public final class CsvDataSource {
                 return new Parsed(List.of(), List.of(), separator, "Colonne en double : « " + column + " ».");
             }
         }
-        // Toutes les lignes sont conservees (parse() reste tolerant pour le moteur) ; seule la
-        // premiere incoherence est retenue comme erreur de validation.
+        // Toutes les lignes sont gardees ; seule la premiere incoherence est retenue comme erreur.
         List<List<String>> rows = new ArrayList<>();
         String mismatch = null;
         for (Record record : records.subList(1, records.size())) {
@@ -161,7 +145,7 @@ public final class CsvDataSource {
                 line++;
                 recordLine = line;
             } else if (wasQuoted) {
-                // Texte apres un guillemet fermant : toleré uniquement s'il est blanc.
+                // Apres un guillemet fermant, seuls des blancs sont acceptes.
                 if (!Character.isWhitespace(c)) {
                     return "Ligne " + recordLine + " : caractère inattendu après un guillemet fermant.";
                 }

@@ -1,9 +1,6 @@
 import { BackendComparisonColumn } from '../../types/backendContracts'
 
-// ============================================================
-// Comparaison d'exécutions : meilleure / moins bonne valeur par ligne et
-// lecture du plafond de débit (fonctions pures, testées).
-// ============================================================
+// Comparaison d'exécutions : meilleure / moins bonne valeur par ligne et lecture du plafond de débit.
 
 /** Sens d'une mesure : plus haut = mieux (débit), plus bas = mieux (temps, erreurs, ressources), ou neutre. */
 export type Direction = 'higher' | 'lower' | 'neutral'
@@ -22,11 +19,7 @@ export function bestWorst(values: (number | null | undefined)[], direction: Dire
 /** Seuil : quand la charge augmente, le débit doit suivre au moins à 80 % pour « suivre la charge ». */
 export const SCALING_EFFICIENCY = 0.8
 
-/**
- * Lecture du plafond : exécutions triées par utilisateurs virtuels ; entre deux paliers, efficacité =
- * (débit / débit précédent) / (VU / VU précédents). Premier palier sous SCALING_EFFICIENCY : le débit
- * ne suit plus la charge. Null si moins de deux charges différentes.
- */
+/** Plafond de débit : entre deux paliers de charge, efficacité = (débit / débit précédent) / (VU / VU précédents) ; premier palier sous SCALING_EFFICIENCY. */
 export function plateauReading(columns: Pick<BackendComparisonColumn, 'virtualUsers' | 'throughput'>[]): string | null {
   const pts = columns
     .filter((c) => c.virtualUsers != null && c.virtualUsers > 0 && c.throughput != null && c.throughput > 0)

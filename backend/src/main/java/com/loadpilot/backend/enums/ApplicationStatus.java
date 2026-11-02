@@ -1,14 +1,6 @@
 package com.loadpilot.backend.enums;
 
-/**
- * Resultat du dernier test de disponibilite reel d'une Application (voir
- * ApplicationService.testAvailability) - jamais une valeur devinee/simulee.
- *
- * Une Application fraichement creee n'a AUCUN statut (colonne nullable,
- * valeur null cote API) tant qu'aucun test n'a ete lance : lui attribuer une
- * valeur par defaut (ex. un statut "en attente") reviendrait a affirmer un
- * resultat de test qui n'a jamais eu lieu.
- */
+/** Resultat du dernier test de connectivite d'une application. */
 public enum ApplicationStatus {
 
     /** Le test a obtenu une reponse HTTP de succes (code &lt; 400). */

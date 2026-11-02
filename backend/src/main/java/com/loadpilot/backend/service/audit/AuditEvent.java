@@ -9,20 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/**
- * Une entree a ecrire dans le journal d'audit (voir AuditLogService#record(AuditEvent)).
- *
- * <pre>
- * auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.SCENARIO)
- *         .target(AuditTargetType.SCENARIO, id, name)
- *         .change("Utilisateurs virtuels", 20, 40)
- *         .description("Charge du scénario modifiée"));
- * </pre>
- *
- * Par defaut : resultat SUCCESS, acteur = utilisateur de la requete courante.
- * {@link #system(String)} : action automatique (acteur « Système » + source).
- * Tous les textes passent par AuditSanitizer avant l'ecriture : jamais de secret.
- */
+/** Entree a ecrire dans le journal d'audit, construite par appels chaines. */
 public final class AuditEvent {
 
     private final AuditAction action;

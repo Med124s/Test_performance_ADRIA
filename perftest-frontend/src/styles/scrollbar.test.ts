@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-// Barre de défilement personnalisée (global.css) : couleurs du thème uniquement, réglages Firefox
-// réservés aux navigateurs sans ::-webkit-scrollbar (sinon Chrome ignorerait la forme arrondie).
-// Le rendu lui-même est vérifié dans un vrai navigateur (jsdom n'affiche pas de barre de défilement).
-// Fichiers lus sur le disque : les imports .css sont vides dans les tests. Les types Node ne sont pas
-// chargés par le tsconfig du frontend : seules les deux fonctions utilisées sont décrites.
+// Barre de défilement personnalisée (global.css) : couleurs du thème, réglages Firefox réservés aux navigateurs sans ::-webkit-scrollbar.
 
 interface NodeFs {
   readdirSync(path: string, options: { recursive: true }): string[]

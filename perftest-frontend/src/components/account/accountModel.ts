@@ -1,12 +1,8 @@
-// ============================================================
-// « Mon compte » : libellés de rôle et règles de l'identité modifiable, partagés par le panneau
-// de la barre latérale et Paramètres > Mon profil. Mêmes messages que le serveur
-// (ProfileIdentityRequest), dans le même ordre : prénom, nom, e-mail.
-// ============================================================
+// « Mon compte » : libellés des rôles et validation de l'identité modifiable.
 
 import { appRoleFromRawRoles } from '../../utils/appRoles'
 
-/** Libellé français du rôle dans « Mon compte » (identique au serveur, ProfileServiceImpl). */
+/** Libellé français du rôle. */
 export const ACCOUNT_ROLE_LABEL = {
   SUPER_ADMIN: 'Super administrateur',
   PERFORMANCE_ENGINEER: 'Ingénieur performance',

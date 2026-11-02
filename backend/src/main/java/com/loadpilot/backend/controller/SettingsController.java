@@ -68,7 +68,7 @@ public class SettingsController {
         return retentionSettingsService.update(request, by != null ? by : jwt.getSubject());
     }
 
-    /** Lu par toutes les pages qui comparent des P95 (seuil de regression) et par l'assistant de scenario. */
+    /** Seuils par defaut (P95, taux d'erreurs, regression). */
     @GetMapping("/thresholds")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Seuils par defaut", description = "Taux d'erreurs et P95 maximaux proposes pour les nouveaux scenarios, seuil de regression. Lisible par tout utilisateur connecte.")
@@ -90,11 +90,7 @@ public class SettingsController {
         return storageInfoService.info();
     }
 
-    /**
-     * Limites d'un test (utilisateurs virtuels, duree, iterations, debit cible) appliquees a cet
-     * instant : lues par l'assistant de scenario pour ses plages et sa validation, donc lisibles par
-     * tout utilisateur connecte (le detail des limites et leur modification restent reserves).
-     */
+    /** Limites de charge en vigueur, utilisees par l'assistant de scenario. */
     @GetMapping("/load-limits")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Limites de charge d'un test", description = "maxVirtualUsers (le plus bas entre « par test » et « au total »), "
@@ -104,7 +100,7 @@ public class SettingsController {
     }
 
     @GetMapping("/limits")
-    @Operation(summary = "Limites des tests", description = "Limites applicatives (modifiables, jamais au-dessus du plafond du serveur) et delais en lecture seule.")
+    @Operation(summary = "Limites des tests", description = "Limites applicatives (modifiables, au plus egales au plafond du serveur) et delais en lecture seule.")
     public com.loadpilot.backend.dto.response.ExecutionLimitsResponse limits() {
         return executionLimitsService.get();
     }

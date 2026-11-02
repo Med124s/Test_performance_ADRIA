@@ -17,11 +17,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * Lancement planifie qui n'a PAS donne d'execution (ignore, manque, refuse), avec sa raison en francais -
- * affiche dans l'historique de la planification a cote des executions reelles (execution.schedule_id).
- * Supprime avec sa planification (cle etrangere en cascade).
- */
+/** Lancement planifie qui n'a pas donne d'execution (ignore, manque, refuse), avec sa raison. */
 @Entity
 @Table(name = "scheduled_run_event")
 @Getter

@@ -3,11 +3,7 @@ package com.loadpilot.backend.dto.response;
 import com.loadpilot.backend.enums.ScenarioStatus;
 import java.time.Instant;
 
-/**
- * "applicationName" est expose en plus de "applicationId" par confort
- * d'affichage - jamais l'entite Application complete. "createdBy" est le nom
- * d'affichage du createur, jamais l'entite AppUser.
- */
+/** Scenario ; "createdBy" est le nom d'affichage du createur. */
 public record ScenarioResponse(
         String id,
         String applicationId,

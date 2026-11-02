@@ -6,12 +6,7 @@ import { ExecutionMonitorProvider } from '../context/ExecutionMonitorContext'
 import { BackendExecutionStatus } from '../types/backendContracts'
 import { EXECUTION_STATUSES, EXECUTION_STATUS_META, executionStatusMeta } from '../utils/executionStatus'
 
-// ============================================================
-// Chaque page qui affiche un statut d'exécution s'affiche sans erreur avec
-// CHAQUE statut connu et avec un statut inconnu (badge gris + son nom) —
-// garde-fou contre la régression « Cannot read properties of undefined
-// (reading 'cls') » du Détail avec le statut « Seuils dépassés ».
-// ============================================================
+// Chaque page qui affiche un statut d'exécution s'affiche avec chaque statut connu et avec un statut inconnu.
 
 vi.mock('react-chartjs-2', () => ({ Bar: () => <div />, Line: () => <div />, Doughnut: () => <div /> }))
 vi.mock('../components/TopBar', () => ({ default: () => <div /> }))

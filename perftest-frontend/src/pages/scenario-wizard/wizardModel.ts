@@ -1,12 +1,4 @@
-// ============================================================
-// Assistant "Nouveau scénario" — modèle local (brouillon), validation et
-// conversion vers les contrats réels du backend Spring Boot.
-//
-// Le brouillon vit en mémoire tant que l'utilisateur n'a ni testé ni
-// enregistré : rien n'est envoyé au backend avant l'étape "Tester" (ou
-// "Enregistrer"). Les bornes de validation sont celles de ScenarioRequest/
-// StepRequest côté backend — jamais une valeur que le backend rejetterait.
-// ============================================================
+// Assistant de scénario : modèle du brouillon, validation et conversion en requêtes pour le backend.
 
 import { ApiError } from '../../services/api/httpClient'
 import { headerCaptureProblem } from '../../utils/headerCapture'
@@ -70,30 +62,23 @@ export interface ScenarioInfo {
   variables: VariableRow[]
   /** Distribution du CSV entre utilisateurs virtuels. */
   csvDistribution: BackendCsvDistribution
-  /** Détail des requêtes conservé à l'exécution (absent des anciens brouillons : défaut serveur). */
+  /** Détail des requêtes conservé à l'exécution. */
   requestDetailMode?: BackendRequestDetailMode
-  /** Seuils de réussite (saisie texte) : taux d'erreurs maximal en % (défaut « 1 »), P95 maximal en ms (vide = aucun).
-   * Absents des anciens brouillons : valeurs du serveur conservées. */
+  /** Seuils de réussite (saisie texte) : taux d'erreurs maximal en %, P95 maximal en ms (vide = aucun). */
   maxErrorRatePercent?: string
   maxP95Ms?: string
-  /** Frein automatique (saisie texte) : taux d'erreurs en % sur la fenêtre (vide = désactivé), fenêtre en secondes.
-   * Absents des anciens brouillons : valeurs du serveur conservées. */
+  /** Frein automatique (saisie texte) : taux d'erreurs en % (vide = désactivé) et fenêtre en secondes. */
   errorBrakeRatePercent?: string
   errorBrakeWindowSeconds?: string
-  /** Ralentissement sur 429 (actif par défaut) : attente sans Retry-After (s) et rejeux par étape (saisie texte).
-   * Absents des anciens brouillons : valeurs du serveur conservées. */
+  /** Ralentissement sur 429 : actif, attente sans Retry-After (s) et rejeux par étape. */
   throttleOn429?: boolean
   throttleDefaultDelaySeconds?: string
   throttleMaxRetries?: string
-  /** Variation aléatoire du think time (± %, saisie texte) : vide = fixe. Absente des anciens brouillons : inchangée. */
+  /** Variation aléatoire du think time (± %) ; vide = fixe. */
   thinkTimeVariationPercent?: string
 }
 
-/**
- * Paramètres de charge — mêmes règles que le moteur (HttpClientExecutionEngine) :
- * durée et itérations sont tous deux optionnels ; les deux renseignés = arrêt à la
- * première limite atteinte ; aucun = une seule itération par utilisateur.
- */
+/** Paramètres de charge : durée et itérations optionnelles ; les deux = arrêt à la première atteinte, aucun = une itération par utilisateur. */
 export interface LoadConfig {
   presetId: string
   virtualUsers: string
@@ -159,10 +144,7 @@ export const DEFAULT_EXPECTED_STATUS: Record<BackendHttpMethod, string> = {
   GET: '200', POST: '201', PUT: '200', PATCH: '200', DELETE: '200',
 }
 
-/**
- * Nouveau code attendu quand la méthode change : suit la méthode tant que l'utilisateur ne l'a pas
- * personnalisé (vide ou égal à la valeur proposée pour l'ancienne méthode), sinon conservé.
- */
+/** Code attendu après un changement de méthode : suit la méthode tant qu'il n'a pas été personnalisé. */
 export function expectedStatusAfterMethodChange(step: Pick<DraftStep, 'method' | 'expectedStatus'>, method: BackendHttpMethod): string {
   const current = step.expectedStatus.trim()
   return current === '' || current === DEFAULT_EXPECTED_STATUS[step.method] ? DEFAULT_EXPECTED_STATUS[method] : step.expectedStatus
@@ -199,7 +181,7 @@ export function duplicateStep(step: DraftStep): DraftStep {
   return { ...step, uid: nextUid(), backendId: null, name: `${step.name} (copie)`, headers: step.headers.map((h) => ({ ...h })), pathParams: { ...step.pathParams }, queryParams: step.queryParams.map((q) => ({ ...q })) }
 }
 
-// ---------------------------------------------------------------- headers
+// ---- En-têtes ----
 
 export function headersToJson(rows: HeaderRow[]): string | null {
   const entries = rows.filter((r) => r.key.trim()).map((r) => [r.key.trim(), r.value] as const)
@@ -210,15 +192,14 @@ export function hasHeader(rows: HeaderRow[], name: string): boolean {
   return rows.some((r) => r.key.trim().toLowerCase() === name.toLowerCase())
 }
 
-// ---------------------------------------------------------------- JSON body
+// ---- Corps JSON ----
 
 export type BodyFormat = 'empty' | 'json' | 'text'
 
 export function detectBodyFormat(body: string): BodyFormat {
   const trimmed = body.trim()
   if (!trimmed) return 'empty'
-  // ${variables} hors guillemets rendraient un JSON valide "invalide" : on les
-  // neutralise uniquement pour ce diagnostic, jamais dans le corps envoyé.
+  // Les ${variables} hors guillemets sont neutralisées pour ce seul diagnostic.
   const probe = trimmed.replace(/\$\{[^}]+\}/g, '0')
   try {
     JSON.parse(probe)
@@ -236,15 +217,14 @@ export function formatJsonBody(body: string): string | null {
   }
 }
 
-// ---------------------------------------------------------------- variables
+// ---- Variables ----
 
 export interface AvailableVariable {
   name: string
   source: string
 }
 
-/** Variables utilisables par l'étape d'index `index` : colonnes CSV + valeurs
- * capturées par les étapes PRÉCÉDENTES (même utilisateur virtuel). */
+/** Variables utilisables par l'étape d'index `index` : colonnes CSV et captures des étapes précédentes. */
 export function variablesAvailableAt(steps: DraftStep[], index: number, csvData: string): AvailableVariable[] {
   const vars: AvailableVariable[] = []
   analyzeCsv(csvData).columns.forEach((name) => vars.push({ name, source: 'CSV' }))
@@ -255,7 +235,7 @@ export function variablesAvailableAt(steps: DraftStep[], index: number, csvData:
   return vars
 }
 
-// ---------------------------------------------------------------- validation
+// ---- Validation ----
 
 export type FieldErrors = Partial<Record<string, string>>
 
@@ -392,12 +372,7 @@ const LIMIT_SUFFIX = ' (limite d’un test sur ce serveur).'
 export const vuTooHighMessage = (max: number) => `Le nombre d’utilisateurs ne doit pas dépasser ${formatInt(max)}${LIMIT_SUFFIX}`
 export const RAMP_UP_TOO_LONG = 'Le ramp-up doit être plus court que la durée.'
 
-/**
- * Règles de « Charge & résumé », identiques au serveur
- * (LoadRules.validate), avec les limites en vigueur : entiers, minimums, maximums (limites du serveur,
- * think time 0 à 60 000 ms), ramp-up jamais au-delà de la durée maximale et plus court que la durée
- * quand elle est fixée, facultatifs vides acceptés.
- */
+/** Règles de « Charge & résumé », identiques au serveur (LoadRules.validate), avec les limites en vigueur. */
 export function validateLoad(load: Omit<LoadConfig, 'presetId'>, limits?: Partial<LoadLimits> | null): FieldErrors {
   const errors: FieldErrors = {}
   const maxVu = limits?.maxVirtualUsers ?? MAX_VIRTUAL_USERS_FALLBACK
@@ -463,15 +438,7 @@ export interface LoadEstimate {
   measured: boolean
 }
 
-/**
- * Estimation APPROXIMATIVE d'un test (mêmes règles que le moteur) :
- * - chaque utilisateur démarre (ramp-up / nombre d'utilisateurs) après le précédent ;
- * - durée fixée : le test s'arrête après cette durée, comptée depuis le début (ramp-up compris) ;
- * - sans durée : chaque utilisateur joue ses itérations (1 si rien n'est indiqué), avec le think time
- *   entre deux itérations ;
- * - débit cible : jamais plus de requêtes par seconde que ce débit.
- * Temps de réponse : moyenne mesurée par le test de validation, sinon ASSUMED_REQUEST_MS.
- */
+/** Estimation approximative d'un test (durée totale, requêtes), selon les mêmes règles que le moteur. */
 export function estimateLoad(load: Omit<LoadConfig, 'presetId'>, stepCount: number, measuredRequestMs?: number | null): LoadEstimate | null {
   if (Object.keys(validateLoad(load)).length > 0 || stepCount <= 0) return null
   const vu = Number(load.virtualUsers)
@@ -686,7 +653,7 @@ export function thinkVariationFromScenario(s: { thinkTimeVariationPercent?: numb
 
 export const hasErrors = (errors: FieldErrors) => Object.values(errors).some(Boolean)
 
-// ---------------------------------------------------------------- payloads
+// ---- Requêtes envoyées au backend ----
 
 const optInt = (v: string) => (v.trim() ? Number(v) : null)
 
@@ -707,11 +674,11 @@ export function stepToRequest(step: DraftStep, scenarioId: string, order: number
     assertionBodyContains: step.assertionBodyContains.trim() || null,
     captureVariableName: step.captureVariableName.trim() || null,
     captureJsonPath: step.captureJsonPath.trim() || null,
-    // Absent = JSON (comportement historique) ; le serveur remet la source à JSON si elle n'est pas envoyée.
+    // Absent = JSON.
     ...(step.captureSource === 'HEADER' || step.captureSource === 'HTML' ? { captureSource: step.captureSource } : {}),
     pathParams: pathParamsToJson(step),
     queryParams: step.queryParams.some((q) => q.key.trim()) ? JSON.stringify(step.queryParams.filter((q) => q.key.trim())) : null,
-    // Contrôles optionnels : absents = aucun (le serveur les efface s'ils ne sont pas envoyés).
+    // Contrôles optionnels : absents = aucun.
     ...(step.maxResponseTimeMs?.trim() ? { maxResponseTimeMs: Number(step.maxResponseTimeMs) } : {}),
     ...(step.assertionJsonPath?.trim()
       ? {
@@ -746,8 +713,7 @@ export function draftSignature(info: ScenarioInfo, steps: DraftStep[]): string {
   return JSON.stringify([info.applicationId, info.csvData, info.csvDistribution, info.variables, steps.map(({ uid, backendId, ...rest }) => rest)])
 }
 
-/** Même politique que les autres pages : le code HTTP réel prime, le message
- * backend est réutilisé quand il est déjà explicite. */
+/** Message utilisateur pour une erreur d'API (message du backend repris quand il est explicite). */
 export function describeApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     switch (err.status) {

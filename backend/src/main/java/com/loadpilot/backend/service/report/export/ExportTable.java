@@ -2,13 +2,7 @@ package com.loadpilot.backend.service.report.export;
 
 import java.util.List;
 
-/**
- * Un tableau d'export (une feuille Excel, ou un fichier CSV) : en-tetes en francais avec unite,
- * et des valeurs TYPEES (texte, entier, decimal, date) - jamais des nombres deja mis en texte :
- * chaque format (XLSX, CSV) les ecrit a sa maniere (nombre Excel, ou virgule decimale en CSV).
- *
- * Valeurs acceptees : null (cellule vide), String, Integer / Long, Double / BigDecimal, java.time.Instant.
- */
+/** Tableau d'export (feuille Excel ou fichier CSV) : en-tetes avec unite et valeurs typees. */
 public record ExportTable(String sheetName, String fileSuffix, List<Column> columns, List<List<Object>> rows) {
 
     public enum Kind { TEXT, INTEGER, DECIMAL, DATETIME, MIXED }

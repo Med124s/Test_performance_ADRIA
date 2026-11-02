@@ -12,12 +12,7 @@ import './settings/settings.css'
 
 export { formatDuration } from './settings/formatDuration'
 
-// ============================================================
-// Paramètres > « Système » (Super administrateur) :
-//  - limites des tests (modifiables sous le plafond du serveur) et délais en lecture seule ;
-//  - seuils par défaut des nouveaux scénarios ;
-//  - conservation des résultats et journal d'audit, avec la taille de la base et l'état des purges.
-// ============================================================
+// Paramètres > Système (Super administrateur) : limites des tests, seuils et valeurs par défaut des nouveaux scénarios, stockage.
 
 /** embedded : affichée dans un onglet (Paramètres), sans son propre en-tête. */
 function Configurations({ embedded = false }: { embedded?: boolean } = {}) {

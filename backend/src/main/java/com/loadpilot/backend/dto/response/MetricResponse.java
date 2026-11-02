@@ -3,10 +3,7 @@ package com.loadpilot.backend.dto.response;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/**
- * applicationId/scenarioId peuvent etre null (voir entity.Metric) ;
- * stepId/executionId sont toujours renseignes.
- */
+/** Metrique ; applicationId et scenarioId peuvent etre null. */
 public record MetricResponse(
         String id,
         String applicationId,

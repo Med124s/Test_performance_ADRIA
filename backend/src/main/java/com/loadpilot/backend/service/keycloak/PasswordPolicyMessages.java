@@ -5,13 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Traduit en francais le refus de Keycloak quand un mot de passe ne respecte
- * pas la politique du realm (reponse 400 de POST /users ou PUT
- * /users/{id}/reset-password, ex. {"error":"invalidPasswordMinLengthMessage",
- * "error_description":"Invalid password: minimum length 8."}). Le mot de passe
- * lui-meme n'est jamais present dans la reponse ni dans le message produit.
- */
+/** Traduit en francais le refus d'un mot de passe par la politique du realm Keycloak. */
 public final class PasswordPolicyMessages {
 
     private static final Pattern NUMBER = Pattern.compile("(\\d+)");

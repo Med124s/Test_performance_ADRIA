@@ -5,8 +5,7 @@ import type { BackendProfileSecurity } from '../../types/backendContracts'
 import { fullDate, relativeTime } from '../../utils/userDisplay'
 import { describeSettingsError } from './settingsErrors'
 
-// Sécurité (Paramètres > Mon profil) : dernière connexion, sessions ouvertes et
-// « Se déconnecter de tous les appareils » (avec confirmation, y compris cet appareil).
+// Sécurité (Mon profil) : dernière connexion, sessions ouvertes, déconnexion de tous les appareils.
 
 export default function SecurityCard() {
   const [security, setSecurity] = useState<BackendProfileSecurity | null>(null)

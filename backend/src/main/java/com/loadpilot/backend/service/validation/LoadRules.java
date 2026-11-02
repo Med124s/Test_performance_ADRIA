@@ -3,16 +3,7 @@ package com.loadpilot.backend.service.validation;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Regles de charge d'un test, les memes partout : charge par defaut (Parametres > Systeme),
- * enregistrement et publication d'un scenario, planification, lancement d'une execution, et cote
- * interface (wizardModel.validateLoad, messages identiques mot pour mot) :
- *   - utilisateurs virtuels : obligatoire, 1 a la limite applicable ;
- *   - think time : obligatoire, 0 a 60 000 ms (plage fixe) ;
- *   - ramp-up : obligatoire, 0 a la duree maximale, et plus court que la duree quand elle est fixee
- *     (le moteur compte la duree depuis le debut du test) ;
- *   - duree, iterations, debit cible : facultatifs, 1 a leur limite.
- */
+/** Regles de charge d'un test (enregistrement, publication, planification, lancement), identiques a celles de l'interface. */
 public final class LoadRules {
 
     public static final String RAMP_UP_TOO_LONG = "Le ramp-up doit être plus court que la durée.";
@@ -69,14 +60,7 @@ public final class LoadRules {
         return errors;
     }
 
-    /**
-     * Avertissements (jamais bloquants) : au-dela de limits.targetRpsAdvisedAboveVirtualUsers
-     * utilisateurs virtuels sans debit cible, le debit n'est pas borne - la charge envoyee depend
-     * alors de la vitesse de la cible, et la memoire de LoadPilot peut atteindre sa limite de
-     * securite (le test s'arrete alors). Pas un refus : un scenario ou une planification existants ne
-     * cessent jamais de fonctionner a cause de cette regle. Meme regle dans l'interface
-     * (wizardModel.loadWarnings, message identique).
-     */
+    /** Avertissements non bloquants : beaucoup d'utilisateurs virtuels sans debit cible. */
     public static List<String> warnings(Integer virtualUsers, Integer targetRps, LoadLimits limits) {
         List<String> warnings = new ArrayList<>();
         int threshold = limits.targetRpsAdvisedAboveVirtualUsers();

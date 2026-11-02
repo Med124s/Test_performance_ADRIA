@@ -7,13 +7,7 @@ import {
 import { BackendNotificationResponse } from '../types/backendContracts'
 import { relativeTime } from '../pages/executions/executionsModel'
 
-// ============================================================
-// Cloche du header : seul accès aux notifications depuis la navigation.
-// Compteur des non lues (partagé avec la page Notifications et les autres onglets, voir
-// services/notifications/unreadNotifications), panneau des 5 dernières, « Tout marquer comme
-// lu » et « Voir toutes les notifications ». Marquer lu fait baisser le compteur tout de suite.
-// Nouvelle notification : la cloche bouge et le badge grossit, UNE fois par arrivée.
-// ============================================================
+// Cloche de la barre du haut : compteur des notifications non lues et panneau des dernières notifications.
 
 const PANEL_SIZE = 5
 

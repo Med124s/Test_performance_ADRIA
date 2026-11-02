@@ -26,13 +26,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
-/**
- * Tests de verification detailles (type Postman) : 1 utilisateur virtuel, 1 passage, requete
- * envoyee + reponse recue par etape. Aucune Execution ni Metric creee, rien de journalise.
- *
- * ?stream=true : meme test, mais diffuse en direct au format NDJSON (une ligne JSON par
- * evenement : started, auth, step-started, step, done) pour afficher l'etape en cours.
- */
+/** Test detaille d'un scenario : 1 utilisateur virtuel, 1 passage, requete et reponse de chaque etape. */
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "Tests detailles", description = "Verification d'un scenario ou d'une etape, sans historique ni metriques")
@@ -54,7 +48,7 @@ public class TestRunController {
     public TestRunResponse testScenario(@PathVariable UUID id,
             @RequestBody(required = false) @jakarta.validation.Valid com.loadpilot.backend.dto.request.ScenarioFullRequest draft,
             @org.springframework.web.bind.annotation.RequestParam(required = false) Integer upToStep) {
-        // Corps fourni : version NON enregistree (page de modification) ; sinon le scenario enregistre.
+        // Corps fourni : version non enregistree du scenario ; sinon, le scenario enregistre.
         return runner.run(draft != null ? planner.forDraft(id, draft, upToStep) : planner.forScenario(id), StepTestRunner.Listener.NONE);
     }
 
@@ -64,7 +58,6 @@ public class TestRunController {
     public ResponseEntity<ResponseBodyEmitter> testScenarioStream(@PathVariable UUID id,
             @RequestBody(required = false) @jakarta.validation.Valid com.loadpilot.backend.dto.request.ScenarioFullRequest draft,
             @org.springframework.web.bind.annotation.RequestParam(required = false) Integer upToStep) {
-        // Validation (404/409) AVANT l'ouverture du flux : erreurs JSON habituelles.
         return stream(draft != null ? planner.forDraft(id, draft, upToStep) : planner.forScenario(id));
     }
 
@@ -124,7 +117,6 @@ public class TestRunController {
                 send(emitter, done);
                 emitter.complete();
             } catch (RuntimeException e) {
-                // Client parti ou erreur inattendue : on ferme simplement le flux (rien journalise).
                 emitter.completeWithError(e);
             }
         });

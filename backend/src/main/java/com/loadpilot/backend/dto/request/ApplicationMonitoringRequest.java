@@ -7,13 +7,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-/**
- * Monitoring (optionnel) du processus de l'application testee. Regles propres a chaque type
- * verifiees par MonitoringSupport (400 explicite).
- *
- * SECRET (secret) : comme pour l'authentification, vide ou absent en mise a jour = valeur deja
- * enregistree conservee (l'API ne renvoie jamais le secret).
- */
+/** Monitoring du processus de l'application testee. Secret vide en mise a jour : valeur enregistree conservee. */
 public record ApplicationMonitoringRequest(
         @NotNull(message = "Le type de monitoring est obligatoire.")
         MonitoringType type,
@@ -36,7 +30,6 @@ public record ApplicationMonitoringRequest(
         /** true = lecture en direct, sans proxy (URL de monitoring souvent interne) ; null = inchange (avec le proxy). */
         Boolean withoutProxy
 ) {
-    /** Compatibilite : sans reglage du proxy du monitoring. */
     public ApplicationMonitoringRequest(MonitoringType type, String url, MonitoringAuthType authType, String headerName,
             String secret, Integer intervalSeconds) {
         this(type, url, authType, headerName, secret, intervalSeconds, null);

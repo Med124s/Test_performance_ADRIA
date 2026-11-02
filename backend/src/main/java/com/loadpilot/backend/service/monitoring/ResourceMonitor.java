@@ -7,11 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/**
- * Lecture periodique du CPU / RAM de l'application testee pendant une execution, et
- * « Tester le monitoring ». Un thread virtuel par execution surveillee ; jamais bloquant pour
- * l'execution : une lecture en erreur est simplement comptee (voir ResourceTrack.message()).
- */
+/** Lecture periodique du CPU / RAM de l'application testee pendant une execution, et test du monitoring. */
 @Component
 public class ResourceMonitor {
 
@@ -23,10 +19,7 @@ public class ResourceMonitor {
         this.mapper = mapper;
     }
 
-    /**
-     * Client propre a une session (ou a un test) : avec le proxy de SON application (voir
-     * MonitoringConfig.network), ferme a la fin - jamais un client partage entre applications.
-     */
+    /** Client HTTP d'une session, avec le proxy de son application. */
     static HttpClient newClient(MonitoringConfig config) {
         return config.network().configure(HttpClient.newBuilder()
                 .connectTimeout(ResourceProbe.TIMEOUT)
@@ -82,7 +75,7 @@ public class ResourceMonitor {
                         break;
                     }
                 } else {
-                    next = System.currentTimeMillis(); // lecture lente : pas de rattrapage en rafale
+                    next = System.currentTimeMillis();
                 }
             }
         });
@@ -96,7 +89,7 @@ public class ResourceMonitor {
         if (!config.enabled()) {
             return new MonitoringTestResponse(false, "Choisissez un type de monitoring et indiquez son URL.", null, null, null);
         }
-        // Proxy de l'application : verifie d'abord lui-meme, pour qu'un echec le designe (et non le monitoring).
+        // Le proxy est verifie d'abord.
         String proxyUnreachable = config.network().proxyUnreachable();
         if (proxyUnreachable != null) {
             return new MonitoringTestResponse(false, proxyUnreachable, null, null, null);

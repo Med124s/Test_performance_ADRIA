@@ -25,23 +25,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * P0-B (prompt section 15 - idempotence et race conditions) - preuve REELLE,
- * au niveau des invariants (pas seulement au hasard d'un vrai timing), de la
- * course identifiee et corrigee : "cancel() lit un statut perime puis ecrase
- * aveuglement CANCELLED, meme si l'execution a reellement avance ou termine
- * entre-temps". Une vraie course concurrente depend du timing reel et n'est
- * pas fiablement reproductible a la demande dans un test - la maniere
- * correcte de la verifier est de tester directement l'INVARIANT que le
- * correctif garantit (voir ExecutionTransactionHelper.attemptCancellation/
- * markRunning/finalizeExecution), quel que soit l'ordre reel d'arrivee.
- *
- * Complementaire de HttpClientExecutionEngineTest (interruption reelle d'une
- * requete HTTP en vol) et de ExecutionControllerTest.
- * cancel_runningExecution_transitionsToCancelled (bout-en-bout via une vraie
- * cible HTTP lente) : ce fichier verifie les garde-fous BAS NIVEAU qui
- * rendent ces deux comportements de haut niveau surs face a la concurrence.
- */
+/** Changements de statut sous verrou : une annulation n'ecrase jamais un statut final deja enregistre. */
 @SpringBootTest
 @ActiveProfiles("test")
 class ExecutionTransactionHelperRaceTest {
@@ -74,9 +58,7 @@ class ExecutionTransactionHelperRaceTest {
         return executionRepository.saveAndFlush(execution);
     }
 
-    // ------------------------------------------------------------
-    // attemptCancellation : les 3 branches reelles
-    // ------------------------------------------------------------
+    // ---- attemptCancellation : les 3 cas ----
 
     @Test
     void attemptCancellation_onQueued_transitionsDirectlyToCancelled() {
@@ -98,10 +80,7 @@ class ExecutionTransactionHelperRaceTest {
         CancellationAttempt attempt = transactionHelper.attemptCancellation(execution.getId());
 
         assertThat(attempt.outcome()).isEqualTo(CancellationOutcome.CANCELLATION_REQUESTED_WHILE_RUNNING);
-        // Verifie explicitement l'absence d'ecriture (voir Javadoc : seul
-        // finalizeExecution doit ecrire le statut final d'une execution
-        // reellement demarree - deux ecrivains concurrents sur la meme
-        // transition creeraient exactement la course qu'on elimine).
+        // Aucune ecriture : seul finalizeExecution ecrit le statut final d'une execution demarree.
         Execution reloaded = executionRepository.findById(execution.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(ExecutionStatus.RUNNING);
         assertThat(reloaded.getFinishedAt()).isNull();
@@ -118,8 +97,7 @@ class ExecutionTransactionHelperRaceTest {
 
         assertThat(attempt.outcome()).isEqualTo(CancellationOutcome.ALREADY_TERMINAL);
         Execution reloaded = executionRepository.findById(execution.getId()).orElseThrow();
-        // LE COEUR DE LA COURSE CORRIGEE : un SUCCESS reel ne doit JAMAIS
-        // etre retroactivement ecrase par CANCELLED.
+        // Un SUCCESS n'est jamais remplace par CANCELLED.
         assertThat(reloaded.getStatus()).isEqualTo(ExecutionStatus.SUCCESS);
         assertThat(reloaded.getDuration()).isEqualTo(1234L);
     }
@@ -134,15 +112,12 @@ class ExecutionTransactionHelperRaceTest {
         assertThat(first.outcome()).isEqualTo(CancellationOutcome.CANCELLED_WHILE_QUEUED);
         assertThat(second.outcome()).isEqualTo(CancellationOutcome.ALREADY_TERMINAL);
         assertThat(second.execution().getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
-        // Etat final coherent et unique - jamais deux ecritures concurrentes
-        // en conflit, jamais un doublon d'effet metier.
+        // Un seul etat final, coherent.
         Execution reloaded = executionRepository.findById(execution.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
     }
 
-    // ------------------------------------------------------------
-    // markRunning : jamais de trafic reel pour une execution deja annulee
-    // ------------------------------------------------------------
+    // ---- markRunning : aucune requete pour une execution deja annulee ----
 
     @Test
     void markRunning_onQueued_transitionsAndReturnsTrue() {
@@ -159,22 +134,16 @@ class ExecutionTransactionHelperRaceTest {
     void markRunning_onAlreadyCancelled_returnsFalseAndNeverOverwrites() {
         Execution execution = createExecution(ExecutionStatus.CANCELLED);
 
-        // Simule exactement la course : un cancel() a deja gagne (execution
-        // QUEUED->CANCELLED) avant que runAsync n'appelle markRunning().
+        // Un cancel() est passe (QUEUED -> CANCELLED) avant que runAsync n'appelle markRunning().
         boolean transitioned = transactionHelper.markRunning(execution.getId());
 
         assertThat(transitioned).isFalse();
-        // ExecutionServiceImpl.runAsync doit interpreter "false" comme "ne
-        // JAMAIS invoquer le moteur reel" - verifie separement au niveau
-        // service (voir ExecutionControllerTest), ici on verifie seulement
-        // que la ligne n'a subi aucune ecriture incorrecte.
+        // false : le moteur n'est pas lance ; ici, le statut reste CANCELLED.
         assertThat(executionRepository.findById(execution.getId()).orElseThrow().getStatus())
                 .isEqualTo(ExecutionStatus.CANCELLED);
     }
 
-    // ------------------------------------------------------------
-    // finalizeExecution : ne jamais ecraser un statut deja terminal
-    // ------------------------------------------------------------
+    // ---- finalizeExecution : un statut deja final n'est jamais remplace ----
 
     @Test
     void finalizeExecution_whenAlreadyCancelledConcurrently_leavesItUnchanged() {
@@ -182,10 +151,7 @@ class ExecutionTransactionHelperRaceTest {
         execution.setFinishedAt(Instant.now());
         executionRepository.saveAndFlush(execution);
 
-        // Simule le chemin ou runAsync avait deja compose un outcome FAILED
-        // (handle annule / markRunning refuse) et appelle quand meme
-        // finalizeExecution ensuite - ne doit RIEN modifier, l'execution
-        // est deja dans son etat terminal reel et definitif.
+        // runAsync a compose un resultat FAILED puis appelle finalizeExecution : rien ne doit changer.
         ScenarioExecutionOutcome outcome = new ScenarioExecutionOutcome(List.of(), ExecutionStatus.FAILED, null);
         Execution result = transactionHelper.finalizeExecution(execution.getId(), outcome, false);
 

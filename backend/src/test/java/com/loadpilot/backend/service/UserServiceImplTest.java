@@ -37,15 +37,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-/**
- * Unit tests (KeycloakAdminClient, AuditLogService et ExecutionRepository
- * mockes - aucun Keycloak reel) pour UserServiceImpl (Phase 25). Couvre en
- * particulier la regression detectee lors des tests manuels contre un
- * Keycloak reel : "role" doit toujours etre le nom brut de l'enum AppRole
- * (ex: "SUPER_ADMIN"), jamais le nom de role Keycloak prefixe (ex:
- * "ROLE_SUPER_ADMIN"), pour rester coherent avec le contrat BackendAppRole
- * cote frontend.
- */
+/** Tests unitaires de UserServiceImpl (KeycloakAdminClient, AuditLogService et ExecutionRepository simules). */
 @ExtendWith(MockitoExtension.class)
 class UserServiceImplTest {
 
@@ -231,7 +223,6 @@ class UserServiceImplTest {
 
     private static final String SECRET = "Tmp-Secret-42x";
 
-    /** Toutes les descriptions passees au journal d'audit. */
     /** Toutes les entrees passees au journal d'audit. */
     private List<com.loadpilot.backend.service.audit.AuditEvent> auditEvents() {
         org.mockito.ArgumentCaptor<com.loadpilot.backend.service.audit.AuditEvent> captor =

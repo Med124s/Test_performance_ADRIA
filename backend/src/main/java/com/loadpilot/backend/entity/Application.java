@@ -27,11 +27,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-/**
- * Application cible declaree par l'utilisateur (ex: "Banking Test API") -
- * voir ApplicationService pour le test de disponibilite reel qui alimente
- * "status".
- */
+/** Application testee ; "status" est le resultat du dernier test de connectivite. */
 @Entity
 @Table(name = "application")
 @Getter
@@ -55,13 +51,12 @@ public class Application {
     @Column(name = "url", nullable = false)
     private String url;
 
-    /** Nullable : voir ApplicationStatus - null tant qu'aucun test reel n'a ete lance. */
+    /** null tant qu'aucun test n'a ete lance. */
     @Enumerated(EnumType.STRING)
     @Column(name = "status")
     private ApplicationStatus status;
 
-    /** Archivage logique : masque des listes par defaut, historique conserve,
-     * restaurable (voir migration 017). */
+    /** Archivage logique : masquee des listes par defaut, restaurable. */
     @Column(name = "archived", nullable = false)
     @Builder.Default
     private boolean archived = false;
@@ -73,21 +68,17 @@ public class Application {
     @Column(name = "status_message")
     private String statusMessage;
 
-    /** Date du dernier test ; null si aucun test valide (jamais teste ou
-     * modifie depuis). */
+    /** Date du dernier test ; null si jamais teste ou modifie depuis. */
     @Column(name = "status_checked_at")
     private Instant statusCheckedAt;
 
-    /** Authentification appliquee automatiquement aux requetes vers cette
-     * Application (voir ApplicationAuthType) - NONE par defaut. */
+    /** Authentification appliquee aux requetes vers cette application (NONE par defaut). */
     @Enumerated(EnumType.STRING)
     @Column(name = "auth_type", nullable = false)
     @Builder.Default
     private ApplicationAuthType authType = ApplicationAuthType.NONE;
 
-    /** Parametres du type choisi, en JSON (voir service.auth.ApplicationAuthConfig).
-     * Peut contenir des secrets : jamais expose tel quel par l'API, chiffre en base (AES-GCM,
-     * voir security.SecretCipher). */
+    /** Parametres du type d'authentification, en JSON, chiffres en base. */
     @Column(name = "auth_config")
     @Convert(converter = EncryptedStringConverter.class)
     private String authConfig;
@@ -111,7 +102,7 @@ public class Application {
     @Column(name = "monitoring_header_name")
     private String monitoringHeaderName;
 
-    /** Jeton ou valeur d'en-tete : secret, jamais expose par l'API, chiffre en base (voir security.SecretCipher). */
+    /** Jeton ou valeur d'en-tete, chiffre en base. */
     @Column(name = "monitoring_secret")
     @Convert(converter = EncryptedStringConverter.class)
     private String monitoringSecret;
@@ -138,9 +129,7 @@ public class Application {
     @Column(name = "proxy_username")
     private String proxyUsername;
 
-    /** Mot de passe du proxy : secret, jamais expose par l'API, chiffre en base (voir security.SecretCipher). */
-    /** Autorite(s) de certification (PEM) ajoutees a la confiance de la JVM pour cette application
-     * seulement (voir service.http.TlsTrust) ; null = magasin global de la JVM, comme avant. */
+    /** Autorites de certification (PEM) propres a cette application ; null = magasin de la JVM. */
     @Column(name = "tls_ca_certificate", length = 65536)
     private String tlsCaCertificate;
 
@@ -148,7 +137,7 @@ public class Application {
     @Convert(converter = EncryptedStringConverter.class)
     private String proxyPassword;
 
-    /** Utilisateur (projection locale, voir AppUser) ayant cree cette application. */
+    /** Utilisateur qui a cree l'application. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false, updatable = false)
     private AppUser createdBy;

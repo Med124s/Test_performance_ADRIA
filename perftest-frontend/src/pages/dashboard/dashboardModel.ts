@@ -2,11 +2,7 @@ import { inUserZone } from '../../utils/userTimezone'
 import { BackendDashboardTrend } from '../../types/backendContracts'
 import { formatSignedPercent } from '../../utils/numberFormat'
 
-// ============================================================
-// Dashboard : période, libellés de statut, lecture de la comparaison
-// avec l'exécution précédente (fonctions pures, testées). Les seuils
-// eux-mêmes sont appliqués par le serveur (DashboardRules).
-// ============================================================
+// Dashboard : période, libellés de statut et lecture de la comparaison avec l'exécution précédente.
 
 export type RangePreset = 'all' | '24h' | '7d' | '30d' | 'custom'
 

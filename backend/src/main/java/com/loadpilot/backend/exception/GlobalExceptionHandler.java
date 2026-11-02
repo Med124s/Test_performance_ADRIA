@@ -14,20 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-/**
- * Format d'erreur JSON unique pour l'API (voir ErrorResponse), coherent avec
- * les gestionnaires 401/403 deja en place depuis la Phase 4
- * (RestAuthenticationEntryPoint / RestAccessDeniedHandler).
- *
- * IMPORTANT : ce handler ne doit JAMAIS intercepter AccessDeniedException ni
- * AuthenticationException - ces deux-la restent geres par la chaine de
- * securite (ExceptionTranslationFilter -> RestAccessDeniedHandler /
- * RestAuthenticationEntryPoint, deja testes en Phase 4/5). Un handler
- * generique @ExceptionHandler(Exception.class) les intercepterait AVANT
- * qu'elles n'atteignent la chaine de filtres, cassant le 401/403 existant -
- * volontairement absent ici pour cette raison (voir aussi le commentaire sur
- * handleUnexpected ci-dessous, qui ne capture donc PAS ces deux types).
- */
+/** Traduit les exceptions en reponses d'erreur JSON. */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -43,8 +30,6 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, ex.getMessage(), request);
     }
 
-    /** P0-B : refus deterministe d'une nouvelle Execution pour depassement
-     * d'une limite de capacite configuree (jamais un blocage silencieux). */
     @ExceptionHandler(ExecutionLimitExceededException.class)
     public ResponseEntity<ErrorResponse> handleExecutionLimitExceeded(ExecutionLimitExceededException ex, HttpServletRequest request) {
         log.warn("Execution refusee (limite de capacite) sur {} : {}", request.getRequestURI(), ex.getMessage());
@@ -57,12 +42,7 @@ public class GlobalExceptionHandler {
         return build(ex.status(), ex.getMessage(), request);
     }
 
-    /**
-     * Manque de memoire pendant une requete (dernier recours : ResultLoadGuard refuse en principe
-     * avant). Spring transmet l'erreur enveloppee, ce gestionnaire recoit sa cause. Reponse 503
-     * claire au lieu de la page d'erreur generique ; la memoire de la requete est liberee une fois
-     * sa pile deroulee. Journal explicite : d'autres traitements ont pu echouer pendant ce temps.
-     */
+    /** Manque de memoire pendant une requete : reponse 503. */
     @ExceptionHandler(OutOfMemoryError.class)
     public ResponseEntity<ErrorResponse> handleOutOfMemory(OutOfMemoryError error, HttpServletRequest request) {
         log.error("Memoire insuffisante pendant {} {} : requete abandonnee ({}). D'autres traitements en cours ont pu "
@@ -73,8 +53,6 @@ public class GlobalExceptionHandler {
                 + "pour la mémoire de ce serveur.", request);
     }
 
-    /** P0-B : parametre de charge invalide pour ce deploiement (limite
-     * configurable, distincte des bornes absolues @Min/@Max). */
     @ExceptionHandler(LoadConfigurationException.class)
     public ResponseEntity<ErrorResponse> handleLoadConfiguration(LoadConfigurationException ex, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
@@ -86,15 +64,12 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
     }
 
-    /** Phase 25 : l'Admin API Keycloak (service tiers du point de vue de ce
-     * backend) est injoignable ou renvoie une erreur - jamais un 500 brut. */
-    /** P1-B : configuration invalide d'une ScheduledExecution (voir sa Javadoc). */
+    /** Admin API Keycloak injoignable ou en erreur. */
     @ExceptionHandler(InvalidScheduleException.class)
     public ResponseEntity<ErrorResponse> handleInvalidSchedule(InvalidScheduleException ex, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
     }
 
-    /** P1-D : valeur invalide pour une preference de profil (voir sa Javadoc). */
     @ExceptionHandler(InvalidProfileException.class)
     public ResponseEntity<ErrorResponse> handleInvalidProfile(InvalidProfileException ex, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
@@ -129,12 +104,7 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "Parametre '" + ex.getName() + "' invalide.", request);
     }
 
-    /**
-     * Filet de securite generique (Phase 8) : toute violation de contrainte
-     * d'integrite non anticipee explicitement par un ConflictException
-     * dedie (ex: contrainte FK/unique en base) devient un 409 propre plutot
-     * que de remonter en 500 avec le message SQL brut.
-     */
+    /** Violation de contrainte en base : 409. */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex, HttpServletRequest request) {
         log.warn("Contrainte d'integrite violee sur {} : {}", request.getRequestURI(), ex.getMessage());
@@ -142,11 +112,7 @@ public class GlobalExceptionHandler {
                 "Opération impossible : cet élément est encore utilisé par d'autres données (scénarios, étapes ou exécutions).", request);
     }
 
-    /**
-     * Meme filet de securite pour une violation remontee directement par Hibernate (requetes SQL
-     * natives des suppressions en cascade, non traduites par Spring) : jamais une erreur 500.
-     * Cas typique : donnees liees encore en cours d'enregistrement.
-     */
+    /** Violation de contrainte remontee directement par Hibernate : 409. */
     @ExceptionHandler(org.hibernate.exception.ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleHibernateConstraintViolation(org.hibernate.exception.ConstraintViolationException ex,
             HttpServletRequest request) {

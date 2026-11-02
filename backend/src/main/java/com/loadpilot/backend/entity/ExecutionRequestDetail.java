@@ -16,11 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * Detail complet d'une requete d'execution (echec ou echantillon, voir RequestDetailRecorder) :
- * requete envoyee et reponse recue, secrets masques, corps limites a 10 Ko. En-tetes et
- * verifications stockes en JSON. Supprime avec sa ligne de resume (ON DELETE CASCADE).
- */
+/** Detail complet d'une requete (echec ou echantillon) : requete envoyee, reponse recue, secrets masques, corps limites a 10 Ko. */
 @Entity
 @Table(name = "execution_request_detail")
 @Getter

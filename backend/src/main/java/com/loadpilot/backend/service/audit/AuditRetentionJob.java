@@ -14,16 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Purge automatique quotidienne du journal d'audit : supprime les entrees plus
- * anciennes que la duree de conservation (Parametres, 365 jours par defaut ; en local,
- * LOADPILOT_AUDIT_RETENTION_OVERRIDE la remplace pour tester la purge, voir RetentionOverrides).
- * C'est la SEULE suppression possible d'entrees : aucune depuis l'interface ni l'API.
- * La purge elle-meme est journalisee (acteur « Système »).
- * Transaction ouverte explicitement (TransactionTemplate) : appelee depuis scheduledPurge() dans
- * la meme classe, une annotation @Transactional serait ignoree (appel interne, sans proxy) et la
- * suppression refusee faute de transaction.
- */
+/** Purge quotidienne du journal d'audit : supprime les entrees plus anciennes que la duree de conservation. */
 @Component
 @RequiredArgsConstructor
 public class AuditRetentionJob {
@@ -41,7 +32,6 @@ public class AuditRetentionJob {
         try {
             purge(Instant.now());
         } catch (RuntimeException e) {
-            // Rien n'est supprime (transaction annulee) ; la purge reprend a son prochain passage.
             log.error("Purge du journal d'audit interrompue : {} : {}", e.getClass().getSimpleName(), e.getMessage());
         }
     }
@@ -49,7 +39,6 @@ public class AuditRetentionJob {
     /** Supprime les entrees anterieures a (now - duree de conservation) ; renvoie leur nombre. */
     public int purge(Instant now) {
         Integer deleted = transactions.execute(status -> {
-            // Duree de Parametres, ou duree de test LOADPILOT_AUDIT_RETENTION_OVERRIDE (local uniquement).
             RetentionOverrides.Retention retention = overrides.audit(settings.retentionDays());
             Instant cutoff = now.minus(retention.duration());
             int count = auditLogRepository.deleteOlderThan(cutoff);
@@ -59,7 +48,7 @@ public class AuditRetentionJob {
                         .system("Purge automatique quotidienne")
                         .description(count + (count > 1 ? " entrées de plus de " : " entrée de plus de ") + retention.label() + " supprimée" + (count > 1 ? "s" : "")));
             }
-            // Bilan de ce passage (Parametres > Systeme : derniere purge), meme si rien n'a ete supprime.
+            // Bilan du passage (Parametres > Systeme), meme si rien n'a ete supprime.
             settings.set(AppSettingsService.AUDIT_LAST_PURGE, "{\"at\":\"" + now + "\",\"deleted\":" + count + "}", "system");
             return count;
         });

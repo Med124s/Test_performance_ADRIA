@@ -8,8 +8,7 @@ const SRC = (globalThis as unknown as { process: { cwd(): string } }).process.cw
 const settingsCss = fs.readFileSync(`${SRC}/pages/settings/settings.css`, 'utf8')
 const globalCss = fs.readFileSync(`${SRC}/styles/global.css`, 'utf8')
 
-// Ce qui est AFFICHÉ sous chaque champ de « Limites » (texte exact, couleur effective), pas une classe ni un
-// état interne : régressions visuelles détectées (aide associée au mauvais champ, erreur affichée en gris).
+// Texte et couleur réellement affichés sous chaque champ de « Limites ».
 
 const settingsApi = vi.hoisted(() => ({ limits: vi.fn(), updateLimits: vi.fn() }))
 vi.mock('../../services/api/settingsBackend', () => ({ settingsBackendApi: settingsApi }))
@@ -98,11 +97,7 @@ function specificity(selector: string): [number, number, number] {
   return [ids, classes, elements]
 }
 
-/**
- * Valeur gagnante d'une propriété pour un élément, calculée comme un navigateur : règles qui s'appliquent
- * (element.matches), la plus spécifique l'emporte, à égalité la dernière. jsdom ne gère pas la spécificité
- * dans getComputedStyle (il garde la dernière règle) : sans ce calcul, l'erreur grise ne serait pas vue.
- */
+/** Valeur gagnante d'une propriété pour un élément (règle la plus spécifique, puis la dernière) ; jsdom ne gère pas la spécificité. */
 function cascadedValue(el: Element, property: string): string | null {
   let best: { spec: [number, number, number]; order: number; value: string } | null = null
   let order = 0

@@ -4,13 +4,7 @@ import { BackendExecutionRequestDetail } from '../../types/backendContracts'
 import { executionsBackendApi } from '../../services/api/executionsBackend'
 import { ApiError } from '../../services/api/httpClient'
 
-// ============================================================
-// Détail d'UNE requête d'exécution (type Postman) : requête envoyée (URL
-// finale avec les variables remplacées, en-têtes, corps), réponse reçue
-// (code, temps, taille, en-têtes, corps JSON lisible) et vérifications
-// (code attendu, texte attendu, variable capturée). Secrets déjà masqués
-// par le serveur ; corps limités à 10 Ko (mention « tronqué »).
-// ============================================================
+// Détail d'une requête d'exécution : requête envoyée, réponse reçue et vérifications.
 
 type Tab = 'request' | 'response' | 'checks'
 

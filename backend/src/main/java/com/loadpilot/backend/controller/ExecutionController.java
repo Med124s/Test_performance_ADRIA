@@ -57,21 +57,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/executions - lecture ouverte a tout utilisateur authentifie (voir
- * SecurityConfig : anyRequest().authenticated() couvre deja les GET) ;
- * lancement/annulation/relance reserves a SUPER_ADMIN et
- * PERFORMANCE_ENGINEER.
- *
- * P0-A : POST est desormais ASYNCHRONE - repond 202 (Accepted) avec
- * l'Execution QUEUED des sa creation, ne bloque plus jusqu'a la fin reelle
- * du test de charge (voir ExecutionServiceImpl). GET /{id}/status permet un
- * suivi leger (polling) sans recharger le detail complet a chaque appel.
- */
+/** API des executions : liste, detail, rapport, lancement, pause, reprise et annulation. */
 @RestController
 @RequestMapping("/api/executions")
 @RequiredArgsConstructor
-@Tag(name = "Executions", description = "Executions HTTP reelles d'un Scenario (statuts RUNNING/SUCCESS/FAILED/CANCELLED)")
+@Tag(name = "Executions", description = "Executions des scenarios : lancement, suivi, pause, annulation, rapports (statuts QUEUED, RUNNING, PAUSED, SUCCESS, THRESHOLDS_EXCEEDED, FAILED, CANCELLED)")
 public class ExecutionController {
 
     private final ExecutionService executionService;
@@ -87,7 +77,6 @@ public class ExecutionController {
     private final com.loadpilot.backend.service.report.pdf.ReportPdfService reportPdfService;
     private final com.loadpilot.backend.service.report.export.ReportExportService reportExportService;
 
-    /** ?scenarioId= filtre par scenario (meme convention que Scenarios/Steps). */
     @GetMapping
     @Operation(summary = "Lister les executions", description = "Filtrable par scenarioId, les plus recentes en premier.")
     @ApiResponse(responseCode = "404", description = "scenarioId fourni mais introuvable")
@@ -97,22 +86,7 @@ public class ExecutionController {
         return scenarioId != null ? executionService.listByScenario(scenarioId) : executionService.list();
     }
 
-    /**
-     * P1-A — historique paginable/filtrable/triable (segment litteral
-     * "/history", toujours prioritaire sur "/{id}" en specificite de
-     * pattern Spring MVC - meme principe deja etabli par
-     * AuditLogController pour "/stats"/"/export", voir sa Javadoc).
-     *
-     * "sort" : whitelist stricte (voir resolveHistorySort) - jamais un nom
-     * de colonne fourni par le client transmis tel quel a la base.
-     *
-     * P1-C (prompt section 11) — audite reellement chaque consultation
-     * (AuditAction.VIEW_HISTORY) : seule exception deliberee a la regle
-     * "jamais auditer une simple lecture" suivie ailleurs dans ce backend -
-     * voir AuditAction.VIEW_HISTORY pour la justification complete et le
-     * rapport P1-C pour la discussion du volume que cela genere (une entree
-     * par page consultee, y compris re-pagination).
-     */
+    /** Historique pagine, filtrable et triable des executions. */
     @GetMapping("/history")
     @Operation(summary = "Historique paginable des executions", description = "Filtres combinables en ET : status, scenarioId, applicationId, dateFrom, dateTo, search (nom de scenario/application ou id d'execution). Tri whitelist : startedAt|duration|status.")
     public PagedResponse<ExecutionHistoryResponse> history(
@@ -128,17 +102,12 @@ public class ExecutionController {
             @RequestParam(required = false) String sort) {
         ExecutionHistoryFilterRequest filter = new ExecutionHistoryFilterRequest(status, scenarioId, applicationId, dateFrom, dateTo, search);
         PagedResponse<ExecutionHistoryResponse> result = executionService.getHistory(filter, page, size, resolveHistorySort(sort));
-        // Consultation : journalisee seulement si « Journaliser aussi les consultations » est actif.
         auditLogService.record(AuditEvent.of(AuditAction.VIEW_HISTORY, AuditModule.EXECUTION).consultation()
                 .description("Historique des exécutions consulté (page " + (page + 1) + ", " + result.totalElements() + " résultat(s))"));
         return result;
     }
 
-    /**
-     * Liste de la page Executions : memes filtres que /history (combinables en ET), pagination
-     * serveur et compteurs par statut suivant ces filtres. Contrairement a /history, jamais
-     * auditee (la page se rafraichit automatiquement pendant une execution).
-     */
+    /** Page de la liste des executions : filtres, pagination et compteurs par statut. */
     @GetMapping("/page")
     @Operation(summary = "Page de la liste des executions (filtres + compteurs par statut)",
             description = "Filtres : status, scenarioId, applicationId, dateFrom, dateTo (bornes incluses, sur startedAt), search. "
@@ -179,8 +148,8 @@ public class ExecutionController {
 
     @PatchMapping("/{id}/keep")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
-    @Operation(summary = "Conserver une execution (jamais purgee)",
-            description = "keep = true : resultats et detail des requetes jamais supprimes par la purge automatique ; false : suivent "
+    @Operation(summary = "Conserver une execution",
+            description = "keep = true : resultats et detail des requetes exclus de la purge automatique ; false : suivent "
                     + "la duree de conservation. Refuse (409) si le detail a deja ete supprime. Memes roles que la suppression.")
     @ApiResponse(responseCode = "409", description = "Detail des requetes deja supprime")
     public com.loadpilot.backend.dto.response.ResultsRetentionResponse keep(@PathVariable UUID id,
@@ -197,14 +166,7 @@ public class ExecutionController {
         return deletionService.deleteMany(request.ids());
     }
 
-    /**
-     * Traduit "colonne,direction" en un Sort JPA sur une colonne
-     * REELLEMENT autorisee - toute valeur absente/invalide/non listee
-     * retombe silencieusement sur le tri par defaut (startedAt desc),
-     * jamais une exception pour un simple parametre de tri malforme, et
-     * jamais une colonne SQL arbitraire fournie par le client (prompt
-     * P1-A, section 7 : "le tri doit etre securise").
-     */
+    /** Convertit "colonne,direction" en tri JPA ; une valeur inconnue donne le tri par defaut (startedAt desc). */
     private static Sort resolveHistorySort(String sort) {
         Map<String, String> allowedColumns = Map.of(
                 "startedAt", "startedAt",
@@ -226,7 +188,7 @@ public class ExecutionController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Detail d'une execution", description = "Inclut le detail de chaque etape reellement executee (ExecutionStepResult).")
+    @Operation(summary = "Detail d'une execution", description = "Inclut le resultat de chaque etape executee (ExecutionStepResult).")
     @ApiResponse(responseCode = "404", description = "Execution introuvable")
     public ExecutionDetailResponse getById(@PathVariable UUID id,
             @Parameter(description = "false : sans la liste des requetes (voir /{id}/results, paginee)")
@@ -298,28 +260,19 @@ public class ExecutionController {
     }
 
     @GetMapping("/{id}/status")
-    @Operation(summary = "Statut allege d'une execution", description = "Pense pour du polling frequent pendant un test de charge en cours (voir ExecutionStatusResponse) - jamais le detail complet des resultats par etape.")
+    @Operation(summary = "Statut allege d'une execution", description = "Etat d'une execution pour un suivi frequent pendant le test (voir ExecutionStatusResponse), sans le detail des resultats par etape.")
     @ApiResponse(responseCode = "404", description = "Execution introuvable")
     public ExecutionStatusResponse getStatus(@PathVariable UUID id) {
         return executionService.getStatus(id);
     }
 
-    /**
-     * P1-A — rapport statistique complet (percentiles reels calcules a la
-     * demande, agregation par step, erreurs - voir
-     * PerformanceStatisticsService). Meme autorisation que getById/getStatus
-     * (lecture ouverte a tout role authentifie) : consulter le rapport
-     * d'une execution n'est pas une action plus sensible que consulter son
-     * detail - jamais une nouvelle matrice de permissions (prompt P1-A,
-     * section 26).
-     */
+    /** Rapport statistique d'une execution : percentiles, detail par etape, erreurs. */
     @GetMapping("/{id}/report")
-    @Operation(summary = "Rapport statistique d'une execution", description = "Statistiques globales, percentiles reels (p50/p75/p90/p95/p99), debit hors temps de pause, agregation par step et liste des erreurs - calcules a la demande depuis ExecutionStepResult.")
+    @Operation(summary = "Rapport statistique d'une execution", description = "Statistiques globales, percentiles (p50/p75/p90/p95/p99), debit hors temps de pause, statistiques par etape et liste des erreurs, calcules a partir des resultats de l'execution.")
     @ApiResponse(responseCode = "404", description = "Execution introuvable")
     public ExecutionReportResponse getReport(@PathVariable UUID id) {
         try {
             ExecutionReportResponse report = executionService.getReport(id);
-            // Consultation (et non un export) : journalisee seulement si le reglage est actif.
             auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.VIEW_REPORT, AuditModule.EXECUTION), id)
                     .consultation().description("Rapport consulté"));
             return report;
@@ -330,15 +283,7 @@ public class ExecutionController {
         }
     }
 
-    /**
-     * Exports du rapport (memes droits que sa consultation : tout role authentifie), aussi pour un
-     * rapport fige, 409 si l'execution n'est pas terminee, chaque export journalise. Aucun secret :
-     * voir ReportTables.
-     *  - CSV : UN tableau par fichier (?table=steps par defaut, errors, timeline, summary), au format
-     *    « Excel en francais » (UTF-8 avec BOM, « ; », virgule decimale, dates jj/mm/aaaa hh:mm:ss) ;
-     *  - CSV .zip : les quatre tableaux, chacun dans son fichier ;
-     *  - Excel (.xlsx) : une feuille par tableau.
-     */
+    /** Exports du rapport : un tableau en CSV, tous les tableaux en ZIP, ou un classeur Excel. */
     @GetMapping("/{id}/report/export")
     @Operation(summary = "Exporter un tableau du rapport en CSV",
             description = "table = steps (defaut), errors, timeline ou summary. UTF-8 avec BOM, separateur « ; », virgule decimale, "
@@ -385,10 +330,7 @@ public class ExecutionController {
         }
     }
 
-    /**
-     * Rapport PDF (page Rapports) : memes droits que la consultation du rapport (tout role
-     * authentifie). Genere cote serveur, fonctionne aussi pour un rapport fige. Journalise.
-     */
+    /** Rapport PDF d'une execution terminee. */
     @GetMapping("/{id}/report/pdf")
     @Operation(summary = "Exporter le rapport d'une execution terminee en PDF",
             description = "Document en francais : en-tete, resultat et seuils, temps de reponse, analyse dans le temps, evolution des "
@@ -415,7 +357,7 @@ public class ExecutionController {
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
-    @Operation(summary = "Lancer l'execution d'un scenario", description = "ASYNCHRONE (P0-A) : cree reellement l'Execution (QUEUED) et planifie son execution reelle (avec charge concurrente si configuree sur le Scenario) sans bloquer la reponse HTTP. Suivre via GET /{id} ou /{id}/status. Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER.")
+    @Operation(summary = "Lancer l'execution d'un scenario", description = "Asynchrone : cree l'execution (statut QUEUED) et la lance en arriere-plan avec la charge du scenario, sans attendre sa fin. Suivi via GET /{id} ou /{id}/status. Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER.")
     @ApiResponse(responseCode = "202", description = "Execution acceptee et planifiee (statut QUEUED dans la reponse)")
     @ApiResponse(responseCode = "404", description = "Scenario introuvable")
     @ApiResponse(responseCode = "409", description = "Le scenario ne possede aucune etape a executer")
@@ -428,7 +370,7 @@ public class ExecutionController {
 
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
-    @Operation(summary = "Annuler une execution", description = "Annulation REELLE (P0-A) : interrompt les requetes HTTP en vol pour une Execution RUNNING, ou empeche tout demarrage pour une Execution QUEUED. Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER.")
+    @Operation(summary = "Annuler une execution", description = "Interrompt les requetes en cours d'une execution RUNNING ou PAUSED, ou empeche le demarrage d'une execution QUEUED. Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER.")
     @ApiResponse(responseCode = "404", description = "Execution introuvable")
     @ApiResponse(responseCode = "409", description = "L'execution est deja terminee, ou plus active en memoire (redemarrage serveur)")
     public ExecutionResponse cancel(@PathVariable UUID id) {

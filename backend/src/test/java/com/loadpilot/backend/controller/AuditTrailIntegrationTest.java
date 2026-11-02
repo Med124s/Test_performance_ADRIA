@@ -39,13 +39,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Preuve que les actions metier reelles (Phase 6-9) generent effectivement
- * des AuditLog (Phase 12, section 14) - pas seulement une table consultable
- * inerte. Chaque assertion interroge directement AuditLogRepository (jamais
- * l'API /api/audit-logs, hors-sujet ici) pour verifier qu'une entree
- * correspondante existe reellement.
- */
+/** Les actions metier ecrivent bien leurs entrees dans le journal d'audit. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -119,11 +113,7 @@ class AuditTrailIntegrationTest {
         return objectMapper.readTree(response).get("status").asText();
     }
 
-    /**
-     * L'audit EXECUTE (SUCCESS/FAILURE) n'est desormais ecrit qu'a la toute
-     * fin de la tache asynchrone (voir ExecutionServiceImpl.runAsync) : les
-     * tests qui verifient cet audit doivent attendre un statut terminal.
-     */
+    /** Attend un statut termine : l'audit EXECUTE est ecrit a la fin de la tache asynchrone. */
     private void waitForTerminalStatus(String executionId) throws Exception {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
@@ -157,15 +147,7 @@ class AuditTrailIntegrationTest {
                 .findFirst().orElseThrow(() -> new AssertionError("Aucune entree " + action + " pour " + targetId));
     }
 
-    /**
-     * L'audit EXECUTE est ecrit APRES la finalisation du statut ET apres la
-     * generation des metriques (voir ExecutionServiceImpl.runAsync) : un
-     * GET montrant deja un statut terminal ne garantit donc pas que cet
-     * audit precis existe deja au meme instant (course reelle entre deux
-     * ecritures asynchrones distinctes, pas juste une lenteur de test).
-     * Attendre l'entree d'audit elle-meme, plutot que le seul statut, est
-     * donc necessaire pour verifier cet audit de maniere fiable.
-     */
+    /** Attend une entree d'audit : elle est ecrite apres la finalisation du statut. */
     private void waitForAuditEntry(AuditAction action, AuditModule module, AuditResult result, String descriptionContains) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
@@ -263,8 +245,7 @@ class AuditTrailIntegrationTest {
 
     @Test
     void applicationDelete_withAttachedScenario_cascades_andProducesSuccessAuditLog() throws Exception {
-        // Suppression definitive explicite : cascade (scenarios inclus) et
-        // trace d'audit DELETE/SUCCESS (voir DeletionServiceImpl).
+        // Suppression definitive : cascade (scenarios inclus) et audit DELETE.
         String name = "audit-trail-app-cascade-" + UUID.randomUUID();
         String appId = createApplicationAndGetId(name);
         createScenarioAndGetId(appId, "cascaded-scenario");
@@ -281,9 +262,7 @@ class AuditTrailIntegrationTest {
 
         mockMvc.perform(post("/api/applications/" + appId + "/test").with(AS_SUPER_ADMIN)).andExpect(status().isOk());
 
-        // La description reference le NOM et le statut resultant, pas l'id
-        // (voir ApplicationServiceImpl.testAvailability) - la cible reelle
-        // (targetServer, /ok implicite via GET racine) repond 200 -> CONNECTED.
+        // La description cite le nom et le statut obtenu ; la cible repond 200 -> CONNECTED.
         assertThat(hasAuditEntry(AuditAction.TEST, AuditModule.APPLICATION, AuditResult.SUCCESS, name)).isTrue();
     }
 

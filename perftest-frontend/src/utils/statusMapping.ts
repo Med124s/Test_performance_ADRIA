@@ -1,19 +1,4 @@
-// ============================================================
-// Phase 15 — Harmonisation des vocabulaires de statuts entre le frontend
-// actuel (JSON Server, français) et le backend Spring Boot réel (anglais).
-//
-// Ces fonctions ne sont appelées par AUCUNE page/service actuel : elles
-// préparent la future migration (Phase 16+) sans rien changer au
-// comportement présent. Écrire cette logique maintenant, une seule fois,
-// évite de la redéterminer sous pression pendant la migration réelle.
-//
-// Certaines correspondances sont VOLONTAIREMENT PARTIELLES (voir chaque
-// fonction) : le frontend actuel modélise des états (Suspendue, Avec
-// erreurs) que le backend ne connaît pas, et inversement le statut
-// `Application.status` actuel (Actif/Inactif, un simple bascule) ne
-// correspond à AUCUN champ backend — voir types/backendContracts.ts pour
-// le détail des DTO.
-// ============================================================
+// Correspondance entre les statuts du backend (anglais) et les libellés du frontend (français).
 
 import type {
   BackendApplicationStatus,
@@ -22,28 +7,13 @@ import type {
   BackendStepStatus,
 } from '../types/backendContracts'
 
-// P1-O — anciennement importés depuis le module de types JSON Server legacy
-// (retiré) : ce sont de simples chaînes françaises affichées à l'écran,
-// jamais des formes de données legacy — conservées ici telles quelles, seul
-// endroit qui en a encore besoin après le retrait du legacy.
+/** Libellés français des statuts d'exécution. */
 export type ExecutionStatus = 'Réussie' | 'Avec erreurs' | 'Échouée' | 'En cours' | 'En pause' | 'Suspendue' | 'Annulée'
 export type ApplicationConnectionStatus = 'Connectée' | 'Non connectée'
 
-// ------------------------------------------------------------
-// Execution
-// ------------------------------------------------------------
+// ---- Exécution ----
 
-/**
- * Backend -> Frontend : correspondance directe et sans perte pour les
- * statuts backend (`PAUSED` : exécution mise en pause, reprise possible ->
- * `'En pause'`).
- *
- * P0-A — `QUEUED` (moteur de charge asynchrone, voir ExecutionStatus.java)
- * est mappé sur `'En cours'` : le type `ExecutionStatus` partagé avec le
- * monde JSON Server legacy n'a pas de notion de file d'attente distincte, et
- * QUEUED est bien plus proche de "en cours" (le test va démarrer/vient de
- * démarrer) que d'un état terminal — jamais mappé sur un état inventé.
- */
+/** Statut backend -> libellé français (QUEUED et RUNNING -> « En cours »). */
 export function backendToFrontendExecutionStatus(status: BackendExecutionStatus): ExecutionStatus {
   switch (status) {
     case 'QUEUED':
@@ -53,31 +23,19 @@ export function backendToFrontendExecutionStatus(status: BackendExecutionStatus)
       return 'En pause'
     case 'SUCCESS':
       return 'Réussie'
-    // Modèle hérité sans équivalent : un seuil dépassé est un résultat non conforme.
+    // Un seuil dépassé est un résultat non conforme.
     case 'THRESHOLDS_EXCEEDED':
     case 'FAILED':
       return 'Échouée'
     case 'CANCELLED':
       return 'Annulée'
     default:
-      // Statut inconnu (serveur plus récent) : jamais un plantage.
+      // Statut inconnu.
       return 'Avec erreurs'
   }
 }
 
-/**
- * Frontend -> Backend : PARTIELLE ET AVEC PERTE.
- *
- * - `'Suspendue'` (pause réelle, voir useScenarioLauncher) n'a AUCUN
- *   équivalent backend (moteur synchrone, voir Phase 9) — renvoie `null`,
- *   à traiter explicitement lors de la migration plutôt que de deviner un
- *   statut backend qui n'existe pas.
- * - `'Avec erreurs'` (échec partiel : certaines étapes ont réussi, d'autres
- *   non) n'a pas non plus d'équivalent : le backend s'arrête à la première
- *   étape en échec (stop-on-failure) et ne connaît que SUCCESS/FAILED en
- *   sortie — mappé ici sur `'FAILED'` par choix conservateur (documenté),
- *   à valider explicitement lors de la migration.
- */
+/** Libellé français -> statut backend ; null quand il n'y a pas d'équivalent. */
 export function frontendToBackendExecutionStatus(status: ExecutionStatus): BackendExecutionStatus | null {
   switch (status) {
     case 'En cours':
@@ -97,22 +55,9 @@ export function frontendToBackendExecutionStatus(status: ExecutionStatus): Backe
   }
 }
 
-// ------------------------------------------------------------
-// Application
-// ------------------------------------------------------------
+// ---- Application ----
 
-/**
- * Backend -> Frontend (`ApplicationConnectionStatus`, colonne "Statut" de
- * la page Applications) : `CONNECTED` -> Connectée, `FAILED`/`ERROR` ->
- * Non connectée. `null` (aucun test lancé) traité comme "Connectée" par
- * cohérence avec `deriveConnectionStatus` actuel (services/api/
- * applications.ts), qui ne présume jamais le pire en l'absence de preuve.
- *
- * NE couvre PAS `Application.status` actuel (`Actif`/`Inactif`) : ce champ
- * frontend est un bascule activé/désactivé déclaratif, sans équivalent
- * backend — il n'y a rien à mapper, cette distinction doit être tranchée
- * explicitement lors de la migration (voir rapport Phase 15).
- */
+/** Statut de connexion : CONNECTED -> Connectée, FAILED / ERROR -> Non connectée, null -> Connectée. */
 export function backendToFrontendConnectionStatus(
   status: BackendApplicationStatus | null
 ): ApplicationConnectionStatus {
@@ -120,9 +65,7 @@ export function backendToFrontendConnectionStatus(
   return 'Non connectée'
 }
 
-// ------------------------------------------------------------
-// Scenario / Step (ACTIVE/INACTIVE <-> Actif/Inactif — correspondance directe)
-// ------------------------------------------------------------
+// ---- Scénario / étape (ACTIVE / INACTIVE <-> Actif / Inactif) ----
 
 export function backendToFrontendActiveStatus(status: BackendScenarioStatus | BackendStepStatus): 'Actif' | 'Inactif' {
   return status === 'ACTIVE' ? 'Actif' : 'Inactif'

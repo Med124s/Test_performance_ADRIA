@@ -8,28 +8,16 @@ import java.util.UUID;
 
 public interface NotificationPreferenceService {
 
-    /** Les 5 NotificationType reels (voir enums.NotificationType), chacun
-     * avec son etat reel pour cet utilisateur (true par defaut en l'absence
-     * de ligne explicite - modele "opt-out"). */
+    /** Preferences de chaque type de notification pour cet utilisateur (actif par defaut). */
     List<NotificationPreferenceResponse> list(String keycloakSubject);
 
-    /**
-     * "currentUser" (pas un simple sujet Keycloak) : contrairement a list()
-     * (lecture pure, degrade silencieusement si l'AppUser n'existe pas
-     * encore), setEnabled() DOIT garantir que l'AppUser existe avant
-     * d'ecrire une ligne notification_preference (contrainte de FK) - voir
-     * AppUserSyncService.sync, qui cree la projection locale au premier
-     * appel si necessaire (meme garantie que ProfileServiceImpl/
-     * ScenarioServiceImpl pour toute premiere action d'un utilisateur).
-     */
+    /** Active ou desactive un type de notification pour l'utilisateur connecte. */
     NotificationPreferenceResponse setEnabled(CurrentUser currentUser, NotificationType type, boolean enabled);
 
     /** Canaux d'un type : dans l'application et par e-mail ; null = inchange. */
     NotificationPreferenceResponse update(CurrentUser currentUser, NotificationType type, Boolean enabled, Boolean emailEnabled);
 
-    /** Utilise UNIQUEMENT par NotificationServiceImpl.create() avant de
-     * generer une Notification - jamais expose directement via l'API.
-     * true si aucune preference explicite n'existe (modele "opt-out"). */
+    /** true si le type est actif pour cet utilisateur (actif par defaut). */
     boolean isEnabled(UUID appUserId, NotificationType type);
 
     /** Aussi par e-mail (desactive par defaut, en l'absence de ligne). */

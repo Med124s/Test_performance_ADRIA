@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-// Le mot « Keycloak » ne doit apparaître dans aucun texte visible par l'utilisateur
-// (libellés, messages d'erreur, infobulles, notifications, page de connexion).
-// Il reste autorisé dans le code (noms de fichiers, variables, types), la
-// configuration et les commentaires.
+// Le mot « Keycloak » ne doit apparaître dans aucun texte visible par l'utilisateur.
 
 const sources = import.meta.glob(['./**/*.{ts,tsx}', '!./**/*.test.{ts,tsx}', '!./setupTests.ts'],
   { query: '?raw', import: 'default', eager: true }) as Record<string, string>

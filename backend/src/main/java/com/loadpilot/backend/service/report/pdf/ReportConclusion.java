@@ -10,11 +10,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
-/**
- * Conclusion automatique du rapport : quelques phrases courtes qui reprennent les points cles
- * (resultat et seuils, charge, etape la plus lente, degradation, erreur principale, ressources).
- * Uniquement des faits mesures, jamais une recommandation inventee.
- */
+/** Conclusion automatique du rapport : quelques phrases sur le resultat, la charge, l'etape la plus lente, les erreurs et les ressources. */
 public final class ReportConclusion {
 
     private ReportConclusion() {

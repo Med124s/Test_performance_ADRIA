@@ -9,12 +9,7 @@ import { BackendScenarioResponse } from '../types/backendContracts'
 import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
 import { useToast } from '../context/ToastContext'
 
-// ============================================================
-// « Lancer un test » (barre latérale) : choix du scénario avec recherche
-// (scénarios actifs, non archivés, avec au moins une étape), aperçu de la
-// charge, puis lancement et ouverture du suivi en direct. Même moteur et
-// mêmes règles que « Nouvelle exécution » de la page Exécutions.
-// ============================================================
+// « Lancer un test » : choix du scénario, aperçu de la charge, lancement puis suivi en direct.
 
 function describe(err: unknown): string {
   if (err instanceof ApiError) {

@@ -15,10 +15,7 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     Page<Notification> findByRecipientIdAndReadOrderByCreatedAtDesc(UUID recipientId, boolean read, Pageable pageable);
 
-    /**
-     * Page des notifications d'un utilisateur : lues / non lues (read null = toutes) et types
-     * (allTypes = true : tous ; types ne doit jamais etre vide, IN () est refuse par certaines bases).
-     */
+    /** Notifications d'un utilisateur : lues / non lues (read null = toutes) et types (allTypes = true : tous). */
     @Query("SELECT n FROM Notification n WHERE n.recipient.id = :recipientId"
             + " AND (:read IS NULL OR n.read = :read)"
             + " AND (:allTypes = true OR n.type IN :types)")
@@ -29,10 +26,7 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     long countByRecipientIdAndReadFalse(UUID recipientId);
 
-    /** Ownership verifie ici (recipientId) plutot que par un simple findById
-     * suivi d'une comparaison en Java - jamais un utilisateur ne doit
-     * pouvoir marquer/lire la notification d'un autre (voir
-     * NotificationServiceImpl). */
+    /** Notification d'un utilisateur donne. */
     java.util.Optional<Notification> findByIdAndRecipientId(UUID id, UUID recipientId);
 
     @Modifying

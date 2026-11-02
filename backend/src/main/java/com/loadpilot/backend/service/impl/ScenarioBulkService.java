@@ -13,12 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/**
- * Actions groupees sur les scenarios - meme logique que ApplicationBulkService : chaque
- * scenario est traite dans SA PROPRE transaction (methodes transactionnelles appelees une a
- * une), un echec (ex. execution en cours) n'annule jamais les autres ; le resultat est detaille
- * par scenario (succes / echec + raison). Chaque action unitaire est auditee.
- */
+/** Actions groupees sur les scenarios ; chaque scenario est traite dans sa propre transaction. */
 @Service
 @RequiredArgsConstructor
 public class ScenarioBulkService {

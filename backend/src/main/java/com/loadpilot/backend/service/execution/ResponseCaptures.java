@@ -3,12 +3,7 @@ package com.loadpilot.backend.service.execution;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpHeaders;
 
-/**
- * Capture d'une valeur dans la reponse d'une etape, pour les etapes suivantes du MEME utilisateur
- * virtuel : selon la source configuree, chemin dans le corps JSON (JsonPathExtractor), en-tete ou
- * cookie de la reponse (ResponseHeaderExtractor), ou element de la page HTML (HtmlExtractor).
- * Valeur introuvable : aucune variable produite, jamais une erreur d'execution.
- */
+/** Capture d'une valeur dans la reponse d'une etape (JSON, en-tete, cookie ou HTML), pour les etapes suivantes du meme utilisateur virtuel. */
 final class ResponseCaptures {
 
     /** Valeur capturee (null si introuvable) ; sensitive : a masquer dans le detail des requetes. */
@@ -30,10 +25,7 @@ final class ResponseCaptures {
         return configured(step) && !step.capturesFromHeader();
     }
 
-    /**
-     * Lit la valeur selon la source de l'etape. Capture HTML d'un element dont le nom ressemble a un
-     * jeton (csrf, token...) : valeur marquee sensible.
-     */
+    /** Lit la valeur selon la source de l'etape ; une valeur HTML au nom de jeton (csrf, token...) est marquee sensible. */
     static Captured extract(StepExecutionSpec step, String body, HttpHeaders headers, ObjectMapper objectMapper) {
         if (!configured(step)) return Captured.NONE;
         if (step.capturesFromHtml()) {

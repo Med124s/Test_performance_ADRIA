@@ -7,11 +7,7 @@ import com.loadpilot.backend.dto.response.UserSummaryResponse;
 import com.loadpilot.backend.enums.AppRole;
 import java.util.List;
 
-/**
- * "actorSubject" : sujet Keycloak (claim "sub") de l'administrateur qui fait
- * la demande - sert a lui interdire de retirer son propre role
- * Administrateur ou de desactiver son propre compte.
- */
+/** Administration des comptes ; "actorSubject" est le sujet Keycloak de l'administrateur qui fait la demande. */
 public interface UserService {
 
     List<UserSummaryResponse> list();

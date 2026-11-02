@@ -38,16 +38,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * P1-B — CRUD + cycle de vie d'une ScheduledExecution. Ne declenche JAMAIS
- * d'Execution elle-meme en dehors de runNow() (voir ScheduledExecutionTrigger
- * et ScheduledExecutionPoller pour le declenchement automatique) - cette
- * classe persiste la configuration, calcule "nextRunAt" et construit la vue
- * (etat, derniere execution, historique) via ScheduleViewService.
- *
- * Les frequences de l'interface sont des expressions cron (5 champs acceptes,
- * normalisees en 6) ; "endAt" ne concerne que les planifications recurrentes.
- */
+/** Gestion des planifications : creation, modification, pause, reprise, suppression, apercu et lancement immediat. */
 @Service
 public class ScheduledExecutionServiceImpl implements ScheduledExecutionService {
 
@@ -221,7 +212,7 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
                 throw new BadRequestException("L'heure de cette planification unique est passée : modifiez-la pour choisir une nouvelle date.");
             }
             if (schedule.getScheduleType() == ScheduleType.RECURRING_CRON) {
-                // Reprise : repart de la prochaine occurrence (les lancements prevus pendant la pause ne sont pas rattrapes).
+                // Reprise a la prochaine occurrence ; les lancements prevus pendant la pause ne sont pas rattrapes.
                 schedule.setNextRunAt(ScheduleNextRunCalculator.computeAfterTrigger(schedule, now));
             }
         }
@@ -239,7 +230,6 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
     public ScheduledExecutionResponse runNow(UUID id) {
         ScheduledExecution schedule = scheduledExecutionRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Planification introuvable : " + id));
-        // Identifiant lu sur le proxy du scenario : aucun chargement paresseux hors transaction.
         if (executionRepository.countActiveByScenarioId(schedule.getScenario().getId()) > 0) {
             throw new ConflictException(RUNNING_NOT_RUNNABLE);
         }

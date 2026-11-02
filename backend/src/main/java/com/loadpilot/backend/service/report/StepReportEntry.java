@@ -3,13 +3,7 @@ package com.loadpilot.backend.service.report;
 import com.loadpilot.backend.enums.HttpMethod;
 import java.math.BigDecimal;
 
-/**
- * Statistiques d'UN Step, agregees sur toutes ses occurrences reelles au
- * sein d'une Execution (potentiellement plusieurs si virtualUsers/
- * iterations > 1 - voir prompt P1-A section 20). Memes formules/unites que
- * ExecutionStatistics, calculees sur le seul sous-ensemble de resultats de
- * ce Step.
- */
+/** Statistiques d'une etape sur toutes ses requetes d'une execution. */
 public record StepReportEntry(
         String stepId,
         String stepName,

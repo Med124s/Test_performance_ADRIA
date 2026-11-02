@@ -1,12 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-// ============================================================
-// Fuseau horaire de l'utilisateur : celui de son profil (Paramètres > Mon profil), sinon celui du
-// navigateur. SEULE source pour l'affichage des dates et le fuseau proposé d'une nouvelle
-// planification.
-//  - lu sur le profil à l'ouverture de l'application (MainLayout) ;
-//  - mis à jour dès l'enregistrement dans Mon profil : pris en compte sans recharger la page.
-// ============================================================
+// Fuseau horaire de l'utilisateur : celui du profil, sinon celui du navigateur.
 
 /** Fuseau du navigateur (système de l'ordinateur). */
 export function browserTimezone(): string {

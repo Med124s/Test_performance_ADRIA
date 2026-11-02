@@ -4,18 +4,7 @@ import com.loadpilot.backend.enums.ExecutionStatus;
 import java.text.NumberFormat;
 import java.util.Locale;
 
-/**
- * Statut final d'une execution terminee, selon les seuils de reussite du scenario (copies sur
- * l'execution au lancement) :
- * - CANCELLED si elle a ete annulee ;
- * - FAILED seulement si le test n'a pas pu se derouler : aucune requete jouee (authentification
- *   refusee...) ou aucune requete n'a recu de reponse (application injoignable) ;
- * - THRESHOLDS_EXCEEDED si le test est alle au bout mais que le taux d'erreurs depasse le maximum,
- *   ou que le P95 (toutes requetes, meme calcul que le rapport) depasse le P95 maximal ;
- * - SUCCESS sinon.
- * Sans seuils (maxErrorRatePercent null : execution preparee avant les seuils), le statut du moteur
- * est garde tel quel (comportement d'origine).
- */
+/** Statut final d'une execution terminee : CANCELLED, FAILED (test qui n'a pas pu se derouler), THRESHOLDS_EXCEEDED ou SUCCESS. */
 public final class ExecutionVerdict {
 
     public static final String UNREACHABLE = "Application injoignable : aucune requête n'a reçu de réponse";
@@ -30,7 +19,7 @@ public final class ExecutionVerdict {
                                 Double maxErrorRatePercent, Long maxP95Ms) {
         if (cancelled) return new Result(ExecutionStatus.CANCELLED, cancelMessage);
         if (maxErrorRatePercent == null) return new Result(outcome.finalStatus(), outcome.errorMessage());
-        // Totaux de TOUTES les requetes, deja ecrites en base pendant le test ou non (voir ResultSummary).
+        // Totaux de toutes les requetes de l'execution.
         ResultSummary all = outcome.summary();
         if (all.total() == 0) {
             return new Result(ExecutionStatus.FAILED,

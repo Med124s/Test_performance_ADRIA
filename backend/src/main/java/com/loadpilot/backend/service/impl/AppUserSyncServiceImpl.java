@@ -14,12 +14,7 @@ public class AppUserSyncServiceImpl implements AppUserSyncService {
 
     private final AppUserRepository appUserRepository;
 
-    /**
-     * Cree la projection locale au premier login, ou rafraichit
-     * username/name/email a chaque appel si elle existe deja - Keycloak
-     * restant la seule source de verite pour ces informations. Aucune
-     * gestion de mot de passe ici.
-     */
+    /** Cree la copie locale a la premiere connexion, puis met a jour username, nom et e-mail a chaque appel. */
     @Override
     @Transactional
     public AppUser sync(CurrentUser currentUser) {

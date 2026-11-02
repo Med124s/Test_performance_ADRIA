@@ -11,11 +11,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Masquage des secrets dans le resultat d'un test detaille (voir StepTestRunner) : en-tetes
- * sensibles, champs JSON password/token/secret/apiKey, parametres d'URL sensibles et toute
- * occurrence litterale d'une valeur secrete connue (jeton de login, cle API, mot de passe...).
- */
+/** Masquage des secrets dans le resultat d'un test detaille : en-tetes, champs JSON, parametres d'URL et valeurs secretes connues. */
 public final class TestRunMasking {
 
     public static final String MASK = "••••••";
@@ -29,7 +25,7 @@ public final class TestRunMasking {
             "(\"[^\"]*(?:" + SENSITIVE_WORDS + ")[^\"]*\"\\s*:\\s*)(\"(?:[^\"\\\\]|\\\\.)*\"|-?\\d[\\d.eE+-]*)",
             Pattern.CASE_INSENSITIVE);
 
-    /** Les valeurs trop courtes ne sont pas remplacees litteralement (faux positifs). */
+    /** Longueur minimale d'une valeur secrete remplacee dans le texte. */
     private static final int MIN_SECRET_LENGTH = 4;
 
     private TestRunMasking() {
@@ -41,10 +37,7 @@ public final class TestRunMasking {
 
     private static final Pattern SENSITIVE_HTML_NAME = Pattern.compile(".*(" + SENSITIVE_WORDS + "|csrf|xsrf|session).*", Pattern.CASE_INSENSITIVE);
 
-    /**
-     * Capture depuis une page HTML : selecteur, ou nom (name/id) de l'element retenu, qui ressemble a
-     * un jeton, un mot de passe ou une session (ex. input[name=csrf_token], authenticity_token).
-     */
+    /** true si une capture HTML vise un jeton, un mot de passe ou une session (ex. input[name=csrf_token]). */
     public static boolean isSensitiveHtmlCapture(String spec, String elementName) {
         return (spec != null && SENSITIVE_HTML_NAME.matcher(spec).matches())
                 || (elementName != null && SENSITIVE_HTML_NAME.matcher(elementName).matches());
@@ -68,8 +61,7 @@ public final class TestRunMasking {
         return masked;
     }
 
-    /** Corps (envoye ou recu) : valeurs secretes connues puis champs JSON sensibles. Fonctionne
-     * aussi sur un JSON tronque (expression reguliere, jamais de re-serialisation). */
+    /** Masque dans un corps les valeurs secretes connues et les champs JSON sensibles. */
     public static String maskBody(String body, Collection<String> secrets) {
         if (body == null || body.isEmpty()) return body;
         String result = maskSecrets(body, secrets);
@@ -97,8 +89,7 @@ public final class TestRunMasking {
         return out.toString();
     }
 
-    /** Valeurs des champs JSON sensibles d'un corps (ex. le mot de passe du corps de login),
-     * pour les masquer ensuite partout ou elles reapparaitraient. */
+    /** Valeurs des champs JSON sensibles d'un corps (ex. mot de passe du corps de connexion). */
     public static List<String> sensitiveJsonValues(String json) {
         List<String> values = new ArrayList<>();
         if (json == null || json.isBlank()) return values;

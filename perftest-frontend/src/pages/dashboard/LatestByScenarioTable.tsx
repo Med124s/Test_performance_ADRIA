@@ -6,27 +6,20 @@ import { BackendDashboardScenarioRow, BackendPagedResponse } from '../../types/b
 import { formatMs, formatPercent, formatRps } from '../../utils/numberFormat'
 import { executionStatusMeta, formatDateTime, trendDisplay } from './dashboardModel'
 
-// ============================================================
-// Dashboard > « Dernière exécution par scénario » : paginé CÔTÉ SERVEUR
-// (GET /api/dashboard/latest-by-scenario), 10 lignes par page, de la plus récente à la plus
-// ancienne, mêmes filtres que le reste du Dashboard (application, période).
-// Changement de page : l'ancienne page reste visible (atténuée) pendant le chargement, puis la
-// nouvelle apparaît par un léger fondu (aucun saut de hauteur, aucune animation lourde).
-// ============================================================
+// Dashboard > « Dernière exécution par scénario » : paginé côté serveur, 10 lignes par page.
 
 export const DASHBOARD_PAGE_SIZE = 10
 
 interface Props {
   applicationId?: string
   range: { from?: string; to?: string }
-  /** Augmente quand le Dashboard se rafraîchit tout seul (toutes les 10 s pendant une exécution) : page relue sans fondu. */
+  /** Change à chaque rafraîchissement automatique du Dashboard. */
   refreshKey?: number
 }
 
 export default function LatestByScenarioTable({ applicationId, range, refreshKey }: Props) {
   const navigate = useNavigate()
-  // Page liée aux filtres : un nouveau filtre ramène en page 1 tout de suite (une seule requête, jamais
-  // une première avec l'ancienne page).
+  // Page liée aux filtres : un nouveau filtre revient en page 1.
   const filterKey = `${applicationId ?? ''}|${range.from ?? ''}|${range.to ?? ''}`
   const [pageState, setPageState] = useState({ key: filterKey, page: 1 })
   const page = pageState.key === filterKey ? pageState.page : 1
@@ -34,7 +27,7 @@ export default function LatestByScenarioTable({ applicationId, range, refreshKey
   const [data, setData] = useState<BackendPagedResponse<BackendDashboardScenarioRow> | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  /** Augmente à chaque nouvelle page affichée : rejoue le fondu une fois (jamais pour un simple rafraîchissement). */
+  // Change à chaque nouvelle page affichée (fondu).
   const [shown, setShown] = useState(0)
   const request = useRef(0)
   const lastPage = useRef<number | null>(null)

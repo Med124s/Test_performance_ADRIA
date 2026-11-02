@@ -2,16 +2,7 @@ package com.loadpilot.backend.service.execution;
 
 import java.util.Map;
 
-/**
- * P1-Q Etape B — substitution REELLE de variables {@code ${nom}} dans
- * url/headers/body d'un Step (voir HttpClientExecutionEngine). Remplacement
- * litteral (String.replace, jamais une regex construite depuis une entree
- * utilisateur) : un nom de colonne CSV contenant un caractere special de
- * regex ne peut jamais casser ou detourner la substitution.
- *
- * Ne concerne PAS l'URL de base de l'Application : deja resolue reellement
- * par UrlResolver.resolve(), sans variable dediee necessaire.
- */
+/** Remplacement des variables {@code ${nom}} dans un texte. */
 public final class VariableResolver {
 
     private VariableResolver() {

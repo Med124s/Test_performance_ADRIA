@@ -22,11 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Rapport PDF d'une execution terminee (Reussie, Seuils depasses, Echouee, Annulee) : memes donnees
- * que la page Rapport (rapport statistique et analyse dans le temps), y compris pour un rapport fige
- * dont le detail des requetes a ete purge. 409 pour une execution en attente, en cours ou en pause.
- */
+/** Rapport PDF d'une execution terminee, avec les memes donnees que la page Rapport. */
 @Service
 @RequiredArgsConstructor
 public class ReportPdfService {
@@ -50,7 +46,7 @@ public class ReportPdfService {
         if (execution.getStatus().isActive()) {
             throw new ConflictException("Le rapport PDF est disponible une fois l’exécution terminée.");
         }
-        // Memoire du PDF entier reservee (rapport, analyse dans le temps et document), voir ResultLoadGuard.
+        // Memoire du PDF entier reservee.
         try (var reservation = resultLoadGuard.reserve(com.loadpilot.backend.service.impl.ResultLoadGuard.Load.EXPORT,
                 resultRepository.countAllByExecutionId(executionId))) {
             ExecutionReportResponse report = executionService.getReport(executionId);
@@ -58,7 +54,6 @@ public class ReportPdfService {
             try {
                 timeline = timelineService.timeline(executionId);
             } catch (RuntimeException e) {
-                // Le PDF reste utile sans les graphiques (section « indisponible »).
                 log.warn("Analyse dans le temps indisponible pour le PDF de l'execution {} : {}", executionId, e.getMessage());
             }
             ZoneId zone = clock.getZone();
@@ -67,12 +62,12 @@ public class ReportPdfService {
         }
     }
 
-    /** « Rapport_Parcours-bancaire_2026-10-10_18h13.pdf » (meme convention que les exports Excel et CSV). */
+    /** Nom du fichier, ex. "Rapport_Parcours-bancaire_2026-10-10_18h13.pdf". */
     static String fileName(ExecutionReportResponse report, ZoneId zone) {
         return com.loadpilot.backend.service.report.export.ReportFileNames.of(report.scenarioName(), report.startedAt(), zone, null, "pdf");
     }
 
-    /** Tests : horloge et fuseau fixes. */
+    /** Horloge et fuseau fixes (tests). */
     void setClock(Clock clock) {
         this.clock = clock;
     }

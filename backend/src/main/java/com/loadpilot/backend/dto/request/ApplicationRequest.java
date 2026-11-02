@@ -5,10 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.hibernate.validator.constraints.URL;
 
-/**
- * Utilise a la fois pour la creation (POST) et la mise a jour (PUT) - memes
- * champs editables dans les deux cas (voir Phase 6).
- */
+/** Creation (POST) et mise a jour (PUT) d'une application. */
 public record ApplicationRequest(
 
         @NotBlank(message = "Le nom de l'application est obligatoire.")
@@ -36,18 +33,15 @@ public record ApplicationRequest(
         ApplicationNetworkRequest network
 ) {
 
-    /** Compatibilite : Application sans reglage reseau explicite. */
     public ApplicationRequest(String name, String description, String url, ApplicationAuthRequest auth,
             ApplicationMonitoringRequest monitoring) {
         this(name, description, url, auth, monitoring, null);
     }
 
-    /** Compatibilite : Application sans authentification explicite. */
     public ApplicationRequest(String name, String description, String url) {
         this(name, description, url, null, null);
     }
 
-    /** Compatibilite : Application sans monitoring explicite. */
     public ApplicationRequest(String name, String description, String url, ApplicationAuthRequest auth) {
         this(name, description, url, auth, null);
     }

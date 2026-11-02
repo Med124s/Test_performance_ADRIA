@@ -1,12 +1,4 @@
-// ============================================================
-// Journal d'audit (réservé au Super administrateur, voir AuditLogController.java) :
-//   GET /api/audit-logs          -> PagedResponse<AuditLogResponse> (filtres côté serveur :
-//                                    q, actor, category, result, from, to ; tri date DESC)
-//   GET /api/audit-logs/{id}     -> AuditLogResponse
-//   GET /api/audit-logs/actors   -> utilisateurs présents dans le journal
-//   GET/PUT /api/settings/audit  -> réglages (consultations journalisées, conservation)
-// Aucune écriture d'entrée depuis le frontend : elles ne sont créées que par le backend.
-// ============================================================
+// Journal d'audit (Super administrateur) : liste paginée et filtrée, détail, utilisateurs, statistiques et export CSV.
 
 import { springHttp } from './httpClient'
 import {

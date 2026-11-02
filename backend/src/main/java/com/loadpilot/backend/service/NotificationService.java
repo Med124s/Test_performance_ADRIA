@@ -7,27 +7,14 @@ import java.util.UUID;
 
 public interface NotificationService {
 
-    /**
-     * Cree reellement une Notification pour l'AppUser d'id
-     * "recipientAppUserId" - ne leve JAMAIS d'exception (meme garantie
-     * qu'AuditLogService.record) : un echec de creation de notification ne
-     * doit jamais faire echouer l'evenement metier reel qui l'a
-     * declenchee (fin d'Execution, declenchement de ScheduledExecution...).
-     * "recipientAppUserId" null (ex: Execution sans triggeredBy connu) =
-     * n'emet simplement aucune notification, jamais une exception. Un UUID
-     * brut (jamais une entite AppUser) : voir ExecutionService.execute
-     * pour la justification complete de ce choix a travers tout P1-B.
-     */
+    /** Cree une notification pour un utilisateur ; ne leve jamais d'exception. */
     void create(UUID recipientAppUserId, NotificationType type, String title, String message,
                 UUID relatedExecutionId, UUID relatedScheduleId);
 
-    /** Notifications du SEUL utilisateur authentifie courant - jamais celles d'un autre. */
+    /** Notifications de l'utilisateur connecte. */
     PagedResponse<NotificationResponse> list(String keycloakSubject, Boolean readFilter, int page, int size);
 
-    /**
-     * Meme liste, filtree aussi par types (null ou vide : tous). Les plus recentes en premier ;
-     * page >= 0 et taille entre 1 et 100 (valeurs hors bornes ramenees dans ces limites).
-     */
+    /** Notifications de l'utilisateur, filtrees par types (null ou vide : tous), les plus recentes en premier. */
     PagedResponse<NotificationResponse> list(String keycloakSubject, Boolean readFilter,
                                              java.util.Collection<NotificationType> types, int page, int size);
 

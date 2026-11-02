@@ -14,8 +14,7 @@ public interface ApplicationService {
 
     ApplicationResponse getById(UUID id);
 
-    /** Liste complete (format historique, sans pagination) : applications
-     * non archivees, ou uniquement les archivees si {@code archived}. */
+    /** Applications non archivees, ou uniquement les archivees si {@code archived}. */
     List<ApplicationResponse> list(boolean archived);
 
     /** Liste paginee, filtree et triee cote serveur. */
@@ -28,6 +27,6 @@ public interface ApplicationService {
     /** Envoie une vraie requete HTTP vers l'URL de l'application et met a jour son statut. */
     ApplicationTestResponse testAvailability(UUID id);
 
-    /** « Tester le monitoring » avec la configuration saisie (rien n'est enregistre). */
+    /** Teste le monitoring avec la configuration saisie (rien n'est enregistre). */
     com.loadpilot.backend.dto.response.MonitoringTestResponse testMonitoring(com.loadpilot.backend.dto.request.MonitoringTestRequest request);
 }

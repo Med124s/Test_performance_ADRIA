@@ -10,11 +10,7 @@ import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-/**
- * Test unitaire pur (pas de contexte Spring) : verifie que les roles
- * "realm_access.roles" d'un Jwt Keycloak sont bien convertis en authorities
- * Spring prefixees "ROLE_".
- */
+/** Les roles "realm_access.roles" d'un JWT Keycloak deviennent des authorities "ROLE_...". */
 class JwtAuthConverterTest {
 
     private final JwtAuthConverter converter = new JwtAuthConverter();
@@ -63,11 +59,7 @@ class JwtAuthConverterTest {
         assertThat(token.getAuthorities()).isEmpty();
     }
 
-    // ------------------------------------------------------------
-    // Phase 5 - specification explicite : les roles realm Keycloak portent
-    // DEJA le prefixe "ROLE_" (ex: "ROLE_VIEWER"), le convertisseur ne doit
-    // jamais produire un double-prefixe ("ROLE_ROLE_VIEWER").
-    // ------------------------------------------------------------
+    // ---- Roles deja prefixes "ROLE_" : pas de double prefixe ----
 
     @Test
     void convert_alreadyPrefixedViewerRole_producesRoleViewerWithoutDoublePrefix() {

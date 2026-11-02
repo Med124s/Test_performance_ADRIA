@@ -35,12 +35,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/scenarios - lecture ouverte a tout utilisateur authentifie (voir
- * SecurityConfig : anyRequest().authenticated() couvre deja les GET, aucune
- * annotation supplementaire ici pour eviter de dupliquer la regle) ; POST,
- * PUT et DELETE reserves a SUPER_ADMIN et PERFORMANCE_ENGINEER.
- */
+/** API des scenarios. */
 @RestController
 @RequestMapping("/api/scenarios")
 @RequiredArgsConstructor
@@ -52,8 +47,6 @@ public class ScenarioController {
     private final ScenarioStatusService statusService;
     private final ScenarioBulkService bulkService;
 
-    /** ?applicationId= filtre par application (voir Phase 7) - meme
-     * endpoint plutot que dupliquer un chemin dedie. */
     @GetMapping
     @Operation(summary = "Lister les scenarios",
             description = "Sans le parametre page : liste complete (filtrable par applicationId). Avec page : reponse paginee "
@@ -114,7 +107,7 @@ public class ScenarioController {
     @PostMapping("/{id}/resume-schedules")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
     @Operation(summary = "Reactiver les planifications suspendues par la desactivation",
-            description = "Les planifications ponctuelles dont la date est passee restent desactivees (jamais de rattrapage).")
+            description = "Les planifications ponctuelles dont la date est passee restent desactivees, sans rattrapage.")
     public ScenarioStatusService.ResumeResult resumeSchedules(@PathVariable UUID id) {
         return statusService.resumeSchedules(id);
     }

@@ -22,20 +22,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-/**
- * P1-D — préférence RÉELLE d'un utilisateur pour UN type de Notification
- * (voir enums.NotificationType) - modèle "opt-out" : l'ABSENCE de ligne
- * pour un (appUser, notificationType) donné signifie "activé" (comportement
- * historique inchangé, voir NotificationPreferenceServiceImpl) - une ligne
- * n'est créée qu'au premier changement explicite de préférence, jamais
- * pré-remplie pour tous les types au premier login (éviterait 5 lignes
- * inutiles par utilisateur qui ne change jamais rien).
- *
- * Table dédiée (jamais une colonne JSON/liste sur AppUser) : un type de
- * notification est une valeur d'enum stable et un besoin métier clair
- * (contrairement à un magasin clé/valeur générique, explicitement interdit
- * pour cette phase).
- */
+/** Preference d'un utilisateur pour un type de notification ; sans ligne, le type est active. */
 @Entity
 @Table(name = "notification_preference")
 @Getter

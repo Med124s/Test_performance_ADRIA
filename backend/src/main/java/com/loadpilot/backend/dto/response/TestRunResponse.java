@@ -4,12 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Resultat detaille d'un test de verification (1 utilisateur virtuel, 1 passage) - voir
- * StepTestRunner. Jamais persiste : aucune Execution, aucune Metric. Les secrets
- * (Authorization, X-API-Key, Cookie/Set-Cookie, champs password/token, valeurs
- * d'authentification de l'application) sont deja masques ("••••••").
- */
+/** Resultat d'un test detaille (1 utilisateur virtuel, 1 passage) ; secrets masques. */
 public record TestRunResponse(
         UUID scenarioId,
         String applicationUrl,

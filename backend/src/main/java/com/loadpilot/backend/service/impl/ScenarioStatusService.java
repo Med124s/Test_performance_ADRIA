@@ -28,16 +28,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Activation / desactivation d'un scenario (statut INACTIVE fonctionnel).
- *
- * Desactiver : refuse pour un brouillon ou si une execution est en cours ; le scenario reste
- * visible et modifiable, n'est plus executable, et ses planifications actives sont suspendues
- * (enabled=false, pausedByScenario=true) - le poller les ignore de toute facon (filtre sur
- * le statut ACTIVE). Activer : le scenario redevient executable et ses planifications
- * suspendues reprennent aussitot (ScheduleResumer : prochaine occurrence, rien n'est rattrape).
- * Chaque changement est trace dans l'audit (ENABLE / DISABLE, module SCENARIO).
- */
+/** Activation et desactivation d'un scenario ; la desactivation suspend ses planifications. */
 @Service
 @RequiredArgsConstructor
 public class ScenarioStatusService {
@@ -85,7 +76,7 @@ public class ScenarioStatusService {
         }
     }
 
-    /** Active le scenario et reprend aussitot ses planifications suspendues (voir ScheduleResumer : rien n'est rattrape). */
+    /** Active le scenario et reprend ses planifications suspendues (sans rattrapage). */
     @Transactional
     public Scenario activate(UUID id) {
         Scenario scenario = find(id);
@@ -101,11 +92,7 @@ public class ScenarioStatusService {
         return saved;
     }
 
-    /**
-     * Reprise explicite des planifications suspendues (conservee pour les appels existants ; l'activation
-     * le fait deja automatiquement). Une planification unique dont la date est passee n'est jamais
-     * lancee en rattrapage (comptee dans "expired").
-     */
+    /** Reprend les planifications suspendues ; une planification unique dont la date est passee est comptee dans "expired". */
     @Transactional
     public ResumeResult resumeSchedules(UUID id) {
         Scenario scenario = find(id);

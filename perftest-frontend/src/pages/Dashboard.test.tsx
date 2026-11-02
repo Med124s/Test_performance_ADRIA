@@ -103,7 +103,7 @@ describe('Dashboard', () => {
     expect(screen.getByText(/^8\s673$/)).toBeTruthy()
     expect(screen.getByText('Réussies · 1')).toBeTruthy()
     expect(screen.getByText('Échouées · 2')).toBeTruthy()
-    // Retirés : « (Spring Boot) », débit moyen, taux de succès des étapes, grandes cartes.
+    // Textes qui ne doivent plus apparaître.
     expect(document.body.textContent).not.toMatch(/Spring Boot|Débit moyen|Taux de succès des étapes|Étapes exécutées|Répartition des étapes/)
 
     const watch = within(screen.getByTestId('watch-block'))

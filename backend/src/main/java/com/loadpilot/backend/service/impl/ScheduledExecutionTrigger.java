@@ -22,22 +22,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/**
- * Declenchement REEL, PARTAGE, d'une ScheduledExecution deja reclamee (voir
- * ScheduledExecutionTransactionHelper) - UNIQUE point d'appel de
- * ExecutionService.executeScheduled pour un declenchement de planification,
- * utilise A LA FOIS par ScheduledExecutionServiceImpl#runNow ET
- * ScheduledExecutionPoller : jamais deux chemins de declenchement qui
- * pourraient diverger.
- *
- * Declenchement AUTOMATIQUE : un lancement impossible n'est jamais une erreur silencieuse - il est
- * enregistre dans l'historique avec sa raison (ScheduledRunEvent) et notifie au proprietaire :
- * - une execution du meme scenario est encore en cours -> « Ignorée : exécution précédente encore en cours » ;
- * - limite de capacite atteinte -> « Ignorée : capacité insuffisante » ;
- * - autre refus (scenario sans etape...) -> « Échec du lancement : … » (exception re-levee pour le poller).
- *
- * Declenchement MANUEL ("run now") : l'exception remonte telle quelle en reponse HTTP (429 capacite...).
- */
+/** Declenchement d'une planification deja reservee, par le poller ou par "Lancer maintenant". */
 @Service
 @RequiredArgsConstructor
 public class ScheduledExecutionTrigger {
@@ -127,7 +112,7 @@ public class ScheduledExecutionTrigger {
         return s != null && s.length() > ERROR_MAX_LENGTH ? s.substring(0, ERROR_MAX_LENGTH) : s;
     }
 
-    /** Declenchement d'une planification : acteur « Système » (sauf « Lancer maintenant », fait par l'utilisateur). */
+    /** Audit du declenchement : acteur "Systeme", sauf pour "Lancer maintenant". */
     private AuditEvent triggerAudit(TriggerClaim claim, boolean manual) {
         AuditEvent event = AuditEvent.of(AuditAction.TRIGGER, AuditModule.SCHEDULING)
                 .target(AuditTargetType.SCHEDULE, claim.scheduleId(), claim.scheduleName());

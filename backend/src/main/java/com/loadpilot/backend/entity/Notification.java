@@ -20,21 +20,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * Notification REELLE (P1-B) destinee a un unique utilisateur (voir
- * "recipient") - generee UNIQUEMENT depuis de vrais evenements metier
- * (Execution terminale, ScheduledExecution declenchee/echouee - voir
- * NotificationServiceImpl et ses appelants). Jamais de notification de
- * demonstration, jamais stockee cote client (localStorage/JSON Server).
- *
- * "recipient" est une VRAIE FK vers AppUser (contrairement a AuditLog qui
- * denormalise userId/username en texte libre) : une Notification n'a de
- * sens QUE tant que son destinataire existe reellement, et doit rester
- * requetable efficacement par destinataire (voir
- * NotificationRepository#findByRecipientId*) - un cas d'usage different de
- * l'audit (trace immuable independante du cycle de vie d'AppUser). Meme
- * choix de modelisation que Scenario.createdBy (voir son Javadoc).
- */
+/** Notification destinee a un utilisateur (fin d'execution, planification declenchee ou echouee). */
 @Entity
 @Table(name = "notification")
 @Getter
@@ -63,14 +49,11 @@ public class Notification {
     @Column(name = "message", length = 1000, updatable = false)
     private String message;
 
-    /** Id (pas une FK) de l'Execution reelle a l'origine de cet evenement -
-     * null pour SCHEDULE_FAILED lorsque aucune Execution n'a meme pu etre
-     * creee (ex: limite de capacite atteinte avant toute ecriture). */
+    /** Execution a l'origine de la notification ; null si aucune execution n'a ete creee. */
     @Column(name = "related_execution_id", updatable = false)
     private UUID relatedExecutionId;
 
-    /** Id (pas une FK) de la ScheduledExecution a l'origine de cet evenement -
-     * null pour une Execution lancee manuellement. */
+    /** Planification a l'origine de la notification ; null pour un lancement manuel. */
     @Column(name = "related_schedule_id", updatable = false)
     private UUID relatedScheduleId;
 

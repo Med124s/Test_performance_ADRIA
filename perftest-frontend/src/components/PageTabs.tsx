@@ -1,12 +1,7 @@
 import { KeyboardEvent, ReactNode, useId, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-// ============================================================
-// Onglets de page gardés dans l'URL (?tab=…) : utilisés par « Paramètres »
-// et « Utilisateurs et rôles ». Accessibles : rôles ARIA tablist / tab /
-// tabpanel, flèches gauche / droite, Début / Fin. Un onglet inconnu (ou
-// non autorisé pour le rôle) retombe sur le premier.
-// ============================================================
+// Onglets de page gardés dans l'URL (?tab=…), accessibles au clavier.
 
 export interface PageTab {
   id: string

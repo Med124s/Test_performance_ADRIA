@@ -17,9 +17,6 @@ public interface ExecutionMapper {
 
     List<ExecutionResponse> toResponseList(List<Execution> executions);
 
-    /** P1-A — voir ExecutionHistoryResponse pour la justification complete
-     * des champs presents/absents. P1-C : "triggeredByUsername"/"throughput"
-     * desormais reellement disponibles (voir ExecutionHistoryResponse). */
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")
     @Mapping(target = "scenarioId", source = "scenario.id", qualifiedByName = "uuidToString")
     @Mapping(target = "scenarioName", source = "scenario.name")

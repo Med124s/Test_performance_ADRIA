@@ -7,14 +7,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
-/**
- * Valeurs par defaut (Parametres > Systeme) : seuils proposes pour les nouveaux scenarios (taux
- * d'erreurs maximal, P95 maximal, 0 = aucun), seuil de regression utilise partout, et reglages
- * proposes aux nouveaux scenarios (frein automatique, ralentissement sur 429, detail des requetes).
- *
- * Reglages des nouveaux scenarios : null = inchange (client qui ne les connait pas). Memes bornes
- * que ScenarioRequest, pour qu'une valeur proposee soit toujours enregistrable telle quelle.
- */
+/** Valeurs par defaut : seuils et reglages proposes aux nouveaux scenarios, seuil de regression. */
 public record ThresholdSettingsRequest(
         @NotNull @DecimalMin(value = "0.0", message = "Taux d'erreurs maximal : entre 0 et 100 %.")
         @DecimalMax(value = "100.0", message = "Taux d'erreurs maximal : entre 0 et 100 %.") Double maxErrorRatePercent,
@@ -35,7 +28,6 @@ public record ThresholdSettingsRequest(
         @Max(value = 10, message = "Rejeux après un 429 : entre 0 et 10.") Integer throttleMaxRetries,
         RequestDetailMode requestDetailMode
 ) {
-    /** Compatibilite : seuils seulement, reglages des nouveaux scenarios inchanges. */
     public ThresholdSettingsRequest(Double maxErrorRatePercent, Long maxP95Ms, Double regressionPercent) {
         this(maxErrorRatePercent, maxP95Ms, regressionPercent, null, null, null, null, null, null, null);
     }

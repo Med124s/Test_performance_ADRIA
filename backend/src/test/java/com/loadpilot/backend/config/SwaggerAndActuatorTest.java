@@ -19,16 +19,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-/**
- * Verifie l'integration Swagger/OpenAPI (Phase 13) et le durcissement
- * d'Actuator, avec le contexte complet de l'application (jamais un slice) :
- * - /v3/api-docs et /swagger-ui.html sont publics (documentation, pas les
- *   endpoints metier eux-memes - voir SecurityConfig) ;
- * - le document OpenAPI genere reflete reellement le code (titre/version,
- *   schema Bearer JWT, endpoints des controllers existants) ;
- * - /actuator/health est public et minimal (aucun detail interne) ;
- * - aucun autre endpoint Actuator (info/env/beans/...) n'est expose.
- */
+/** Documentation OpenAPI publique, API metier protegee, et Actuator limite a health. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -56,9 +47,7 @@ class SwaggerAndActuatorTest {
 
     @Test
     void actuatorHealth_exposesOnlyTopLevelStatus_noInternalDetails() throws Exception {
-        // show-details=never (voir application.yml) : le corps ne doit
-        // contenir QUE la cle "status", jamais de sous-composants (db,
-        // diskSpace, liquibase...) qui reveleraient des details internes.
+        // show-details=never : le corps ne contient que "status".
         String body = mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -67,14 +56,7 @@ class SwaggerAndActuatorTest {
         assertThat(node.fieldNames()).toIterable().containsExactly("status");
     }
 
-    // Ces endpoints ne sont PAS dans PUBLIC_ENDPOINTS : une requete non
-    // authentifiee est donc deja bloquee en 401 par le filtre de securite,
-    // avant meme d'atteindre Spring MVC - une premiere preuve qu'ils ne
-    // sont jamais accessibles sans authentification. Pour prouver qu'ils ne
-    // sont EN PLUS pas exposes du tout par Actuator (voir
-    // management.endpoints.web.exposure.include=health uniquement), on
-    // verifie qu'un utilisateur authentifie SUPER_ADMIN obtient bien 404
-    // (aucun mapping Actuator enregistre pour ce chemin), jamais 200.
+    // Endpoint absent de PUBLIC_ENDPOINTS : 401 sans jeton.
 
     @Test
     void actuatorInfo_withoutToken_returns401() throws Exception {
@@ -158,23 +140,16 @@ class SwaggerAndActuatorTest {
         assertThat(paths.has("/api/dashboard")).isTrue();
         assertThat(paths.has("/api/audit-logs")).isTrue();
         assertThat(paths.has("/api/profile")).isTrue();
-        // Phase 25 : /api/users existe reellement desormais (UserController,
-        // administration Keycloak reelle) - retire de la liste des modules
-        // non implementes ci-dessous.
         assertThat(paths.has("/api/users")).isTrue();
 
-        // Aucun module futur/non implemente ne doit apparaitre comme un
-        // endpoint reel (voir Phase 13, section 43).
+        // Modules non implementes absents de la documentation.
         assertThat(paths.has("/api/reports")).isFalse();
         assertThat(paths.has("/api/admin/settings")).isFalse();
     }
 
     @Test
     void apiDocs_declaresGlobalBearerSecurityRequirement() throws Exception {
-        // Requirement pose au niveau racine du document (OpenApiConfig) :
-        // s'applique par heritage a toute operation qui ne le redefinit pas
-        // explicitement - c'est le mecanisme OpenAPI standard, pas une
-        // copie manuelle dans chaque operation.
+        // Exigence de securite definie a la racine du document, heritee par chaque operation.
         String body = mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -187,15 +162,13 @@ class SwaggerAndActuatorTest {
     @Test
     void swaggerUiHtml_isAccessibleWithoutToken() throws Exception {
         int status = mockMvc.perform(get("/swagger-ui.html")).andReturn().getResponse().getStatus();
-        // SpringDoc redirige generalement /swagger-ui.html -> /swagger-ui/index.html (3xx) ;
-        // jamais 401/403 dans tous les cas (documentation publique, voir SecurityConfig).
+        // /swagger-ui.html redirige generalement vers /swagger-ui/index.html ; jamais 401 ni 403.
         assertThat(status).isNotIn(401, 403);
     }
 
     @Test
     void businessEndpoint_stillRequiresAuthentication_despiteSwaggerBeingPublic() throws Exception {
-        // Preuve que rendre Swagger public n'a pas rendu l'API metier
-        // publique par erreur (voir Phase 13, section 33).
+        // L'API metier reste protegee.
         mockMvc.perform(get("/api/applications")).andExpect(status().isUnauthorized());
     }
 }

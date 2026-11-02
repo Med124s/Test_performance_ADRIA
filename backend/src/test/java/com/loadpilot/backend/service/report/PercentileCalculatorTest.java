@@ -6,19 +6,14 @@ import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/**
- * P1-A (prompt section 34) — tests DETERMINISTES avec des valeurs connues,
- * verifiant les VALEURS NUMERIQUES exactes produites par la methode
- * "nearest rank" documentee dans PercentileCalculator - jamais seulement
- * "ca ne plante pas".
- */
+/** Valeurs exactes de PercentileCalculator (rang le plus proche) sur des donnees connues. */
 class PercentileCalculatorTest {
 
     private static final List<Long> TEN_VALUES = Arrays.asList(10L, 20L, 30L, 40L, 50L, 60L, 70L, 80L, 90L, 100L);
 
     @Test
     void percentile_onTenEvenlySpacedValues_matchesNearestRankMethodExactly() {
-        // rang = ceil(p/100 * 10), valeur = trie[rang-1] - voir Javadoc.
+        // rang = ceil(p/100 * 10), valeur = trie[rang-1].
         assertThat(PercentileCalculator.percentile(TEN_VALUES, 50)).isEqualTo(50L);
         assertThat(PercentileCalculator.percentile(TEN_VALUES, 75)).isEqualTo(80L);
         assertThat(PercentileCalculator.percentile(TEN_VALUES, 90)).isEqualTo(90L);

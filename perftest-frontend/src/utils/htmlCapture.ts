@@ -1,11 +1,5 @@
-// ============================================================
-// Lecture d'une valeur dans une PAGE HTML (capture d'une étape) : sélecteur CSS de l'élément, suivi
-// de « ::attr(NOM) » pour lire un attribut (sinon le texte de l'élément). Ex. :
-//   input[name=csrf_token]::attr(value)    #compte::attr(data-account-id)    span.solde
-// Même format que HtmlExtractor (backend), qui vérifie aussi la syntaxe exacte du sélecteur.
-// ============================================================
+// Capture dans une page HTML : sélecteur CSS, suivi de « ::attr(NOM) » pour lire un attribut.
 
-// Sélecteur conservé tel quel (espaces compris : « form input » se tape lettre par lettre) ; le serveur le nettoie.
 const ATTRIBUTE_SUFFIX = /^([\s\S]*?)::attr\(\s*([^)]*?)\s*\)\s*$/
 const ATTRIBUTE_NAME = /^[^\s"'>/=]+$/
 

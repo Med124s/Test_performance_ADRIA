@@ -1,11 +1,4 @@
-// ============================================================
-// Planification — logique pure de l'interface (testée sans rendu) :
-// fréquences « humaines » <-> expression CRON, traduction d'un CRON en
-// français, dates en jj/mm/aaaa hh:mm dans un fuseau horaire choisi, et
-// libellés des états. Le calcul qui fait foi (prochaines dates) reste celui
-// du serveur (POST /api/scheduled-executions/preview) : ici, seulement de
-// quoi construire la saisie et l'afficher.
-// ============================================================
+// Planification : fréquences <-> expression CRON, CRON en français, dates en jj/mm/aaaa hh:mm et fuseaux horaires.
 
 import { getUserTimezone } from '../../utils/userTimezone'
 import {
@@ -137,10 +130,7 @@ function listFr(items: string[]): string {
   return `${items.slice(0, -1).join(', ')} et ${items[items.length - 1]}`
 }
 
-/**
- * Traduction en français d'une expression CRON (5 ou 6 champs) : « Tous les jours à 02:00 »,
- * « Du lundi au vendredi à 06:30 », « Toutes les 5 minutes »… ; null si l'expression est invalide.
- */
+/** CRON en français (« Tous les jours à 02:00 », « Toutes les 5 minutes »...) ; null si invalide. */
 export function describeCron(cron: string): string | null {
   const f = splitCron(cron)
   if (!f) return null
@@ -188,7 +178,7 @@ export function describeCron(cron: string): string | null {
   return `Expression personnalisée ${at} : voir l’aperçu des prochaines exécutions`
 }
 
-// ------------------------------------------------------------------ fuseaux horaires et dates
+// ---- Fuseaux horaires et dates ----
 
 const FALLBACK_TIMEZONES = ['UTC', 'Africa/Casablanca', 'Europe/Paris', 'Europe/London', 'Europe/Madrid', 'America/New_York',
   'America/Montreal', 'Asia/Dubai', 'Asia/Tokyo']
@@ -281,7 +271,7 @@ export function formatFrDay(isoDay: string): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : isoDay
 }
 
-// ------------------------------------------------------------------ affichage d'une planification
+// ---- Affichage d'une planification ----
 
 /** Fréquence en français pour la liste : « Tous les jours à 02:00 », « Une fois, le 07/10/2026 à 02:00 ». */
 export function describeSchedule(s: Pick<BackendScheduledExecutionResponse, 'scheduleType' | 'cronExpression' | 'runAt' | 'timezone' | 'endAt'>): string {
@@ -320,8 +310,7 @@ export const OUTCOME_LABEL: Record<BackendScheduledRunOutcome, string> = {
   FAILED: 'Non lancée',
 }
 
-/** Écart de P95 : « ↑ +35 % » (plus lent), « ↓ −12 % » (plus rapide), ton selon le seuil de régression
- * réglable (Paramètres > Système, 20 % par défaut) — le même que le Dashboard et les notifications. */
+/** Écart de P95 (« ↑ +35 % », « ↓ −12 % »), coloré selon le seuil de régression. */
 export function p95Change(changePercent: number | null | undefined, threshold = 20): { text: string; tone: 'worse' | 'better' | 'same' } | null {
   if (changePercent == null || !Number.isFinite(changePercent)) return null
   const abs = Math.abs(changePercent).toLocaleString('fr-FR', { maximumFractionDigits: 1 })

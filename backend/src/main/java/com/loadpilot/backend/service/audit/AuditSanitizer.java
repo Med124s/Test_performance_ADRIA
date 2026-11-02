@@ -2,12 +2,7 @@ package com.loadpilot.backend.service.audit;
 
 import java.util.regex.Pattern;
 
-/**
- * Dernier filet de securite avant l'ecriture d'un texte dans le journal
- * d'audit : masque tout ce qui ressemble a un secret (mot de passe, jeton,
- * cle, en-tete Authorization, JWT) au cas ou un appelant en laisserait passer
- * un dans une description, un nom ou une valeur avant / apres.
- */
+/** Masque ce qui ressemble a un secret (mot de passe, jeton, cle, en-tete Authorization, JWT) avant l'ecriture dans le journal d'audit. */
 public final class AuditSanitizer {
 
     static final String MASK = "•••";
@@ -38,7 +33,7 @@ public final class AuditSanitizer {
         return cleaned;
     }
 
-    /** Retire les noms d'exception techniques (anciennes descriptions) pour l'affichage. */
+    /** Retire les noms d'exception techniques d'un texte. */
     public static String withoutExceptionNames(String text) {
         return text == null ? null : EXCEPTION_NAME.matcher(text).replaceAll("").trim();
     }

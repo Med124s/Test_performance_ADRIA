@@ -1,9 +1,6 @@
 package com.loadpilot.backend.dto.response;
 
-/**
- * Impact d'une suppression ou d'un archivage, affiche AVANT confirmation.
- * Pour une selection multiple, les compteurs sont cumules.
- */
+/** Impact d'une suppression ou d'un archivage, affiche avant confirmation. */
 public record DeletionImpactResponse(
         long applications,
         long scenarios,

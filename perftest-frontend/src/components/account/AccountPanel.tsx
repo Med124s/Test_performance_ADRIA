@@ -9,13 +9,7 @@ import { accountRoleLabel, browserTimezone } from './accountModel'
 import IdentityForm from './IdentityForm'
 import './account.css'
 
-// ============================================================
-// Panneau « Mon compte » (clic sur la carte utilisateur de la barre du haut, affiché sous la carte) :
-// identité, rôle, statut, dernière connexion, fuseau horaire ; liens Mon profil,
-// Changer mon mot de passe, Déconnexion. « Modifier » (prénom, nom, e-mail) pour le
-// Super administrateur seulement. Fermeture : clic à l'extérieur ou Échap (géré par
-// la carte qui l'ouvre) ; Tab reste dans le panneau, flèches haut / bas entre les actions.
-// ============================================================
+// Panneau « Mon compte » : identité, rôle, statut, dernière connexion, fuseau horaire et liens.
 
 interface Props {
   onClose: () => void

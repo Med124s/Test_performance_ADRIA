@@ -14,19 +14,7 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Construit la requete REELLE d'une etape a partir de ses gabarits (URL, variables de chemin,
- * parametres de requete, en-tetes, corps) et d'une source de variables (VariableContext).
- *
- * - URL : variables de chemin ":nom" (apres un "/") et "{nom}", valeur = path_params[nom]
- *   (texte fixe et/ou ${variable}), par defaut ${nom} ; ${variable} directement dans le chemin
- *   ou dans la query de l'URL ; parametres de requete actives de query_params ajoutes a la fin.
- *   Toute valeur INJECTEE est encodee (segment de chemin ou composant de query) ; le texte
- *   saisi tel quel dans l'URL n'est jamais re-encode. Une seule passe : une valeur injectee
- *   n'est jamais re-interpretee comme gabarit.
- * - En-tetes et corps : ${variable} remplacees telles quelles (aucun encodage URL).
- * - Variable introuvable : listee dans "missing" ; l'appelant echoue AVANT tout envoi.
- */
+/** Construit la requete d'une etape a partir de ses gabarits (URL, variables de chemin, parametres, en-tetes, corps) et des variables. */
 public final class RequestBuilder {
 
     private static final Pattern URL_TOKEN = Pattern.compile(
@@ -110,10 +98,7 @@ public final class RequestBuilder {
         return new BuiltRequest(url, headers, body, missing, warnings);
     }
 
-    /**
-     * Message clair pour des variables introuvables, avec une piste selon l'etape qui les capture
-     * (numerotation 1..n dans l'ordre du scenario).
-     */
+    /** Message pour des variables introuvables, avec l'etape qui les capture si elle existe. */
     public static String missingMessage(Set<String> missing, int stepNumber, Map<String, Integer> captureStepByVariable) {
         List<String> parts = new ArrayList<>();
         for (String name : missing) {
@@ -131,7 +116,7 @@ public final class RequestBuilder {
         return String.join(" ; ", parts) + ".";
     }
 
-    // ------------------------------------------------------------------ substitution
+    // ---- Substitution ----
 
     /** ${variable} remplacees en une seule passe ; valeur introuvable laissee telle quelle (et signalee). */
     static String substitute(String template, Function<String, String> resolve, Function<String, String> encode) {

@@ -5,12 +5,7 @@ import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * Correction P1 : la migration Liquibase qui chiffre les secrets existants
- * (EncryptApplicationSecretsChange) utilise la meme cle que l'application. Le bean de chiffrement
- * (secretCipher) est donc cree AVANT Liquibase, qui lui-meme precede JPA : une cle absente ou
- * invalide arrete le demarrage avant toute lecture ou ecriture en base.
- */
+/** Cree le service de chiffrement des secrets, aussi utilise par la migration Liquibase 033. */
 @Configuration
 public class SecretsEncryptionConfig {
 

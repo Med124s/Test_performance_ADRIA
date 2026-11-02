@@ -2,10 +2,7 @@ package com.loadpilot.backend.dto.response;
 
 import java.util.List;
 
-/**
- * Page de la liste des executions (GET /api/executions/page) : lignes de la page courante et
- * compteurs par statut calcules avec les MEMES filtres (cartes du haut de la page Executions).
- */
+/** Page de la liste des executions et compteurs par statut (memes filtres). */
 public record ExecutionPageResponse(
         List<ExecutionHistoryResponse> content,
         int page,

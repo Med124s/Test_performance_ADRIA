@@ -32,15 +32,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Toutes les statistiques sont calculees en temps reel a partir des tables
- * existantes (Application/Scenario/Execution/ExecutionStepResult/Metric) via
- * des requetes d'agregation dediees (COUNT/AVG) - jamais de N+1 (aucune
- * collection JPA chargee puis parcourue en Java), aucune donnee inventee.
- * Chaque methode publique est enveloppee dans UNE SEULE transaction en
- * lecture seule pour garantir un instantane coherent entre les differentes
- * requetes d'agregation.
- */
+/** Ancien tableau de bord global, calcule par requetes d'agregation. */
 @Service
 @RequiredArgsConstructor
 public class DashboardServiceImpl implements DashboardService {
@@ -49,13 +41,9 @@ public class DashboardServiceImpl implements DashboardService {
     private final ScenarioRepository scenarioRepository;
     private final ExecutionRepository executionRepository;
     private final ExecutionStepResultRepository executionStepResultRepository;
-    /** Moyennes de performance par agregats sur les resultats (plus de table metric). */
     private final PerformanceAggregates performanceAggregates;
 
-    /** Nombre de scenarios retenus pour le widget "Top scenarios" (voir
-     * prompt P1-C, section 9) - une petite constante, jamais une valeur
-     * configurable sans besoin demontre (coherent avec la simplicite deja
-     * choisie pour d'autres limites fixes du projet). */
+    /** Nombre de scenarios du classement "Top scenarios". */
     private static final int TOP_SCENARIOS_LIMIT = 5;
 
     @Override
@@ -67,9 +55,7 @@ public class DashboardServiceImpl implements DashboardService {
     @Override
     @Transactional(readOnly = true)
     public DashboardResponse getGlobalDashboard(Instant from, Instant to) {
-        // "applications"/"scenarios" restent TOUJOURS all-time (voir
-        // DashboardResponse) - comportement strictement identique a avant
-        // P1-C, jamais touche par "from"/"to".
+        // Applications et scenarios : toujours sur tout l'historique.
         ApplicationsSummaryResponse applications = new ApplicationsSummaryResponse(
                 applicationRepository.count(),
                 applicationRepository.countByStatus(ApplicationStatus.CONNECTED),
@@ -89,7 +75,7 @@ public class DashboardServiceImpl implements DashboardService {
                 ? buildExecutionsSummary(
                         executionRepository.countByStartedAtBetween(effectiveFrom, effectiveTo),
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.SUCCESS, effectiveFrom, effectiveTo),
-                        // Ancien tableau de bord : « Seuils depasses » compte parmi les executions non reussies.
+                        // "Seuils depasses" compte parmi les executions non reussies.
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.FAILED, effectiveFrom, effectiveTo)
                                 + executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.THRESHOLDS_EXCEEDED, effectiveFrom, effectiveTo),
                         executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.RUNNING, effectiveFrom, effectiveTo)
@@ -117,14 +103,7 @@ public class DashboardServiceImpl implements DashboardService {
         return new DashboardResponse(applications, scenarios, executions, performance, from, to, topScenarios);
     }
 
-    /**
-     * P1-C — widget "Top scenarios" : classe par nombre reel d'executions
-     * dans la plage (all-time si aucune plage n'a ete demandee - "from"/"to"
-     * sont deja resolus a EPOCH/now par l'appelant). Deux requetes
-     * d'agregation SQL au total (jamais N+1) : la premiere identifie les
-     * TOP_SCENARIOS_LIMIT scenarios et leurs comptes, la seconde recupere
-     * leur temps de reponse moyen en une seule requete groupee.
-     */
+    /** Classement "Top scenarios" par nombre d'executions sur la periode. */
     private List<TopScenarioResponse> buildTopScenarios(Instant from, Instant to) {
         List<ScenarioExecutionCountProjection> topByCount = executionRepository.findTopScenariosByExecutionCount(
                 from, to, ExecutionStatus.SUCCESS, PageRequest.of(0, TOP_SCENARIOS_LIMIT));
@@ -190,8 +169,7 @@ public class DashboardServiceImpl implements DashboardService {
                 rate(failedSteps, totalStepsExecuted));
     }
 
-    /** Pourcentage part/total, arrondi 2 decimales - null si total == 0
-     * (aucune division par zero, jamais un taux invente). */
+    /** part / total en %, arrondi a 2 decimales ; null si total == 0. */
     private BigDecimal rate(long part, long total) {
         if (total <= 0) {
             return null;
@@ -213,8 +191,7 @@ public class DashboardServiceImpl implements DashboardService {
                 toBigDecimal(averageErrorRate, 2));
     }
 
-    /** AVG() JPQL renvoie null sur un ensemble vide (aucune Metric) - jamais
-     * remplace par 0, propage tel quel comme valeur "indefinie". */
+    /** null reste null (moyenne d'un ensemble vide). */
     private BigDecimal toBigDecimal(Double value, int scale) {
         if (value == null) {
             return null;

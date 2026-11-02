@@ -1,10 +1,4 @@
-// ============================================================
-// Les 3 rôles applicatifs réels (Keycloak ROLE_SUPER_ADMIN /
-// ROLE_PERFORMANCE_ENGINEER / ROLE_VIEWER) présentés en français, avec une
-// icône et une couleur propres. Source unique pour toutes les pages
-// (Utilisateurs et rôles, barre latérale, en-tête) : jamais le code brut
-// SUPER_ADMIN affiché à l'utilisateur.
-// ============================================================
+// Rôles applicatifs, avec leur libellé français, leur icône et leur couleur.
 
 import type { BackendAppRole } from '../types/backendContracts'
 

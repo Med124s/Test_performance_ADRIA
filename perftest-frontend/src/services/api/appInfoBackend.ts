@@ -1,8 +1,4 @@
-// ============================================================
-// Nom et version de LoadPilot (tout utilisateur connecté) :
-//   GET /api/version -> { name, version }
-// La version n'est définie qu'à un seul endroit : <version> de backend/pom.xml.
-// ============================================================
+// Nom et version de LoadPilot : GET /api/version -> { name, version }.
 
 import { springHttp } from './httpClient'
 

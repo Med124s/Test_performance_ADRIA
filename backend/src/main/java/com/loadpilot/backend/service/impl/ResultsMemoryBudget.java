@@ -7,20 +7,11 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/**
- * Budget memoire GLOBAL des resultats, exprime en « resultats » (~2,5 Ko chacun, voir
- * ResultsMemoryGuard) et partage par :
- *   - les executions suivies par ce processus (leurs resultats en memoire jusqu'a la fin de leur
- *     enregistrement) - surveillees par ResultsMemoryGuard ;
- *   - les lectures qui chargent tous les resultats d'une execution (rapport, exports, analyse dans
- *     le temps, comparaison...) - chacune reserve sa part pendant l'appel (ResultLoadGuard).
- * Lectures et tests partagent ainsi le meme plafond : une lecture n'est admise que si elle tient
- * dans ce qui reste.
- */
+/** Budget memoire des resultats, en "resultats" (~2,5 Ko chacun), partage par les executions en cours et les lectures de resultats. */
 @Component
 public class ResultsMemoryBudget {
 
-    /** Memoire comptee par resultat pour la valeur par defaut (pic apres le test, avec marge). */
+    /** Memoire comptee par resultat. */
     static final long BYTES_PER_RESULT = 2560;
 
     private final RunningExecutionRegistry registry;
@@ -42,7 +33,7 @@ public class ResultsMemoryBudget {
         return maxResults;
     }
 
-    /** Resultats en memoire des executions suivies (voir inMemory). */
+    /** Resultats en memoire des executions suivies. */
     public long executionsTotal() {
         long total = 0;
         for (UUID id : registry.activeExecutionIds()) {
@@ -51,13 +42,7 @@ public class ResultsMemoryBudget {
         return total;
     }
 
-    /**
-     * Resultats qu'une execution tient en memoire, en unites du budget :
-     *   - resultats ecrits au fil du test (ResultStream) : ceux encore dans le tampon d'ecriture, plus
-     *     les totaux (4 octets par requete, convertis en unites de BYTES_PER_RESULT) - les resultats
-     *     deja en base ne comptent plus ;
-     *   - sinon (resultats gardes jusqu'a la fin) : toutes les requetes du suivi en direct.
-     */
+    /** Resultats qu'une execution tient en memoire, en unites du budget. */
     public static long inMemory(RunningExecutionHandle handle) {
         if (handle == null) return 0;
         com.loadpilot.backend.service.execution.ResultStream stream = handle.resultStream();
@@ -75,11 +60,7 @@ public class ResultsMemoryBudget {
     /** Resultat d'une demande de reservation. */
     public enum Admission { ADMITTED, TOO_LARGE, BUSY }
 
-    /**
-     * Reserve "units" pour une lecture : TOO_LARGE si elle depasse a elle seule le budget, BUSY si
-     * elle ne tient pas dans ce qui reste (tests en cours, autres lectures). Synchronise : deux
-     * lectures simultanees ne peuvent pas toutes deux prendre la derniere place.
-     */
+    /** Reserve "units" pour une lecture : TOO_LARGE si elle depasse le budget, BUSY si elle ne tient pas dans ce qui reste. */
     public synchronized Admission tryReserve(long units) {
         if (units <= 0) return Admission.ADMITTED;
         if (units > maxResults) return Admission.TOO_LARGE;

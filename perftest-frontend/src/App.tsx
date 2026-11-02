@@ -23,9 +23,7 @@ import ScheduledExecutions from './pages/ScheduledExecutions'
 import ScheduleHistory from './pages/scheduling/ScheduleHistory'
 import RouteErrorPage, { NotFoundPage } from './pages/RouteErrorPage'
 
-// Routeur « data » (createBrowserRouter) : nécessaire à useBlocker, qui permet à
-// l'assistant « Nouveau scénario » d'intercepter toute navigation (liens du menu,
-// bouton retour du navigateur) tant que du travail n'est pas enregistré.
+// Routeur « data » (createBrowserRouter), nécessaire à useBlocker dans l'assistant de scénario.
 const router = createBrowserRouter(
   createRoutesFromElements(
     <>
@@ -44,12 +42,6 @@ const router = createBrowserRouter(
       <Route index element={<Dashboard />} />
       <Route path="applications" element={<Applications />} />
       <Route path="scenarios" element={<Scenarios />} />
-      {/* P1-G — l'assistant de création (CreateScenarioLanding/CreateScenario/
-          CreateStep, JSON Server) est retiré : la création/édition de
-          Scénarios et Steps réels se fait désormais uniquement depuis
-          /scenarios (Spring Boot), qui couvre la même fonctionnalité
-          (métadonnées, paramètres de charge, Steps, lancement). Redirection
-          pour tout lien/marque-page existant vers les anciennes routes. */}
       <Route path="scenarios/new" element={<ScenarioWizard />} />
       <Route path="scenarios/:id/edit" element={<ScenarioWizard mode="edit" />} />
       <Route path="scenarios/create" element={<Navigate to="/scenarios" replace />} />
@@ -59,23 +51,23 @@ const router = createBrowserRouter(
       <Route path="executions/detail/:id" element={<ExecutionDetail />} />
       <Route path="executions/live/:id" element={<ExecutionLive />} />
       <Route path="executions/compare" element={<ExecutionCompare />} />
-      {/* Page « Métriques » supprimée (doublon du Dashboard et du rapport) : anciennes adresses -> Dashboard. */}
+      {/* Anciennes adresses de la page Métriques -> Dashboard. */}
       <Route path="metriques/*" element={<Navigate to="/" replace />} />
-      {/* Page « Historique » supprimée (doublon de la page Exécutions) : anciennes adresses -> Exécutions. */}
+      {/* Anciennes adresses de la page Historique -> Exécutions. */}
       <Route path="historique/*" element={<Navigate to="/executions" replace />} />
       <Route path="notifications" element={<NotificationsPage />} />
       <Route path="notifications/preferences" element={<NotificationsPreferences />} />
-      {/* « Utilisateurs et rôles » : Users & Roles + Catalogue des rôles (onglets) ; anciennes adresses redirigées. */}
+      {/* « Utilisateurs et rôles » : utilisateurs et catalogue des rôles (onglets). */}
       <Route path="utilisateurs" element={<UtilisateursRoles />} />
       <Route path="users-roles" element={<Navigate to="/utilisateurs?tab=utilisateurs" replace />} />
       <Route path="roles-catalog" element={<Navigate to="/utilisateurs?tab=roles" replace />} />
       <Route path="audit-logs" element={<AuditLogs />} />
-      {/* « Paramètres » : Settings + Configurations + Intégrations (onglets) ; anciennes adresses redirigées. */}
+      {/* « Paramètres » : profil, système et intégrations (onglets). */}
       <Route path="parametres" element={<Parametres />} />
       <Route path="settings" element={<Navigate to="/parametres?tab=profil" replace />} />
       <Route path="settings/integrations" element={<Navigate to="/parametres?tab=integrations" replace />} />
       <Route path="configurations" element={<Navigate to="/parametres?tab=systeme" replace />} />
-      {/* Rapports : résultats des tests terminés (consulter, exporter en PDF, comparer). Ancienne adresse anglaise redirigée. */}
+      {/* Rapports : résultats des tests terminés (consulter, exporter en PDF, comparer). */}
       <Route path="rapports" element={<Reports />} />
       <Route path="reports" element={<Navigate to="/rapports" replace />} />
       <Route path="planification" element={<ScheduledExecutions />} />

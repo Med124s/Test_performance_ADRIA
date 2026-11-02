@@ -5,10 +5,7 @@ import {
   BackendMonitoringType,
 } from '../../types/backendContracts'
 
-// ============================================================
-// Section « Monitoring » d'une application : formulaire ↔ requête,
-// validation, libellés. Fonctions pures, testées.
-// ============================================================
+// Section « Monitoring » d'une application : formulaire, requête, validation et libellés.
 
 export interface MonitoringForm {
   type: BackendMonitoringType
@@ -85,10 +82,7 @@ export const MONITORING_SCOPE_TEXT =
   'CPU et RAM du processus de l’application testée (lus sur son endpoint de monitoring) : ni la machine entière, ni LoadPilot. '
   + 'CPU en % d’un cœur : 100 % = un cœur entièrement occupé (peut dépasser 100 % sur plusieurs cœurs).'
 
-/**
- * Tracé SVG de la mini-courbe (sans axes) : un segment par suite de points non nuls (un trou
- * interrompt la courbe). Échelle verticale du minimum au maximum des valeurs.
- */
+/** Tracé SVG de la mini-courbe : un segment par suite de points non nuls. */
 export function sparklinePaths(values: (number | null)[], width: number, height: number, pad = 2): string[] {
   const nums = values.filter((v): v is number => v != null)
   if (nums.length === 0) return []
@@ -108,6 +102,6 @@ export function sparklinePaths(values: (number | null)[], width: number, height:
     current.push(`${current.length ? 'L' : 'M'}${x.toFixed(1)},${y(v).toFixed(1)}`)
   })
   if (current.length) paths.push(current.join(' '))
-  // Point isole : petit trait horizontal pour rester visible.
+  // Point isolé : petit trait horizontal pour rester visible.
   return paths.map((p) => (p.includes('L') ? p : `${p} l0.1,0`))
 }

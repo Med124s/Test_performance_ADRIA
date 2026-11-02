@@ -31,19 +31,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * P0-B (prompt section 7) - preuve REELLE des limites de capacite
- * configurables : contexte Spring DEDIE avec des limites volontairement
- * basses (proprietes @SpringBootTest, jamais les valeurs de production) pour
- * declencher les refus de maniere deterministe et rapide, sans devoir
- * lancer des dizaines de VUs reels pour saturer les valeurs par defaut.
- *
- * Chaque refus doit etre : deterministe, explicite (message clair), HTTP
- * correct (429), journalise (voir AuditTrailIntegrationTest pour la
- * couverture d'audit generale) - et surtout, aucune Execution ne doit
- * jamais etre creee en base pour une tentative refusee (jamais un blocage
- * silencieux apres acceptation).
- */
+/** Limites de capacite, avec un contexte Spring dedie et des limites basses. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
         "app.execution.max-concurrent-executions=2",
         "app.execution.max-global-virtual-users=6",
@@ -169,8 +157,7 @@ class ExecutionConcurrencyLimitsTest {
         String exec1 = submitExecution(scenarioId);
         String exec2 = submitExecution(scenarioId);
 
-        // 2 executions actives (RUNNING/QUEUED) = la limite exacte - une 3e
-        // doit etre refusee de maniere deterministe, AVANT toute creation.
+        // 2 executions actives = la limite : la 3e est refusee avant toute creation.
         String body = objectMapper.writeValueAsString(new ExecutionRequest(UUID.fromString(scenarioId)));
         mockMvc.perform(post("/api/executions").with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isTooManyRequests())
@@ -178,12 +165,11 @@ class ExecutionConcurrencyLimitsTest {
 
         waitForTerminalStatus(exec1);
         waitForTerminalStatus(exec2);
-        // La place est rendue a la toute fin de la tache (apres le resume) : on attend sa liberation reelle.
+        // La place est rendue a la fin de la tache : on attend sa liberation.
         waitUntilReleased(exec1);
         waitUntilReleased(exec2);
 
-        // Capacite reellement liberee (jamais une fuite) : une nouvelle
-        // execution redevient possible une fois les deux premieres terminees.
+        // Capacite liberee : une nouvelle execution est possible.
         String exec3 = submitExecution(scenarioId);
         waitForTerminalStatus(exec3);
     }
@@ -200,12 +186,10 @@ class ExecutionConcurrencyLimitsTest {
         String smallScenarioId = createScenarioAndGetId(appId, "limit-global-vus-small", 2);
         createSlowStep(smallScenarioId);
 
-        // Reserve 5 des 6 VUs globaux disponibles (max-concurrent-executions=2
-        // n'est pas encore atteint : une seule execution active).
+        // Reserve 5 des 6 utilisateurs virtuels disponibles (une seule execution active).
         String bigExec = submitExecution(bigScenarioId);
 
-        // 5 (deja reserves) + 2 (demandes) = 7 > 6 (limite globale) - refuse
-        // meme si le nombre d'executions simultanees (1 < 2) le permettrait.
+        // 5 + 2 = 7 > 6 : refuse, meme si le nombre d'executions simultanees le permet.
         String body = objectMapper.writeValueAsString(new ExecutionRequest(UUID.fromString(smallScenarioId)));
         mockMvc.perform(post("/api/executions").with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isTooManyRequests())

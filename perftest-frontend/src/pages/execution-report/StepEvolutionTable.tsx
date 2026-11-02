@@ -1,12 +1,7 @@
 import { BackendStepEvolution } from '../../types/backendContracts'
 import { TREND_META, TREND_RULE, formatDeltaMs, formatDeltaPercent, formatSeconds, rowTooltip, sortTrends } from './stepEvolutionModel'
 
-// ============================================================
-// « Évolution des étapes pendant le test » : une ligne par étape,
-// P95 au début et à la fin, évolution et tendance.
-// Remplace le graphique par étape (illisible avec beaucoup d'étapes),
-// qui reste disponible replié sous le tableau.
-// ============================================================
+// « Évolution des étapes pendant le test » : P95 de chaque étape au début et à la fin, évolution et tendance.
 
 export default function StepEvolutionTable({ evolution, long }: { evolution: BackendStepEvolution; long: boolean }) {
   if (!evolution.comparable) {

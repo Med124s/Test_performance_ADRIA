@@ -44,14 +44,7 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-/**
- * "record" est volontairement NON @Transactional sur cette classe : la
- * veritable ecriture transactionnelle (REQUIRES_NEW) vit sur le bean separe
- * AuditLogWriter, et record() englobe TOUT l'appel (invocation + commit
- * eventuel) dans un try/catch - garantissant qu'AUCUNE exception liee a
- * l'audit ne peut jamais remonter jusqu'a l'appelant metier (voir Phase 12,
- * section 15).
- */
+/** Journal d'audit : enregistrement (sans jamais lever d'exception), recherche, statistiques et export CSV. */
 @Service
 @RequiredArgsConstructor
 public class AuditLogServiceImpl implements AuditLogService {
@@ -67,7 +60,7 @@ public class AuditLogServiceImpl implements AuditLogService {
     private final AppSettingsService settings;
     private final RequestIpResolver ipResolver;
 
-    /** Derniere seconde ou chaque action (cle complete) a ete ecrite : anti-doublon. */
+    /** Derniere seconde d'ecriture de chaque action, pour ignorer les doublons. */
     private final Map<String, Long> lastWritten = new ConcurrentHashMap<>();
 
     @Override
@@ -105,12 +98,11 @@ public class AuditLogServiceImpl implements AuditLogService {
             }
             auditLogWriter.write(entry);
         } catch (Exception e) {
-            // Jamais de donnee sensible loggee ici - uniquement la classe d'exception (voir Phase 12, section 20).
             log.warn("Ecriture de l'AuditLog echouee ({} / {} / {}) : {}", event.action(), event.module(), event.result(), e.getClass().getSimpleName());
         }
     }
 
-    /** Meme acteur, meme action, meme objet, meme resultat et meme texte dans la meme seconde : ignore. */
+    /** Meme acteur, action, objet, resultat et texte dans la meme seconde : doublon. */
     private boolean isDuplicate(AuditLog entry) {
         String key = String.join("|", entry.getActorType(), String.valueOf(entry.getUserId()), String.valueOf(entry.getUsername()),
                 String.valueOf(entry.getActorSource()), entry.getAction().name(), entry.getModule().name(),
@@ -225,7 +217,7 @@ public class AuditLogServiceImpl implements AuditLogService {
             return "";
         }
         String safe = AuditSanitizer.clean(value);
-        // Pas d'execution de formule a l'ouverture dans un tableur (injection CSV).
+        // Protection contre l'injection de formules dans un tableur.
         if (!safe.isEmpty() && "=+-@".indexOf(safe.charAt(0)) >= 0) {
             safe = "'" + safe;
         }

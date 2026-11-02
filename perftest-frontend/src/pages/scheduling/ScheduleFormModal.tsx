@@ -14,13 +14,7 @@ import {
   formatInZone, isoToZoned, maskFrDateTime, parseCron, parseFrDateTime, parseTime, timezoneOptions, toFiveFields, zonedToIso,
 } from './scheduleModel'
 
-// ============================================================
-// Formulaire « Nouvelle planification » / « Modifier la planification ».
-// Aucune expression CRON à connaître : une fréquence (chaque jour, jours
-// ouvrés, chaque semaine, chaque mois) + une heure ; « Personnalisée »
-// pour un CRON libre, traduit en français sous le champ. Les 3 prochaines
-// exécutions viennent du serveur (même calcul que le déclencheur).
-// ============================================================
+// Formulaire « Nouvelle planification » / « Modifier la planification » : fréquence, date unique ou expression CRON, fuseau horaire et aperçu.
 
 interface Props {
   schedule: BackendScheduledExecutionResponse | null
@@ -71,7 +65,7 @@ export default function ScheduleFormModal({ schedule, scenarios, onClose, onSave
   const scenarioOptions = useMemo(() => selectable.map((s) => ({ value: s.id, label: s.name, hint: s.applicationName })), [selectable])
   const scenario = scenarios.find((s) => s.id === scenarioId) ?? null
 
-  // ---- valeurs calculées et validation
+  // ---- Valeurs calculées et validation ----
   const oneTime = parseFrDateTime(oneTimeText)
   const runAtIso = oneTime ? zonedToIso(oneTime.day, oneTime.time, timezone) : null
   const cron = type === 'RECURRING_CRON' ? buildCron(recurrence) : null
@@ -98,7 +92,7 @@ export default function ScheduleFormModal({ schedule, scenarios, onClose, onSave
   }
   const scheduleReady = type === 'ONE_TIME' ? !errors.runAt : !errors.cron && !errors.time && !errors.days
 
-  // ---- aperçu des 3 prochaines exécutions (serveur, après une courte pause de saisie)
+  // ---- Aperçu des 3 prochaines exécutions ----
   useEffect(() => {
     if (!scheduleReady) { setPreview({ runs: [], error: null, loading: false }); return }
     let alive = true

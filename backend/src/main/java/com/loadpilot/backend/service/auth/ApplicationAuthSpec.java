@@ -2,8 +2,7 @@ package com.loadpilot.backend.service.auth;
 
 import com.loadpilot.backend.enums.ApplicationAuthType;
 
-/** Authentification a appliquer par le moteur et le test de disponibilite
- * (copie immuable prise au lancement, comme LoadTestSpec). */
+/** Authentification a appliquer aux requetes, copiee au lancement. */
 public record ApplicationAuthSpec(ApplicationAuthType type, ApplicationAuthConfig config) {
 
     public static ApplicationAuthSpec none() {

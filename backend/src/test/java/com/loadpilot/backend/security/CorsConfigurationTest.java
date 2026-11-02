@@ -15,21 +15,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * Verifie la configuration CORS reelle de SecurityConfig - jamais testee
- * jusqu'ici (Phase 14). "app.cors.allowed-origins" est stubbe explicitement
- * a une origine connue via @TestPropertySource : le profil "test" (voir
- * application-test.yml) ne le definit pas, et CorsProperties par defaut est
- * une liste VIDE (aucune origine autorisee) - un choix "secure by default"
- * deliberee (voir CorsProperties) qui rendrait ce test sans objet sans ce
- * stub.
- *
- * Preflight (OPTIONS) : Spring Security's CorsFilter (active via
- * SecurityConfig.corsConfigurationSource(), voir .cors(...)) traite et
- * termine entierement une requete preflight AVANT meme d'atteindre
- * l'autorisation - une origine non autorisee ne doit donc jamais recevoir
- * les en-tetes Access-Control-Allow-*, quel que soit le token fourni.
- */
+/** Configuration CORS de SecurityConfig, avec une origine autorisee fixee par @TestPropertySource. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -59,9 +45,7 @@ class CorsConfigurationTest {
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
                 .andReturn();
 
-        // Comportement exact (403 vs reponse sans en-tete CORS) laisse au
-        // framework - la seule garantie de securite a verifier est qu'une
-        // origine non autorisee ne recoit JAMAIS le header qui l'autoriserait.
+        // Une origine non autorisee ne recoit jamais l'en-tete qui l'autoriserait.
         org.assertj.core.api.Assertions.assertThat(
                 result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isNull();
     }

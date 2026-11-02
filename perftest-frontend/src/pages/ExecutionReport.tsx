@@ -14,18 +14,14 @@ import ExtremesPanel from './execution-report/ExtremesPanel'
 import { KeepToggle, RetentionNotice } from './execution-report/Retention'
 import { saveBlob } from '../utils/download'
 
-/** Exports du rapport, tous générés par le serveur : Excel et PDF (pas de CSV). */
+// Exports du rapport générés par le serveur : Excel et PDF.
 const REPORT_EXPORTS = {
   xlsx: { label: 'Excel', run: executionsBackendApi.exportReportXlsx },
   pdf: { label: 'PDF', run: executionsBackendApi.exportReportPdf },
 } as const
 type ExportKind = keyof typeof REPORT_EXPORTS
 
-// ============================================================
-// Phase 23 — même politique de double chaîne que ExecutionDetail.tsx : un
-// id Spring Boot est toujours un UUID v4 réel, jamais un id JSON Server
-// dans ce projet — voir ExecutionDetail.tsx pour la justification complète.
-// ============================================================
+// Les identifiants d'exécution du backend sont des UUID.
 const SPRING_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function describeApiError(err: unknown, fallback: string): string {
@@ -55,17 +51,7 @@ function formatDurationMs(ms: number | null): string {
   return `${h}:${m}:${s}`
 }
 
-// ------------------------------------------------------------
-// Vue Spring Boot (P1-A, remplace l'ancienne version Phase 23) — rapport
-// basé uniquement sur GET /api/executions/{id}/report (voir
-// ExecutionController#getReport / PerformanceStatisticsService cote
-// backend) : statistiques REELLEMENT calculees, percentiles reels
-// (p50/p75/p90/p95/p99 - le backend ne les calculait nulle part avant
-// P1-A, voir rapport P0-B), configuration de charge reellement figee au
-// lancement, agregation reelle par step, erreurs reelles. Plus aucun appel
-// a executionsBackendApi.getById/metricsBackendApi.search : un seul appel
-// reseau suffit desormais (evite toute divergence entre deux sources).
-// ------------------------------------------------------------
+// Rapport d'une exécution (GET /api/executions/{id}/report).
 function SpringExecutionReport({ id }: { id: string }) {
   const { showToast } = useToast()
   const [report, setReport] = useState<BackendExecutionReportResponse | null>(null)
@@ -125,7 +111,7 @@ function SpringExecutionReport({ id }: { id: string }) {
     )
   }
 
-  // Carte « Statut » et badge : table unique des statuts (utils/executionStatus), statut inconnu en gris.
+  // Carte « Statut » et badge ; statut inconnu en gris.
   const statusInfo = executionStatusMeta(report.status)
   const meta = { cls: statusInfo.pill, color: statusInfo.color, text: statusInfo.label, icon: statusInfo.outlineIcon, iconColor: statusInfo.iconColor }
   const stats = report.statistics
@@ -181,9 +167,7 @@ function SpringExecutionReport({ id }: { id: string }) {
         </div>
       </div>
 
-      {/* Configuration de charge REELLEMENT figee au lancement (voir
-          Execution.virtualUsers et suivants, P0-A) — jamais celle,
-          potentiellement differente, du Scenario aujourd'hui. */}
+      {/* Configuration de charge copiée au lancement. */}
       <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)' }}>
         <i className="bi bi-sliders" style={{ color: 'var(--pt-primary)' }}></i> CONFIGURATION DE CHARGE (figée au lancement)
       </div>
@@ -196,9 +180,7 @@ function SpringExecutionReport({ id }: { id: string }) {
         {report.iterations != null && (
           <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-arrow-repeat me-1"></i>{report.iterations} itération(s)</span>
         )}
-        {/* P1-C — utilisateur ayant réellement lancé cette exécution (voir
-            P1-B, Execution.triggeredBy) — absent pour toute exécution
-            antérieure à P1-B, jamais deviné. */}
+        {/* Utilisateur qui a lancé l'exécution. */}
         {report.triggeredByUsername && (
           <span className="pt-pill info" style={{ fontSize: '11.5px' }}><i className="bi bi-person-fill me-1"></i>Lancée par {report.triggeredByUsername}</span>
         )}
@@ -207,7 +189,7 @@ function SpringExecutionReport({ id }: { id: string }) {
         )}
       </div>
 
-      {/* Seuils de reussite copies au lancement et leur resultat (absents des executions anterieures). */}
+      {/* Seuils de réussite copiés au lancement et leur résultat. */}
       {report.thresholds && (
         <>
           <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)' }}>
@@ -231,8 +213,7 @@ function SpringExecutionReport({ id }: { id: string }) {
           </ul>
         </>
       )}
-      {/* Statistiques de temps de reponse — min/max/moyenne (jamais de
-          valeur inventee : "N/D" si aucune requete n'a de temps mesurable). */}
+      {/* Temps de réponse : minimum, maximum, moyenne. */}
       <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)' }}>
         <i className="bi bi-speedometer2" style={{ color: 'var(--pt-primary)' }}></i> TEMPS DE RÉPONSE (millisecondes)
       </div>
@@ -268,7 +249,7 @@ function SpringExecutionReport({ id }: { id: string }) {
         })}
       </div>
 
-      {/* Summary cards — champs REELS uniquement, issus de PerformanceStatisticsService */}
+      {/* Cartes de résumé */}
       <div className="row g-3 mb-4">
         <div className="col" style={{ flex: '1 1 180px' }}>
           <div className="pt-stat-card">

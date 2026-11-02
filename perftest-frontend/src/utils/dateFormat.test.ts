@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { formatDate } from './dateFormat'
 import { inUserZone, setUserTimezone } from './userTimezone'
 
-// Fonction commune (correction P9) : même résultat que les anciennes copies locales des pages
-// Exécutions, Scénarios, Applications, Notifications (heure:minute) et Détail d'exécution (avec secondes).
+// formatDate donne le même résultat que les anciennes fonctions locales des pages.
 
 /** Anciennes implémentations, recopiées telles quelles pour la comparaison. */
 const oldFormatDate = (iso: string) => {

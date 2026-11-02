@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('react-chartjs-2', () => ({ Bar: () => <div />, Line: () => <div />, Doughnut: () => <div /> }))
 vi.mock('../components/TopBar', () => ({ default: () => <div /> }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ authProvider: 'keycloak', rawRoles: ['ROLE_VIEWER'] }) }))
-// Les métriques d'une exécution (une par requête) ne doivent plus être chargées par cette page.
+// Cette page ne charge pas les métriques de l'exécution.
 const metricsSearch = vi.hoisted(() => vi.fn(() => Promise.resolve([])))
 vi.mock('../services/api/metricsBackend', () => ({ metricsBackendApi: { search: metricsSearch } }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: {

@@ -23,11 +23,7 @@ const typeMeta: Record<ToastType, { icon: string; color: string; bg: string }> =
   info: { icon: 'bi-info-circle-fill', color: 'var(--pt-info)', bg: 'var(--pt-info-light)' },
 }
 
-/**
- * Alertes ponctuelles ("toasts") affichées après une action utilisateur
- * (ajout / modification / suppression / opération...) — distinctes du
- * centre de notifications persistant (cloche), qui reste géré à part.
- */
+/** Messages ponctuels (« toasts ») affichés après une action. */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const nextId = useRef(1)

@@ -43,11 +43,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Verifie le module Executions de bout en bout, avec de VRAIES requetes
- * HTTP vers un serveur JDK embarque (aucun mock du moteur d'execution) -
- * seul JwtDecoder est mocke (aucun Keycloak reel necessaire).
- */
+/** Module Executions de bout en bout, avec de vraies requetes HTTP vers un serveur embarque ; seul JwtDecoder est simule. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -146,14 +142,7 @@ class ExecutionControllerTest {
         return executionId;
     }
 
-    /**
-     * Soumet une execution et retourne son id immediatement, sans attendre qu'elle termine.
-     * Le statut au retour de la reponse HTTP peut etre QUEUED ou deja RUNNING : la tache
-     * asynchrone (thread virtuel) demarre des la soumission et peut avoir deja appele
-     * markRunning() avant meme que le thread du controleur ait serialise la reponse. La
-     * seule garantie reelle du contrat async est que le POST ne bloque pas jusqu'a la fin
-     * de l'execution (statut non terminal), pas que le statut soit encore QUEUED.
-     */
+    /** Soumet une execution et renvoie son id sans attendre ; le statut renvoye peut etre QUEUED ou RUNNING. */
     private String submitExecutionWithoutWaiting(String scenarioId) throws Exception {
         String body = objectMapper.writeValueAsString(new ExecutionRequest(UUID.fromString(scenarioId)));
         String response = mockMvc.perform(post("/api/executions").with(AS_SUPER_ADMIN)
@@ -190,7 +179,7 @@ class ExecutionControllerTest {
         throw new AssertionError("Execution " + executionId + " n'a pas atteint le statut " + expectedStatus + " a temps.");
     }
 
-    /** Scenario a 1 step reussi (cible reelle /ok). */
+    /** Scenario a une etape reussie (/ok). */
     private String scenarioWithSuccessfulStep(String prefix) throws Exception {
         String appId = createApplicationAndGetId(prefix + "-app");
         String scenarioId = createScenarioAndGetId(appId, prefix + "-scenario");
@@ -198,7 +187,7 @@ class ExecutionControllerTest {
         return scenarioId;
     }
 
-    /** Scenario a 1 step qui echoue (cible reelle /fail). */
+    /** Scenario a une etape en echec (/fail). */
     private String scenarioWithFailingStep(String prefix) throws Exception {
         String appId = createApplicationAndGetId(prefix + "-app");
         String scenarioId = createScenarioAndGetId(appId, prefix + "-scenario");
@@ -358,8 +347,7 @@ class ExecutionControllerTest {
 
     @Test
     void failingStep_testRanToTheEnd_thresholdsExceededWithError() throws Exception {
-        // Le test est alle au bout (l'application a repondu, en erreur) : seuil de taux d'erreurs depasse,
-        // pas « Echouee » (reserve a un test qui n'a pas pu se derouler).
+        // Le test est alle au bout : seuils depasses, pas « Echouee ».
         String scenarioId = scenarioWithFailingStep("status-failed");
         String executionId = executeScenarioAndGetId(scenarioId);
 
@@ -488,29 +476,7 @@ class ExecutionControllerTest {
                 .andExpect(jsonPath("$.finishedAt").exists());
     }
 
-    /**
-     * P0-B (section 9, cas 5) : plusieurs appels /cancel simultanes sur la
-     * MEME execution ne doivent jamais produire un etat incoherent.
-     *
-     * IMPORTANT (constat verifie, pas suppose) : contrairement a une
-     * intuition naive, "exactement un seul 200 parmi N appels concurrents"
-     * n'est PAS la bonne invariante ici. Tant qu'une execution est
-     * REELLEMENT RUNNING, PLUSIEURS appels concurrents peuvent tous
-     * legitimement observer ce meme statut RUNNING (chacun sous son propre
-     * verrou, releve sequentiellement) et donc tous recevoir 200 - c'est
-     * correct et idempotent (voir RunningExecutionHandle.requestCancellation,
-     * deja idempotent par construction). La SEULE transition qui doit
-     * rester strictement unique est QUEUED -> CANCELLED (prouvee
-     * deterministe et sans timing incertain dans
-     * ExecutionTransactionHelperRaceTest.
-     * attemptCancellation_calledTwiceOnSameQueuedExecution_isIdempotent).
-     *
-     * Ce test-ci verifie donc l'invariante REELLE au niveau HTTP bout-en-
-     * bout : quel que soit le nombre d'appels concurrents et leur resultat
-     * individuel (200 ou 409, jamais autre chose), l'etat FINAL en base
-     * reste unique, coherent et deterministe (CANCELLED, un seul
-     * finishedAt) - jamais de double traitement ni d'etat corrompu.
-     */
+    /** Plusieurs annulations simultanees de la meme execution donnent un etat final coherent. */
     @Test
     void concurrentCancelCalls_onSameRunningExecution_neverProduceAnIncoherentFinalState() throws Exception {
         String appId = createApplicationAndGetId("concurrent-cancel-app-" + UUID.randomUUID());
@@ -539,21 +505,17 @@ class ExecutionControllerTest {
         long successCount = 0;
         for (Future<Integer> f : futures) {
             int status = f.get();
-            // Jamais un statut HTTP inattendu (ex: 500) - seuls 200 (annulation
-            // reellement demandee) ou 409 (deja terminee entre-temps) sont
-            // des reponses valides ici.
+            // Seuls 200 (annulation demandee) ou 409 (deja terminee) sont attendus.
             assertThat(status).isIn(200, 409);
             if (status == 200) successCount++;
         }
         pool.shutdown();
 
-        // Au moins un appel a reellement demande l'annulation (l'execution
-        // etait bien RUNNING au debut du test) - jamais zero.
+        // Au moins un appel a demande l'annulation.
         assertThat(successCount).isGreaterThanOrEqualTo(1);
 
         waitForTerminalStatus(executionId);
-        // Etat final UNIQUE et coherent, quel que soit le nombre d'appels
-        // ayant reussi individuellement - jamais de double traitement.
+        // Un seul etat final, coherent.
         String finalDetail = mockMvc.perform(get("/api/executions/" + executionId).with(AS_VIEWER))
                 .andExpect(jsonPath("$.status").value("CANCELLED"))
                 .andReturn().getResponse().getContentAsString();
@@ -561,9 +523,7 @@ class ExecutionControllerTest {
         assertThat(finishedAt).isNotBlank();
     }
 
-    // ------------------------------------------------------------
-    // P0-B : isolation entre executions simultanees
-    // ------------------------------------------------------------
+    // ---- Isolation entre executions simultanees ----
 
     private String createScenarioWithVirtualUsers(String applicationId, String name, int virtualUsers) throws Exception {
         String body = objectMapper.writeValueAsString(
@@ -575,10 +535,7 @@ class ExecutionControllerTest {
         return objectMapper.readTree(response).get("id").asText();
     }
 
-    /** P0-B (section 14) : 3 executions reelles (5 VUs chacune) lancees
-     * simultanement via la vraie API HTTP ne doivent JAMAIS melanger leurs
-     * resultats, metrics ou statuts - chacune isolee par son propre
-     * RunningExecutionHandle (voir RunningExecutionRegistry). */
+    /** 3 executions (5 utilisateurs virtuels chacune) lancees en meme temps ne melangent ni resultats ni statuts. */
     @Test
     void threeExecutions_runningSimultaneously_remainCompletelyIsolated() throws Exception {
         String appId = createApplicationAndGetId("isolation-app-" + UUID.randomUUID());
@@ -609,8 +566,7 @@ class ExecutionControllerTest {
         JsonNode jsonB = objectMapper.readTree(detailB);
         JsonNode jsonC = objectMapper.readTree(detailC);
 
-        // Chacune a bien 5 resultats reels (5 VUs, 1 passe chacun), tous
-        // reussis, tous rattaches a SA PROPRE etape (jamais celle d'une autre).
+        // 5 resultats chacune (5 utilisateurs virtuels, 1 passage), tous reussis, tous sur sa propre etape.
         for (JsonNode json : List.of(jsonA, jsonB, jsonC)) {
             assertThat(json.get("status").asText()).isEqualTo("SUCCESS");
             assertThat(json.get("successfulSteps").asInt()).isEqualTo(5);
@@ -622,7 +578,7 @@ class ExecutionControllerTest {
         assertThat(stepNameA).isEqualTo("step-a");
         assertThat(stepNameB).isEqualTo("step-b");
         assertThat(stepNameC).isEqualTo("step-c");
-        // Tous les resultats de A referencent bien l'etape de A, jamais B/C.
+        // Les resultats de A referencent l'etape de A.
         for (JsonNode result : jsonA.get("results")) {
             assertThat(result.get("stepName").asText()).isEqualTo("step-a");
         }
@@ -633,25 +589,21 @@ class ExecutionControllerTest {
             assertThat(result.get("stepName").asText()).isEqualTo("step-c");
         }
 
-        // Statuts distincts en base, jamais confondus.
+        // Statuts distincts.
         assertThat(execA).isNotEqualTo(execB);
         assertThat(execB).isNotEqualTo(execC);
     }
 
-    // ------------------------------------------------------------
-    // P0-B (section 13) : immutabilite des parametres de charge
-    // ------------------------------------------------------------
+    // ---- Parametres de charge figes au lancement ----
 
-    /** Modifier le Scenario PENDANT qu'une Execution tourne ne doit jamais
-     * changer les parametres deja figes sur cette Execution en cours (voir
-     * ExecutionTransactionHelper.prepareAndStart, copie au lancement). */
+    // Modifier le scenario pendant une execution est refuse ; l'execution garde ses parametres.
     @Test
     void modifyingScenario_whileExecutionIsRunning_isRefused_andFrozenParametersStayUnchanged() throws Exception {
         String appId = createApplicationAndGetId("immutability-app-" + UUID.randomUUID());
         String scenarioId = createScenarioAndGetId(appId, "immutability-scenario");
         createStep(scenarioId, "slow-step", 1, "/slow", 200);
 
-        // Etat initial reellement fige au lancement : 1 VU (defaut), ramp-up 0.
+        // Parametres figes au lancement : 1 utilisateur virtuel, ramp-up 0.
         String executionId = submitExecutionWithoutWaiting(scenarioId);
         waitForStatus(executionId, "RUNNING");
 
@@ -671,28 +623,24 @@ class ExecutionControllerTest {
                         .with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON).content(updateBody))
                 .andExpect(status().isOk());
 
-        // L'execution deja en cours au moment de la modification garde ses
-        // PROPRES parametres figes au lancement, jamais ceux du Scenario
-        // modifie entre-temps.
+        // L'execution garde les parametres copies au lancement.
         mockMvc.perform(get("/api/executions/" + executionId).with(AS_VIEWER))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.virtualUsers").value(1))
                 .andExpect(jsonPath("$.rampUpSeconds").value(0));
 
-        // Le Scenario, lui, reflete bien la modification reelle.
+        // Le scenario contient la modification.
         mockMvc.perform(get("/api/scenarios/" + scenarioId).with(AS_VIEWER))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.virtualUsers").value(99))
                 .andExpect(jsonPath("$.rampUpSeconds").value(5));
 
-        // Une NOUVELLE execution lancee APRES la modification recoit, elle,
-        // bien les nouveaux parametres - jamais les anciens fige a tort.
+        // Une nouvelle execution recoit les nouveaux parametres.
         String newExecutionId = submitExecutionWithoutWaiting(scenarioId);
         mockMvc.perform(get("/api/executions/" + newExecutionId).with(AS_VIEWER))
                 .andExpect(jsonPath("$.virtualUsers").value(99))
                 .andExpect(jsonPath("$.rampUpSeconds").value(5));
-        // Annule immediatement pour ne pas laisser 99 VUs reels tourner pour
-        // rien le temps du reste de la suite de tests.
+        // Annulee aussitot pour ne pas laisser tourner 99 utilisateurs virtuels.
         mockMvc.perform(post("/api/executions/" + newExecutionId + "/cancel").with(AS_SUPER_ADMIN));
         waitForTerminalStatus(newExecutionId);
     }

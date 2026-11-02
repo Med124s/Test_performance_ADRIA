@@ -1,7 +1,6 @@
 import { useTheme, ThemePreference } from '../../utils/theme'
 
-// Apparence : trois choix, le même état que le bouton de la barre latérale (utils/theme.ts),
-// mémorisé sur le profil.
+// Apparence : clair, sombre ou système, mémorisée sur le profil.
 
 const CHOICES: { value: ThemePreference; label: string; hint: string; icon: string }[] = [
   { value: 'light', label: 'Clair', hint: 'Toujours clair', icon: 'bi-sun' },

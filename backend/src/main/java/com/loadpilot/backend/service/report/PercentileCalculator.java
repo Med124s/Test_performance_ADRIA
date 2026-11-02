@@ -2,39 +2,13 @@ package com.loadpilot.backend.service.report;
 
 import java.util.List;
 
-/**
- * P1-A (prompt section 13-15) — le backend ne calculait AUCUN percentile
- * nulle part avant cette phase (verifie par recherche exhaustive du code
- * pendant P0-B) : cette classe est la toute premiere implementation reelle,
- * jamais une valeur approximative ou hardcodee.
- *
- * METHODE : "nearest rank" (rang le plus proche), la definition la plus
- * simple et la plus repandue des percentiles sur une population finie et
- * deterministe (pas d'interpolation entre deux valeurs, contrairement a la
- * methode "linear interpolation" d'Excel/NumPy - choisie ici pour sa
- * simplicite et sa reproductibilite exacte, suffisante pour un premier
- * reporting fiable, voir prompt section 14).
- *
- * Pour un percentile p (0-100) sur une population triee de taille n :
- *   rang = ceil(p / 100 * n), au moins 1, au plus n
- *   valeur = population triee [rang - 1]  (index 0-based)
- *
- * POPULATION : temps de reponse en MILLISECONDES (voir
- * ExecutionStepResult.responseTime), jamais une autre unite.
- * VALEURS NULLES : exclues de la population AVANT tri (une requete sans
- * temps de reponse mesurable n'est jamais comptee comme 0ms - un 0ms
- * fabrique fausserait p50/p95/p99).
- * POPULATION VIDE : toutes les methodes retournent null - jamais une
- * valeur inventee (0, NaN ou autre).
- * POPULATION A 1 VALEUR : min = max = moyenne = tous les percentiles =
- * cette unique valeur (cas verifie explicitement par test).
- */
+/** Percentiles (rang le plus proche : rang = ceil(p / 100 * n)) et moyenne des temps de reponse. */
 public final class PercentileCalculator {
 
     private PercentileCalculator() {
     }
 
-    /** Percentile p (0 &lt; p &le; 100) sur des temps de reponse en ms. Null si population vide. */
+    /** Percentile p (0 &lt; p &le; 100) des temps de reponse (ms) ; null si la liste est vide. */
     public static Long percentile(List<Long> responseTimesMs, double p) {
         List<Long> sorted = sortedNonNull(responseTimesMs);
         if (sorted.isEmpty()) {
@@ -56,7 +30,7 @@ public final class PercentileCalculator {
         return sorted.isEmpty() ? null : sorted.get(sorted.size() - 1);
     }
 
-    /** Moyenne arrondie a l'entier le plus proche (meme unite, ms) - null si population vide. */
+    /** Moyenne arrondie (ms) ; null si la liste est vide. */
     public static Long average(List<Long> responseTimesMs) {
         List<Long> sorted = sortedNonNull(responseTimesMs);
         if (sorted.isEmpty()) {

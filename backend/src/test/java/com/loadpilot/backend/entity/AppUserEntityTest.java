@@ -7,13 +7,7 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-/**
- * Garde-fou (Phase 5, point 10.G) : AppUser represente un utilisateur
- * authentifie via Keycloak et ne doit jamais porter de mot de passe/
- * credential/token - l'authentification reste integralement deleguee a
- * Keycloak. Ce test echoue immediatement si un tel champ est ajoute par
- * erreur plus tard.
- */
+/** AppUser ne porte ni mot de passe ni jeton : l'authentification est geree par Keycloak. */
 class AppUserEntityTest {
 
     private static final Set<String> FORBIDDEN_SUBSTRINGS = Set.of(

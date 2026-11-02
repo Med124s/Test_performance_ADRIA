@@ -5,22 +5,11 @@ import com.loadpilot.backend.service.http.NetworkProfile;
 import java.net.http.HttpClient;
 import java.time.Duration;
 
-/**
- * Clients HTTP d'UN utilisateur virtuel, utilises par son seul thread (jamais partages) : le
- * client qui suit les redirections, cree tout de suite, et celui qui ne les suit pas, cree a la
- * demande. Fermes par shutdownNow() a la fin du VU : sinon leur thread de selecteur, leurs
- * descripteurs et leurs connexions restent ouverts jusqu'au passage du GC.
- *
- * HTTP_1_1 fixe explicitement (P0-A, section 21 - performance du moteur) : sans cela,
- * java.net.http.HttpClient tente une negociation HTTP/2 sur CHAQUE nouvelle connexion, ce qui ajoute
- * jusqu'a ~1s de latence PAR REQUETE contre une cible sans keep-alive. HttpClient fixe sa politique de
- * redirection a la CONSTRUCTION, jamais par requete : d'ou deux clients (NORMAL et NEVER). Pot de
- * cookies commun aux deux, pour qu'une redirection suivie ou non ne perde pas la session.
- */
+/** Clients HTTP d'un utilisateur virtuel : un qui suit les redirections, un qui ne les suit pas (cree a la demande). */
 final class VirtualUserClients {
 
     private final VirtualUserCookieJar cookies;
-    /** Proxy et confiance TLS de l'application testee (voir NetworkProfile), communs aux deux clients. */
+    /** Reglages reseau de l'application testee. */
     private final NetworkProfile network;
     private final long connectTimeoutSeconds;
     private final HttpClient following;
@@ -52,11 +41,7 @@ final class VirtualUserClients {
                 .build();
     }
 
-    /**
-     * shutdownNow, pas close() : close() attend la fin des echanges encore actifs - apres une
-     * annulation en plein appel, jusqu'au delai d'attente de la requete. Ici, plus aucune reponse
-     * n'est attendue. Jamais d'exception : la fin du VU et ses resultats passent avant.
-     */
+    /** Ferme les deux clients sans attendre les echanges en cours. */
     void shutdownNow() {
         HttpClients.shutdownQuietly(following);
         HttpClients.shutdownQuietly(notFollowing);

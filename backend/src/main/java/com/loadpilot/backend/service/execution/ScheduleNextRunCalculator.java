@@ -11,46 +11,20 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.scheduling.support.CronExpression;
 
-/**
- * Calcul REEL (jamais approximatif) de la prochaine occurrence d'une
- * ScheduledExecution - partage par ScheduledExecutionServiceImpl (creation/
- * modification/validation/apercu) et ScheduledExecutionTransactionHelper
- * (reprogrammation apres chaque declenchement), pour ne jamais dupliquer
- * cette logique a deux endroits qui pourraient diverger.
- *
- * CHOIX TECHNOLOGIQUE (P1-B) : cron via {@link CronExpression} (deja inclus
- * dans spring-context, AUCUNE nouvelle dependance comme Quartz). Les
- * frequences de l'interface (chaque jour, jours ouvres, chaque semaine,
- * chaque mois) sont toutes traduites en expression cron : une seule
- * mecanique de calcul. Une expression standard a 5 champs (minute heure
- * jour mois jour-semaine) est acceptee et completee par "0" secondes.
- *
- * TIMEZONE : le fuseau horaire de la ScheduledExecution n'intervient QUE
- * pour interpreter l'heure de mur de "cronExpression" - le resultat est
- * toujours converti en Instant (UTC) avant d'etre compare/persiste : les
- * changements d'heure ete/hiver du fuseau choisi sont donc geres
- * correctement a chaque recalcul.
- *
- * DATE DE FIN ("endAt", recurrente seulement) : aucune occurrence apres
- * cet instant - la prochaine occurrence devient alors null (planification
- * expiree).
- */
+/** Calcul des prochains lancements d'une planification (date unique ou expression cron, dans son fuseau horaire). */
 public final class ScheduleNextRunCalculator {
 
     private ScheduleNextRunCalculator() {
     }
 
-    /**
-     * Expression cron normalisee (6 champs Spring) : espaces multiples reduits, et "0" secondes ajoute
-     * devant une expression standard a 5 champs. Null ou vide reste tel quel (refuse plus loin).
-     */
+    /** Expression cron normalisee (6 champs Spring) ; "0" secondes ajoute devant une expression a 5 champs. */
     public static String normalizeCron(String cronExpression) {
         if (cronExpression == null || cronExpression.isBlank()) return cronExpression;
         String compact = cronExpression.trim().replaceAll("\\s+", " ");
         return compact.split(" ").length == 5 ? "0 " + compact : compact;
     }
 
-    /** Calcul initial, a la creation / modification - valide aussi "runAt" (unique : strictement futur) et "endAt". */
+    /** Premier lancement, a la creation ou modification ; verifie aussi "runAt" (futur) et "endAt". */
     public static Instant computeInitial(ScheduleType type, Instant runAt, String cronExpression,
                                           String timezone, Instant now) {
         return computeInitial(type, runAt, cronExpression, timezone, null, now);
@@ -82,8 +56,7 @@ public final class ScheduleNextRunCalculator {
         };
     }
 
-    /** Recalcul APRES un declenchement (automatique ou "run now") : unique -> null (terminee) ; recurrente ->
-     * occurrence suivante apres "now", ou null si elle depasse la date de fin (expiree). */
+    /** Prochain lancement apres un declenchement : null pour une planification unique, ou apres la date de fin. */
     public static Instant computeAfterTrigger(ScheduledExecution schedule, Instant now) {
         return switch (schedule.getScheduleType()) {
             case ONE_TIME -> null;

@@ -5,9 +5,7 @@ import type { BackendNotificationChannels, BackendNotificationPreferenceResponse
 import { useRegressionThreshold } from '../../utils/thresholds'
 import { describeSettingsError } from './settingsErrors'
 
-// Notifications (Paramètres > Mon profil) : quatre familles d'événements, chacune dans
-// l'application et, si un serveur e-mail est configuré, par e-mail. Chaque interrupteur
-// enregistre aussitôt (PATCH par type) et est réellement respecté par le serveur.
+// Notifications (Mon profil) : chaque famille d'événements, dans l'application et par e-mail.
 
 export interface NotificationGroup {
   id: string

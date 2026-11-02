@@ -24,12 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/steps - lecture ouverte a tout utilisateur authentifie (voir
- * SecurityConfig : anyRequest().authenticated() couvre deja les GET, aucune
- * annotation supplementaire ici pour eviter de dupliquer la regle) ; POST,
- * PUT et DELETE reserves a SUPER_ADMIN et PERFORMANCE_ENGINEER.
- */
+/** API des etapes d'un scenario. */
 @RestController
 @RequestMapping("/api/steps")
 @RequiredArgsConstructor
@@ -38,8 +33,6 @@ public class StepController {
 
     private final StepService stepService;
 
-    /** ?scenarioId= filtre par scenario (voir Phase 8) - meme endpoint
-     * plutot que dupliquer un chemin dedie. */
     @GetMapping
     @Operation(summary = "Lister les etapes", description = "Filtrable par scenarioId ; tri par ordre (step_order ASC, id ASC).")
     @ApiResponse(responseCode = "404", description = "scenarioId fourni mais introuvable")
@@ -59,7 +52,7 @@ public class StepController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
-    @Operation(summary = "Creer une etape", description = "Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER. La methode HTTP (GET/POST/PUT/PATCH/DELETE) est celle que l'etape enverra reellement lors d'une Execution.")
+    @Operation(summary = "Creer une etape", description = "Reserve a SUPER_ADMIN et PERFORMANCE_ENGINEER. La methode HTTP (GET/POST/PUT/PATCH/DELETE) est celle que l'etape envoie lors d'une execution.")
     @ApiResponse(responseCode = "201", description = "Etape creee")
     @ApiResponse(responseCode = "404", description = "Scenario referencee introuvable")
     public StepResponse create(@Valid @RequestBody StepRequest request) {

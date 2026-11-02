@@ -5,14 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.loadpilot.backend.enums.ApiKeyLocation;
 import com.loadpilot.backend.enums.CaptureSource;
 
-/**
- * Parametres d'authentification d'une Application, persistes en JSON dans
- * application.auth_config. Seuls les champs du type choisi sont renseignes
- * (les autres restent null et ne sont pas serialises).
- *
- * SECRETS : token, apiKeyValue, password, loginBody - jamais renvoyes par
- * l'API (voir ApplicationAuthSupport#toResponse).
- */
+/** Parametres d'authentification d'une application, stockes en JSON ; seuls les champs du type choisi sont renseignes. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ApplicationAuthConfig(
@@ -31,18 +24,15 @@ public record ApplicationAuthConfig(
         String tokenJsonPath,
         String tokenHeaderName,
         String tokenPrefix,
-        // BEARER_TOKEN / API_KEY / BASIC : endpoint protege utilise par le
-        // test de connectivite pour verifier reellement les identifiants.
+        /** Endpoint protege utilise par le test de connectivite. */
         String verificationPath,
-        // LOGIN_TOKEN : ou lire le jeton - null/JSON = chemin tokenJsonPath dans le corps ;
-        // HEADER = tokenJsonPath est un nom d'en-tete de reponse (ou "Set-Cookie:NOM").
+        /** LOGIN_TOKEN : ou lire le jeton - JSON (defaut) = chemin dans le corps ; HEADER = nom d'en-tete de reponse (ou "Set-Cookie:NOM"). */
         CaptureSource tokenSource
 ) {
 
     public static final String DEFAULT_TOKEN_HEADER = "Authorization";
     public static final String DEFAULT_TOKEN_PREFIX = "Bearer ";
 
-    /** Compatibilite : configuration sans endpoint de verification. */
     public ApplicationAuthConfig(String token, String apiKeyName, String apiKeyValue, ApiKeyLocation apiKeyLocation,
             String username, String password, String loginPath, String loginBody, String tokenJsonPath,
             String tokenHeaderName, String tokenPrefix) {
@@ -50,7 +40,6 @@ public record ApplicationAuthConfig(
                 tokenHeaderName, tokenPrefix, null, null);
     }
 
-    /** Compatibilite : jeton lu dans le corps JSON (source non precisee). */
     public ApplicationAuthConfig(String token, String apiKeyName, String apiKeyValue, ApiKeyLocation apiKeyLocation,
             String username, String password, String loginPath, String loginBody, String tokenJsonPath,
             String tokenHeaderName, String tokenPrefix, String verificationPath) {
@@ -67,7 +56,7 @@ public record ApplicationAuthConfig(
                 loginBody, tokenJsonPath, tokenHeaderName, tokenPrefix, path, tokenSource);
     }
 
-    /** Jeton de la Connexion automatique lu dans un en-tete de reponse (et non dans le corps JSON). */
+    /** Jeton lu dans un en-tete de reponse plutot que dans le corps. */
     public boolean tokenFromHeader() {
         return tokenSource == CaptureSource.HEADER;
     }

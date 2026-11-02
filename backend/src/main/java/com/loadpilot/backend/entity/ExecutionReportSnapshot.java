@@ -11,11 +11,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * Rapport fige d'une execution terminee (JSON de service.report.ReportSnapshot), dans une table a
- * part pour que les listes d'executions ne le lisent jamais. Supprime avec l'execution (cle
- * etrangere ON DELETE CASCADE).
- */
+/** Rapport fige d'une execution terminee (JSON), conserve apres la purge des resultats. */
 @Entity
 @Table(name = "execution_report_snapshot")
 @Getter

@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EMPTY_INFO, applySuggestions, stateFromBackend, suggestedInfo } from './draftModel'
 import { BackendScenarioResponse } from '../../types/backendContracts'
 
-// Valeurs de Paramètres > Système proposées à un NOUVEAU scénario : pré-remplissage bloc par bloc,
-// jamais par-dessus une valeur modifiée, jamais pour un scénario existant.
+// Valeurs de Paramètres > Système proposées à un nouveau scénario : bloc par bloc, sans écraser une valeur modifiée.
 
 const system = {
   maxErrorRatePercent: 2.5, maxP95Ms: 800, regressionPercent: 20,

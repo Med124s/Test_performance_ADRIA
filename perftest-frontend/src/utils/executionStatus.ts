@@ -1,14 +1,4 @@
-// ============================================================
-// Statuts d'exécution : SEULE table de correspondance statut -> libellé,
-// couleur de badge, icône, utilisée par toutes les pages (Exécutions,
-// Détail, Rapport, suivi en direct, Dashboard, Comparaison, Rapports,
-// Planification…). Un nouveau statut s'ajoute ici et nulle part ailleurs ;
-// le type Record<BackendExecutionStatus, …> fait échouer la compilation
-// s'il en manque un.
-//
-// Un statut inconnu (serveur plus récent que l'interface, donnée
-// inattendue) ne fait jamais planter une page : badge gris avec son nom.
-// ============================================================
+// Statuts d'exécution : libellé, couleur de badge et icône de chaque statut.
 
 import { BackendExecutionStatus } from '../types/backendContracts'
 

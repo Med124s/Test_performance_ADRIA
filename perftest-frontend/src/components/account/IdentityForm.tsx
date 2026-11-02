@@ -6,9 +6,7 @@ import { profileBackendApi } from '../../services/api/profileBackend'
 import type { BackendProfileResponse } from '../../types/backendContracts'
 import { IdentityValues, validateIdentity } from './accountModel'
 
-// « Modifier » (Super administrateur seulement) : prénom, nom et e-mail du compte connecté.
-// Jamais le nom d'utilisateur, le rôle ni l'état du compte. Le serveur applique la même règle
-// (403 pour les autres rôles) et journalise chaque modification avant → après.
+/** « Modifier » (Super administrateur) : prénom, nom et e-mail du compte connecté. */
 
 interface Props {
   profile: BackendProfileResponse
@@ -47,12 +45,11 @@ export default function IdentityForm({ profile, onSaved, onCancel, compact = fal
       const updated = await profileBackendApi.updateIdentity({
         firstName: values.firstName.trim(), lastName: values.lastName.trim(), email: values.email.trim(),
       })
-      // Le jeton porte le nom affiché : nouveau jeton pour mettre la barre latérale à jour
-      // (sans effet sur l'enregistrement, déjà fait, s'il échoue).
+      // Nouveau jeton pour afficher le nouveau nom.
       try {
         await refreshUser()
       } catch {
-        // nom mis à jour au prochain renouvellement du jeton
+        // Nom mis à jour au prochain renouvellement du jeton.
       }
       showToast('Votre compte a été mis à jour.', 'success')
       onSaved(updated)

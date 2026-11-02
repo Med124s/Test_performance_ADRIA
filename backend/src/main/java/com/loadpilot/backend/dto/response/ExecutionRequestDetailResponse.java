@@ -2,11 +2,7 @@ package com.loadpilot.backend.dto.response;
 
 import java.util.Map;
 
-/**
- * Detail complet d'une requete d'execution : requete envoyee (URL finale avec les variables
- * remplacees), reponse recue (null si aucune reponse : delai depasse, erreur reseau, variable
- * introuvable), verifications. Secrets toujours masques ; corps limites a 10 Ko (« tronque »).
- */
+/** Detail d'une requete : requete envoyee, reponse recue (null si aucune), verifications. Secrets masques. */
 public record ExecutionRequestDetailResponse(
         ExecutionRequestRowResponse summary,
         String kind,

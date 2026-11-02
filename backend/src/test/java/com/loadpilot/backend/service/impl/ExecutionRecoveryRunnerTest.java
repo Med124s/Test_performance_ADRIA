@@ -25,18 +25,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * P0-B (prompt section 5) - preuve REELLE de la strategie de recuperation au
- * demarrage : jamais une reprise fictive (voir Javadoc d'
- * ExecutionRecoveryRunner), une transition honnete vers FAILED avec une
- * raison explicite pour toute Execution retrouvee QUEUED/RUNNING.
- *
- * Invoque directement runner.run(null) plutot que de redemarrer le contexte
- * Spring (couteux, et le ApplicationRunner ne s'execute de toute facon
- * qu'une seule fois par cycle de vie de contexte) - teste la VRAIE logique
- * du composant, pas un mecanisme de demarrage difficile a re-declencher a
- * la demande dans un test.
- */
+/** Au demarrage, les executions restees en attente ou en cours passent a FAILED, avec leurs resultats conserves. */
 @SpringBootTest
 @ActiveProfiles("test")
 class ExecutionRecoveryRunnerTest {
@@ -100,8 +89,7 @@ class ExecutionRecoveryRunnerTest {
         assertThat(reloadedRunning.getStatus()).isEqualTo(ExecutionStatus.FAILED);
         assertThat(reloadedRunning.getErrorMessage()).isEqualTo("Backend restarted while execution was running");
 
-        // Audit reel de la recuperation (jamais silencieuse) : une entree FINISH/FAILURE
-        // par execution, faite par le Systeme (source « Redemarrage du serveur »).
+        // Une entree d'audit FINISH / FAILURE par execution, acteur Systeme (« Redemarrage du serveur »).
         boolean auditedQueued = auditLogRepository.findAll().stream().anyMatch(a ->
                 a.getAction() == AuditAction.FINISH && a.getModule() == AuditModule.EXECUTION
                         && a.getResult() == AuditResult.FAILURE && "SYSTEM".equals(a.getActorType())
@@ -141,9 +129,7 @@ class ExecutionRecoveryRunnerTest {
         runner.run(null);
         Execution afterSecondRun = executionRepository.findById(orphan.getId()).orElseThrow();
 
-        // Deja FAILED (terminal) apres le premier run : le second run ne le
-        // retrouve plus jamais (requete WHERE status IN (QUEUED,RUNNING)) et
-        // ne le touche donc pas une seconde fois.
+        // Deja FAILED apres le premier passage : le second ne le modifie pas.
         assertThat(afterSecondRun.getStatus()).isEqualTo(ExecutionStatus.FAILED);
         assertThat(afterSecondRun.getFinishedAt()).isEqualTo(finishedAtAfterFirstRun);
     }

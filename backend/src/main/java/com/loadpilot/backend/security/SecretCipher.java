@@ -12,19 +12,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/**
- * Chiffrement des secrets stockes en base (correction P1) : AES-256-GCM, IV aleatoire de 12 octets
- * par valeur, etiquette d'authentification de 128 bits (toute modification du texte chiffre est
- * detectee). Format stocke : « enc:v1: » + Base64(IV + texte chiffre).
- *
- * Cle : 32 octets en Base64, fournie UNIQUEMENT par la variable d'environnement LOADPILOT_SECRETS_KEY
- * (app.secrets.encryption-key dans application.yml). Absente ou invalide : l'application refuse de
- * demarrer, jamais de stockage en clair silencieux. La cle et les valeurs ne sont jamais journalisees
- * ni reprises dans un message d'erreur. Configuration : voir docs/SECRETS.md.
- *
- * Une instance unique est aussi exposee via {@link #instance()} pour les objets crees hors de Spring
- * (convertisseur JPA, migration Liquibase), qui doivent utiliser exactement la meme cle.
- */
+/** Chiffrement des secrets stockes en base : AES-256-GCM, valeur stockee avec le prefixe "enc:v1:". */
 @Component
 public class SecretCipher {
 
@@ -46,7 +34,7 @@ public class SecretCipher {
         instance = this;
     }
 
-    /** Instance configuree par Spring (convertisseur JPA, migration) ; erreur claire si absente. */
+    /** Instance configuree par Spring. */
     public static SecretCipher instance() {
         SecretCipher current = instance;
         if (current == null) {
@@ -96,11 +84,7 @@ public class SecretCipher {
         }
     }
 
-    /**
-     * Valeur en clair. Une valeur sans prefixe (ancienne donnee non encore migree) est rendue telle
-     * quelle ; elle sera chiffree au prochain enregistrement. Mauvaise cle ou donnee alteree : erreur
-     * explicite, sans la valeur.
-     */
+    /** Dechiffre une valeur ; une valeur sans prefixe est rendue telle quelle. */
     public String decrypt(String stored) {
         if (stored == null || stored.isEmpty() || !isEncrypted(stored)) return stored;
         try {

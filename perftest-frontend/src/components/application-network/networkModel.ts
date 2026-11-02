@@ -1,10 +1,6 @@
 import { BackendNetworkRequest, BackendNetworkResponse, BackendProxyMode } from '../../types/backendContracts'
 
-// ============================================================
-// Section « Réseau » d'une application (proxy, autorité de certification TLS) :
-// formulaire ↔ requête, validation (mêmes règles que le serveur et les scripts
-// de démarrage). Fonctions pures, testées.
-// ============================================================
+// Section « Réseau » d'une application : formulaire, requête et validation.
 
 export interface NetworkForm {
   proxyMode: BackendProxyMode
@@ -17,7 +13,7 @@ export interface NetworkForm {
   tlsCaCertificate?: string
 }
 
-/** Formulaire d'une NOUVELLE application : aucun proxy par défaut (comme le serveur, voir NetworkSupport.applyOnCreate). */
+/** Formulaire d'une nouvelle application : aucun proxy par défaut. */
 export const EMPTY_NETWORK_FORM: NetworkForm = { proxyMode: 'NONE', proxyHost: '', proxyPort: '', proxyUsername: '', proxyPassword: '', tlsCaCertificate: '' }
 
 export const PROXY_MODE_LABELS: Record<BackendProxyMode, string> = {
@@ -29,7 +25,7 @@ export const PROXY_MODE_LABELS: Record<BackendProxyMode, string> = {
 export function networkFormFromResponse(n: BackendNetworkResponse | undefined | null): NetworkForm {
   if (!n) return EMPTY_NETWORK_FORM
   return {
-    // Application existante sans mode enregistré : proxy du serveur, comme elle a été créée.
+    // Application existante sans mode enregistré : proxy du serveur.
     proxyMode: n.proxyMode ?? 'INHERIT',
     proxyHost: n.proxyHost ?? '',
     proxyPort: n.proxyPort == null ? '' : String(n.proxyPort),
@@ -40,7 +36,7 @@ export function networkFormFromResponse(n: BackendNetworkResponse | undefined | 
 }
 
 export function networkFormToRequest(f: NetworkForm): BackendNetworkRequest {
-  // Absent = aucune autorité propre (le serveur l'efface) : seul un PEM saisi est envoyé.
+  // Seul un PEM saisi est envoyé.
   const ca = f.tlsCaCertificate?.trim() ? { tlsCaCertificate: f.tlsCaCertificate.trim() } : {}
   if (f.proxyMode !== 'CUSTOM') {
     return { proxyMode: f.proxyMode, proxyHost: null, proxyPort: null, proxyUsername: null, proxyPassword: null, ...ca }
@@ -51,7 +47,7 @@ export function networkFormToRequest(f: NetworkForm): BackendNetworkRequest {
     proxyHost: f.proxyHost.trim() || null,
     proxyPort: f.proxyPort.trim() ? Number(f.proxyPort.trim()) : null,
     proxyUsername: username,
-    // Mot de passe tel que saisi (jamais modifié) ; vide = conservé côté serveur.
+    // Vide = mot de passe conservé côté serveur.
     proxyPassword: username && f.proxyPassword ? f.proxyPassword : null,
     ...ca,
   }
@@ -59,7 +55,7 @@ export function networkFormToRequest(f: NetworkForm): BackendNetworkRequest {
 
 export type NetworkErrors = Partial<Record<'proxyHost' | 'proxyPort' | 'proxyUsername' | 'tlsCaCertificate', string>>
 
-/** Contrôle rapide du PEM (le serveur vérifie ensuite chaque certificat, comme TlsTrust.parse). */
+/** Contrôle rapide du PEM ; le serveur vérifie ensuite chaque certificat. */
 export function caCertificateProblem(pem: string | undefined): string | undefined {
   const text = (pem ?? '').trim()
   if (!text) return undefined
@@ -71,7 +67,7 @@ export function caCertificateProblem(pem: string | undefined): string | undefine
   return undefined
 }
 
-/** Mêmes règles que le serveur (NetworkProfile.proxyProblem, TlsTrust) et que start.ps1 / start.sh. */
+/** Mêmes règles que le serveur (NetworkProfile.proxyProblem, TlsTrust). */
 export function validateNetworkForm(f: NetworkForm): NetworkErrors {
   const errors: NetworkErrors = {}
   const ca = caCertificateProblem(f.tlsCaCertificate)

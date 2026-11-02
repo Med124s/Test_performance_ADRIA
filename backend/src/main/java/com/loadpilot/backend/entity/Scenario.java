@@ -22,10 +22,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-/**
- * Scenario de test appartenant a exactement une Application. Ne peut pas
- * exister sans Application (FK non-nulle, voir 003-create-scenario.xml).
- */
+/** Scenario de test d'une application. */
 @Entity
 @Table(name = "scenario")
 @Getter
@@ -54,14 +51,7 @@ public class Scenario {
     @Column(name = "status", nullable = false)
     private ScenarioStatus status;
 
-    /**
-     * Parametres de charge REELLEMENT utilises par HttpClientExecutionEngine
-     * (voir LoadTestSpec) - jamais decoratifs (Phase P0-A). Valeurs par
-     * defaut (1 VU, 0s de ramp-up, aucune duree/iteration, 0ms de think
-     * time) reproduisent exactement le comportement historique a une seule
-     * passe pour tout Scenario cree avant cette phase (migration
-     * 010-add-load-test-parameters.xml).
-     */
+    /** Parametres de charge : utilisateurs virtuels, montee en charge (s), duree (s), iterations, think time (ms). */
     @Column(name = "virtual_users", nullable = false)
     @Builder.Default
     private Integer virtualUsers = 1;
@@ -74,9 +64,7 @@ public class Scenario {
     @Column(name = "duration_seconds")
     private Integer durationSeconds;
 
-    /** Null = pas de limite d'iterations (voir durationSeconds). Si les
-     * deux sont null, chaque utilisateur virtuel execute exactement UNE
-     * iteration (comportement historique). */
+    /** null = pas de limite d'iterations. Sans duree ni iterations, chaque utilisateur virtuel fait une seule iteration. */
     @Column(name = "iterations")
     private Integer iterations;
 
@@ -84,22 +72,11 @@ public class Scenario {
     @Builder.Default
     private Integer thinkTimeMs = 0;
 
-    /** P1-Q Etape B — donnees CSV brutes optionnelles (premiere ligne = noms
-     * de colonnes/variables), une ligne distribuee par utilisateur virtuel
-     * (cyclique si moins de lignes que de VUs) pour alimenter des variables
-     * ${nomColonne} substituees dans les Steps (voir
-     * HttpClientExecutionEngine). null = aucune variable de donnees,
-     * comportement historique inchange. */
-    /** Longueur alignee sur la contrainte @Size(max=50000) de
-     * ScenarioRequest.csvData - meme convention que headers/body de Step
-     * (VARCHAR borne, jamais un TEXT/CLOB non portable de maniere identique
-     * entre H2 (tests) et PostgreSQL (reel) - constat reel fait pendant
-     * cette phase : "TEXT" y produit des types de colonne differents,
-     * faisant echouer la validation de schema Hibernate). */
+    /** Donnees CSV optionnelles (premiere ligne = noms des variables), utilisables dans les etapes via ${colonne}. */
     @Column(name = "csv_data", length = 1_000_000)
     private String csvData;
 
-    /** Variables du scenario (objet JSON {"nom": "valeur"}) - 3e source apres capture et CSV. */
+    /** Variables du scenario (objet JSON {"nom": "valeur"}). */
     @Column(name = "variables", length = 20000)
     private String variables;
 
@@ -122,12 +99,7 @@ public class Scenario {
     @Column(name = "draft_state", length = 1_000_000)
     private String draftState;
 
-    /** Master prompt final (Lot A) — debit cible optionnel (requetes HTTP
-     * demarrees par seconde, approximatif, partage entre tous les
-     * utilisateurs virtuels de l'Execution) - voir
-     * HttpClientExecutionEngine.PacingGate. null = aucun pacing,
-     * comportement historique inchange. Ne remplace jamais virtualUsers/
-     * rampUpSeconds/thinkTimeMs, qui restent tous actifs simultanement. */
+    /** Debit cible optionnel (requetes/s, partage entre les utilisateurs virtuels) ; null = aucun pacing. */
     @Column(name = "target_rps")
     private Integer targetRps;
 
@@ -140,8 +112,7 @@ public class Scenario {
     @Column(name = "max_p95_ms")
     private Long maxP95Ms;
 
-    /** Frein automatique : taux d'erreurs (%) au-dela duquel le test est arrete EN DIRECT (voir
-     * ErrorRateBrake) ; null = desactive. Distinct du seuil de reussite, evalue a la fin. */
+    /** Frein automatique : taux d'erreurs (%) au-dela duquel le test est arrete en direct ; null = desactive. */
     @Column(name = "error_brake_rate_percent")
     private Double errorBrakeRatePercent;
 
@@ -165,8 +136,7 @@ public class Scenario {
     @Column(name = "think_time_variation_percent")
     private Integer thinkTimeVariationPercent;
 
-    /** Archivage logique : masque des listes par defaut, historique conserve,
-     * restaurable (voir migration 017). */
+    /** Archivage logique : masque des listes par defaut, restaurable. */
     @Column(name = "archived", nullable = false)
     @Builder.Default
     private boolean archived = false;
@@ -174,7 +144,7 @@ public class Scenario {
     @Column(name = "archived_at")
     private Instant archivedAt;
 
-    /** Utilisateur (projection locale, voir AppUser) ayant cree ce scenario. */
+    /** Utilisateur qui a cree le scenario. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false, updatable = false)
     private AppUser createdBy;

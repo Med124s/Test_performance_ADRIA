@@ -8,29 +8,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
-/**
- * Garde-fou des lectures qui chargent TOUS les resultats d'une execution (rapport, exports,
- * analyse dans le temps, comparaison, detail complet, metriques) : avant le chargement, le nombre
- * de resultats (un simple COUNT) est converti en memoire selon le poids de l'appel, et cette part
- * est reservee dans le budget global partage avec les executions en cours (ResultsMemoryBudget),
- * pour la duree de l'appel. Refus immediat, avec un message clair, plutot qu'un manque de memoire
- * qui toucherait tout le processus (dont les tests en cours).
- *
- * Reservations imbriquees sur un meme thread (un export appelle le rapport puis l'analyse dans le
- * temps) : seule la plus externe compte, son poids couvre l'ensemble.
- */
+/** Garde-fou des lectures qui chargent tous les resultats d'une execution : refus si le nombre de resultats depasse le budget memoire. */
 @Component
 public class ResultLoadGuard {
 
     private static final Logger log = LoggerFactory.getLogger(ResultLoadGuard.class);
 
-    /**
-     * Poids : memoire reelle par resultat charge, avec la MEME marge (~x2) que celle des executions
-     * (2,5 Ko par resultat pour un pic reel de ~1,3 Ko, voir ResultsMemoryGuard), rapportee aux
-     * 2,5 Ko d'une unite du budget : poids = cout reel x 2 / 2,5 Ko. Le budget entier correspondant
-     * a toute la memoire de la JVM, une lecture admise a la limite en laisse donc encore la moitie.
-     * Estimations de structure, arrondies vers le haut.
-     */
+    /** Type de lecture et son poids (memoire par resultat, en unites du budget). */
     public enum Load {
         /** Entites ExecutionStepResult et statistiques (~0,7 Ko). */
         REPORT(0.6, "le rapport"),
@@ -61,7 +45,7 @@ public class ResultLoadGuard {
     }
 
     private static final Reservation NONE = () -> { };
-    /** Une reservation est-elle deja tenue par ce thread (appel imbrique) ? */
+    /** true si une reservation est deja tenue par ce thread. */
     private static final ThreadLocal<Boolean> HELD = ThreadLocal.withInitial(() -> false);
 
     private final ResultsMemoryBudget budget;
@@ -74,21 +58,17 @@ public class ResultLoadGuard {
         return results <= 0 ? 0 : (long) Math.ceil(results * load.weight);
     }
 
-    /** Plus grand nombre de resultats que cette lecture peut charger, seule, sur ce serveur. */
+    /** Nombre maximal de resultats que cette lecture peut charger seule. */
     public long maxResults(Load load) {
         return (long) Math.floor(budget.maxResults() / load.weight);
     }
 
-    /** Cette lecture tiendrait-elle seule dans le budget (sans rien reserver) ? */
+    /** true si cette lecture tiendrait seule dans le budget. */
     public boolean fitsAlone(Load load, long results) {
         return units(load, results) <= budget.maxResults();
     }
 
-    /**
-     * Reserve la memoire de "results" resultats pour cette lecture, ou leve
-     * ResultSetTooLargeException : 413 si trop volumineuse meme seule, 409 si le budget est
-     * occupe pour l'instant (tests en cours, autres lectures).
-     */
+    /** Reserve la memoire de "results" resultats ; ResultSetTooLargeException : 413 si trop volumineuse, 409 si le budget est occupe. */
     public Reservation reserve(Load load, long results) {
         if (HELD.get()) return NONE;
         long units = units(load, results);

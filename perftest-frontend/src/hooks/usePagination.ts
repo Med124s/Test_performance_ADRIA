@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-/** Pagination générique côté client : découpe `items` par pages de
- * `pageSize`, et revient à la page 1 dès que le nombre total d'éléments
- * change (nouvelle recherche/filtre) pour éviter une page vide. */
+/** Pagination côté client : découpe `items` en pages de `pageSize` ; revient à la page 1 quand le nombre d'éléments change. */
 export function usePagination<T>(items: T[], pageSize = 10) {
   const [page, setPage] = useState(1)
   const totalItems = items.length

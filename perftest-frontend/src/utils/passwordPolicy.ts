@@ -1,11 +1,4 @@
-// ============================================================
-// Politique de mot de passe du realm (GET /api/users/password-policy) :
-// vérification en direct dans le formulaire et génération d'un mot de passe
-// fort. Le serveur d'authentification reste seul juge : il re-vérifie chaque
-// mot de passe à l'enregistrement (avec des messages en français).
-// Mêmes règles que lui : « spécial » = tout caractère hors lettres,
-// chiffres et « _ » ; nom d'utilisateur / e-mail comparés sans la casse.
-// ============================================================
+// Politique de mot de passe du realm : vérification en direct et génération d'un mot de passe fort.
 
 import type { BackendPasswordPolicy } from '../types/backendContracts'
 

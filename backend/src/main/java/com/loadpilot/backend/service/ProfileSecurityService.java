@@ -23,11 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
-/**
- * Securite du compte connecte (self-service, jamais le compte d'un autre) : derniere connexion,
- * sessions ouvertes, deconnexion de tous les appareils, journalisation du changement de mot de
- * passe fait sur la page du systeme d'authentification (jamais le mot de passe lui-meme).
- */
+/** Securite du compte connecte : derniere connexion, sessions ouvertes, deconnexion de tous les appareils. */
 @Service
 @RequiredArgsConstructor
 public class ProfileSecurityService {
@@ -104,11 +100,7 @@ public class ProfileSecurityService {
         }
     }
 
-    /**
-     * Retour de la page « changer mon mot de passe » : le changement est un evenement du systeme
-     * d'authentification, importe ici sans attendre le prochain passage automatique (jamais une
-     * entree fabriquee). Renvoie vrai si l'entree « Mot de passe changé » est au journal.
-     */
+    /** Enregistre au journal le changement de mot de passe fait sur la page Keycloak ; true si l'entree a ete trouvee. */
     public boolean recordPasswordChange(Jwt jwt) {
         try {
             securityEventImporter.importNewEvents();

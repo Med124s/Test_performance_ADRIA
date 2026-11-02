@@ -5,10 +5,7 @@ import com.loadpilot.backend.enums.ScheduledRunOutcome;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Historique d'une planification : executions lancees (kind = EXECUTION) et lancements non faits
- * (kind = EVENT : ignore, manque, refuse, avec la raison), du plus recent au plus ancien.
- */
+/** Historique d'une planification : executions lancees et lancements non faits, du plus recent au plus ancien. */
 public record ScheduleHistoryResponse(String scheduleId, List<Item> items, boolean truncated) {
 
     public record Item(

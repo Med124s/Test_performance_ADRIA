@@ -11,11 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.domain.Specification;
 
-/**
- * Filtres de la liste paginee des scenarios - memes vues que ScenarioRepository.findVisible /
- * findArchivedView : "visibles" = scenario ET application non archives ; "archives" = scenario
- * OU application archive.
- */
+/** Filtres de la liste paginee des scenarios ; "visibles" = scenario et application non archives. */
 public final class ScenarioSpecifications {
 
     private ScenarioSpecifications() {

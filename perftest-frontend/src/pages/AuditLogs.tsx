@@ -13,13 +13,7 @@ import { parseFrenchDate } from './audit/auditDates'
 import './users/users.css'
 import './audit/audit.css'
 
-// ============================================================
-// « Journal d'audit » : qui a fait quoi, et quand. Réservé au Super
-// administrateur (vérifié par le serveur, voir AuditLogController).
-// Tous les filtres sont appliqués côté serveur et gardés dans l'URL
-// (lien partageable, retour arrière). Lecture seule : aucune entrée ne
-// peut être modifiée ni supprimée.
-// ============================================================
+// Journal d'audit (Super administrateur) : filtres appliqués côté serveur et gardés dans l'URL.
 
 const PAGE_SIZE = 20
 
@@ -292,8 +286,7 @@ export function AuditActor({ row }: { row: BackendAuditLogResponse }) {
   )
 }
 
-/** Ligne de détail sous l'action : premier « avant → après », sinon le détail en français.
- * Une ancienne entrée (texte d'origine non traduit) n'a pas de ligne : son texte reste dans le panneau. */
+/** Ligne de détail sous l'action : premier « avant → après », sinon le détail en français. */
 export function auditDetailLine(row: BackendAuditLogResponse): string | null {
   if (row.legacy) return null
   const first = row.changes[0]

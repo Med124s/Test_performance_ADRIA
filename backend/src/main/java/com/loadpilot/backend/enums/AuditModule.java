@@ -1,10 +1,6 @@
 package com.loadpilot.backend.enums;
 
-/**
- * Module fonctionnel d'une entree d'audit. Les categories affichees (filtre
- * « Catégorie » de la page Journal d'audit) regroupent ces modules : voir
- * service.audit.AuditCategory.
- */
+/** Module fonctionnel d'une entree d'audit. */
 public enum AuditModule {
     AUTH,
     USER,

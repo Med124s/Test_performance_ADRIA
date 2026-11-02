@@ -44,7 +44,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Audit (Phase 12) : voir le commentaire equivalent sur ApplicationServiceImpl. */
+/** Gestion des scenarios : creation, modification, publication des brouillons, archivage et suppression. */
 @Service
 @RequiredArgsConstructor
 public class ScenarioServiceImpl implements ScenarioService {
@@ -65,14 +65,6 @@ public class ScenarioServiceImpl implements ScenarioService {
     private final com.loadpilot.backend.service.AppSettingsService settings;
     private final com.loadpilot.backend.service.ExecutionLimitsService executionLimits;
 
-    /** P0-B — limite PAR EXECUTION configurable par environnement (voir
-     * application.yml, LOADPILOT_MAX_VUS_PER_EXECUTION) - distincte du
-     * plafond absolu @Max sur ScenarioRequest (garde-fou de bon sens quel
-     * que soit le deploiement, jamais retire). Verifiee ici (a la
-     * configuration du Scenario) plutot qu'au lancement de l'Execution :
-     * retour immediat et explicite a l'utilisateur, avant meme de tenter un
-     * test de charge. */
-
     @Override
     @Transactional
     public ScenarioResponse create(ScenarioRequest request, CurrentUser currentUser) {
@@ -84,8 +76,7 @@ public class ScenarioServiceImpl implements ScenarioService {
             Scenario scenario = scenarioMapper.toEntity(request);
             scenario.setApplication(application);
             scenario.setCreatedBy(createdBy);
-            // ACTIVE par defaut ; DRAFT pour l'assistant (brouillon ou test avant la fin),
-            // publie ensuite via publish() apres validation complete.
+            // ACTIVE par defaut ; DRAFT pour un brouillon de l'assistant.
             boolean draft = Boolean.TRUE.equals(request.draft());
             scenario.setStatus(draft ? ScenarioStatus.DRAFT : ScenarioStatus.ACTIVE);
             if (draft) {
@@ -93,7 +84,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                 scenario.setDraftState(request.draftState());
             }
             applyLoadTestDefaults(scenario, request);
-            // Seuils non fournis : ceux proposes dans Parametres > Systeme > Seuils par defaut.
+            // Seuils non fournis : valeurs par defaut de Parametres > Systeme.
             if (request.maxErrorRatePercent() == null) {
                 scenario.setMaxErrorRatePercent(settings.defaultMaxErrorRate());
             }
@@ -162,7 +153,7 @@ public class ScenarioServiceImpl implements ScenarioService {
             throw new LoadConfigurationException("Tri non autorisé : " + field + " (champs possibles : createdAt, updatedAt, name).");
         }
         Sort.Direction direction = parts.length > 1 && parts[1].trim().equalsIgnoreCase("desc") ? Sort.Direction.DESC : Sort.Direction.ASC;
-        // Tri secondaire stable : l'ordre des lignes ne change pas d'une page a l'autre.
+        // Tri secondaire stable d'une page a l'autre.
         return Sort.by(direction, field).and(Sort.by(Sort.Direction.ASC, "id"));
     }
 
@@ -185,7 +176,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                 .toList();
     }
 
-    /** Avertissements de charge (jamais bloquants), avec les limites en vigueur : voir LoadRules.warnings. */
+    /** Ajoute les avertissements de charge (non bloquants). */
     private ScenarioResponse withLoadWarnings(ScenarioResponse response) {
         return withLoadWarnings(response, executionLimits.loadLimits());
     }
@@ -211,8 +202,7 @@ public class ScenarioServiceImpl implements ScenarioService {
             scenario.setApplication(application);
             applyLoadTestDefaults(scenario, request);
             applyVariables(scenario, request);
-            // Etat de l'assistant : brouillons uniquement, null = inchange (le test d'un
-            // brouillon repris ne remplace jamais l'etat enregistre explicitement).
+            // Etat de l'assistant : brouillons uniquement ; null = inchange.
             if (scenario.getStatus() == ScenarioStatus.DRAFT) {
                 if (request.wizardStep() != null) scenario.setWizardStep(request.wizardStep());
                 if (request.draftState() != null) scenario.setDraftState(request.draftState());
@@ -235,19 +225,11 @@ public class ScenarioServiceImpl implements ScenarioService {
     @Override
     @Transactional
     public void delete(UUID id) {
-        // Suppression DEFINITIVE explicitement demandee (SUPER_ADMIN) : cascade
-        // complete (etapes, executions, resultats, planifications) dans une
-        // seule transaction, refusee si une execution est en cours - voir
-        // DeletionServiceImpl (audit inclus).
+        // Suppression definitive (Super administrateur), refusee si une execution est en cours.
         deletionService.deleteScenarioPermanently(id);
     }
 
-    /**
-     * Fin de l'assistant : un brouillon devient ACTIVE (executable, planifiable) uniquement
-     * s'il est complet - memes regles que le bouton « Suivant » du frontend : au moins une
-     * etape, chaque etape valide (StepRules), CSV valide, duree ou nombre de passages.
-     * Idempotent pour un scenario deja ACTIVE.
-     */
+    /** Publie un brouillon : il devient ACTIVE s'il est complet (au moins une etape, etapes valides, CSV valide, charge valide). */
     @Override
     @Transactional
     public ScenarioResponse publish(UUID id) {
@@ -275,8 +257,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                 throw new BadRequestException("Étape " + (i + 1) + " « " + step.getName() + " » : " + problem);
             }
         }
-        // Duree et iterations optionnelles (memes regles que le moteur) : aucune des deux = une
-        // seule iteration par utilisateur, les deux = arret a la premiere limite atteinte.
+        // Duree et iterations optionnelles : aucune = une iteration par utilisateur, les deux = arret a la premiere atteinte.
         checkCsv(scenario.getCsvData());
         // Memes regles de charge qu'a l'enregistrement d'un scenario actif.
         List<String> loadProblems = loadProblems(scenario);
@@ -307,11 +288,7 @@ public class ScenarioServiceImpl implements ScenarioService {
     public static final String RUNNING_EDIT_MESSAGE =
             "Une exécution de ce scénario est en cours : attendez sa fin ou annulez-la avant de le modifier.";
 
-    /**
-     * Modification complete en UNE transaction : informations du scenario, puis etapes creees /
-     * modifiees / supprimees / reordonnees selon la liste recue (position = ordre 1..n). Tout ou
-     * rien : une etape invalide annule l'ensemble. Refusee pendant une execution du scenario.
-     */
+    /** Modification complete en une transaction : informations du scenario et etapes creees, modifiees, supprimees ou reordonnees. */
     @Override
     @Transactional
     public ScenarioFullResponse updateFull(UUID id, ScenarioFullRequest request) {
@@ -361,7 +338,7 @@ public class ScenarioServiceImpl implements ScenarioService {
             ordered.add(step);
         }
         List<Step> removed = existing.values().stream().filter(s -> !kept.contains(s.getId())).toList();
-        // Les resultats d'execution passes gardent leur copie de l'etape (FK ON DELETE SET NULL).
+        // Les resultats passes gardent leur copie de l'etape.
         stepRepository.deleteAll(removed);
         stepRepository.flush();
         List<Step> saved = stepRepository.saveAllAndFlush(ordered);
@@ -372,14 +349,7 @@ public class ScenarioServiceImpl implements ScenarioService {
         return new ScenarioFullResponse(getById(id), stepMapper.toResponseList(saved));
     }
 
-    /**
-     * NOUVEAU scenario : frein automatique, ralentissement sur 429 et detail des requetes non fournis par
-     * la requete = valeurs de Parametres > Systeme, ecrites EXPLICITEMENT dans le scenario. Ainsi :
-     *   - un scenario existant n'est jamais modifie quand ces valeurs changent ;
-     *   - l'execution garde son repli actuel (null = ThrottlePolicy.DEFAULT, fenetre de 30 s...) pour
-     *     les scenarios deja enregistres sans ces valeurs.
-     * Un choix explicite de la requete est toujours garde (frein a 0 = desactive, 429 desactive...).
-     */
+    /** Nouveau scenario : reglages non fournis (frein, 429, detail des requetes) pris dans Parametres > Systeme et ecrits dans le scenario. */
     private void applyCreationDefaults(Scenario scenario, ScenarioRequest request) {
         if (request.errorBrakeRatePercent() == null && settings.defaultErrorBrakeEnabled()) {
             scenario.setErrorBrakeRatePercent(settings.defaultErrorBrakeRate());
@@ -418,14 +388,14 @@ public class ScenarioServiceImpl implements ScenarioService {
         if (request.maxP95Ms() != null) {
             scenario.setMaxP95Ms(request.maxP95Ms() > 0 ? request.maxP95Ms() : null);
         }
-        // Frein automatique en direct : null = inchange ; 0 = desactive (jamais active par defaut).
+        // Frein automatique : null = inchange ; 0 = desactive.
         if (request.errorBrakeRatePercent() != null) {
             scenario.setErrorBrakeRatePercent(request.errorBrakeRatePercent() > 0 ? request.errorBrakeRatePercent() : null);
         }
         if (request.errorBrakeWindowSeconds() != null) {
             scenario.setErrorBrakeWindowSeconds(request.errorBrakeWindowSeconds());
         }
-        // Ralentissement sur 429 : null = inchange (actif par defaut, voir ThrottlePolicy).
+        // Ralentissement sur 429 : null = inchange.
         if (request.throttleOn429() != null) {
             scenario.setThrottleOn429(request.throttleOn429());
         }
@@ -446,27 +416,20 @@ public class ScenarioServiceImpl implements ScenarioService {
         if (problem != null) throw new BadRequestException("CSV invalide : " + problem);
     }
 
-    /**
-     * Applique les VRAIES valeurs par defaut (P0-A) des parametres de
-     * charge optionnels de ScenarioRequest - jamais MapStruct (voir
-     * ScenarioMapper, qui les ignore explicitement) pour ne jamais risquer
-     * de persister un null dans une colonne NOT NULL. durationSeconds et
-     * iterations restent nullables tels quels (absence de limite = valide).
-     */
+    /** Valeurs par defaut des parametres de charge non fournis. */
     private void applyLoadTestDefaults(Scenario scenario, ScenarioRequest request) {
         scenario.setVirtualUsers(request.virtualUsers() != null ? request.virtualUsers() : 1);
         scenario.setRampUpSeconds(request.rampUpSeconds() != null ? request.rampUpSeconds() : 0);
         scenario.setDurationSeconds(request.durationSeconds());
         scenario.setIterations(request.iterations());
         scenario.setThinkTimeMs(request.thinkTimeMs() != null ? request.thinkTimeMs() : 0);
-        // Regles de charge avec les limites en vigueur (Parametres > Systeme). Un brouillon peut
-        // garder un ramp-up provisoire plus long que la duree : verifie a sa publication.
+        // Un brouillon peut garder un ramp-up plus long que la duree : verifie a la publication.
         List<String> problems = new java.util.ArrayList<>(loadProblems(scenario));
         if (scenario.getStatus() == ScenarioStatus.DRAFT) problems.remove(com.loadpilot.backend.service.validation.LoadRules.RAMP_UP_TOO_LONG);
         if (!problems.isEmpty()) throw new LoadConfigurationException(String.join(" ", problems));
     }
 
-    /** Regles de charge non respectees par ce scenario, avec les limites en vigueur. */
+    /** Regles de charge non respectees, avec les limites en vigueur. */
     private List<String> loadProblems(Scenario s) {
         return com.loadpilot.backend.service.validation.LoadRules.validate(s.getVirtualUsers(), s.getThinkTimeMs(), s.getRampUpSeconds(),
                 s.getDurationSeconds(), s.getIterations(), s.getTargetRps(), executionLimits.loadLimits());
@@ -482,7 +445,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                 .orElseThrow(() -> new ResourceNotFoundException("Application introuvable : " + applicationId));
     }
 
-    /** Nom du scenario pour le journal, sans jamais lever d'exception. */
+    /** Nom du scenario pour le journal ; ne leve jamais d'exception. */
     private String scenarioName(UUID id) {
         try {
             return scenarioRepository.findById(id).map(Scenario::getName).orElse("Scénario introuvable");

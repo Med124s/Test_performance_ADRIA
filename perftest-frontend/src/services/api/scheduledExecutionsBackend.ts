@@ -1,12 +1,4 @@
-// ============================================================
-// P1-B — CRUD/actions réels des ScheduledExecution (voir
-// controller.ScheduledExecutionController côté backend) : planification
-// PERSISTÉE en base, survit à un redémarrage, déclenchée par le même
-// moteur exactement que le lancement manuel (voir ExecutionService côté
-// backend). Remplace l'ancien hooks/useScheduledExecutions.ts (100%
-// frontend, JSON Server, ne survivant pas à la fermeture de l'onglet) —
-// voir MainLayout.tsx pour le décommissionnement de l'ancien hook.
-// ============================================================
+// Appels API des planifications (/api/scheduled-executions).
 
 import { springHttp } from './httpClient'
 import {
@@ -26,7 +18,7 @@ export const scheduledExecutionsBackendApi = {
     springHttp.put<BackendScheduledExecutionResponse>(`${RESOURCE}/${id}`, data),
   enable: (id: string) => springHttp.patch<BackendScheduledExecutionResponse>(`${RESOURCE}/${id}/enable`, undefined),
   disable: (id: string) => springHttp.patch<BackendScheduledExecutionResponse>(`${RESOURCE}/${id}/disable`, undefined),
-  /** Déclenche immédiatement (même moteur/protections que le déclenchement automatique). */
+  /** Déclenche immédiatement la planification. */
   runNow: (id: string) => springHttp.post<BackendScheduledExecutionResponse>(`${RESOURCE}/${id}/run-now`, undefined),
   delete: (id: string) => springHttp.delete<void>(`${RESOURCE}/${id}`),
   /** 3 prochains lancements calculés comme le déclencheur ; 400 avec un message clair si la saisie est invalide. */

@@ -2,6 +2,6 @@ package com.loadpilot.backend.service.execution;
 
 import com.loadpilot.backend.entity.Execution;
 
-/** Voir ExecutionTransactionHelper.attemptCancellation et CancellationOutcome. */
+/** Resultat d'une tentative d'annulation et execution concernee. */
 public record CancellationAttempt(CancellationOutcome outcome, Execution execution) {
 }

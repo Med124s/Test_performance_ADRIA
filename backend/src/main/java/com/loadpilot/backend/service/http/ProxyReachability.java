@@ -10,17 +10,10 @@ import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.function.Supplier;
 
-/**
- * Le proxy d'une application est-il joignable ? Verifie AVANT le test de l'application (bouton
- * « Tester », « Tester le monitoring ») : une connexion TCP directe sur l'hote et le port DU PROXY,
- * jamais sur l'application - un echec designe alors le proxy, et non « Application injoignable ».
- *
- * Ne prouve pas que le service ecoutant sur ce port est un proxy : cela, seul le test de
- * l'application a travers lui le montre (il suit juste apres).
- */
+/** Verifie qu'un proxy accepte une connexion TCP, avant le test de l'application. */
 public final class ProxyReachability {
 
-    /** Delai de connexion au proxy : court, un proxy d'entreprise repond en quelques millisecondes. */
+    /** Delai de connexion au proxy. */
     public static final Duration TIMEOUT = Duration.ofSeconds(3);
 
     private ProxyReachability() {
@@ -31,12 +24,11 @@ public final class ProxyReachability {
         return problem(host, port, TIMEOUT, Socket::new);
     }
 
-    /** "sockets" : fabrique de socket (tests : delai depasse simule, fermeture verifiee). */
+    /** "sockets" : fabrique de sockets (tests). */
     static String problem(String host, Integer port, Duration timeout, Supplier<Socket> sockets) {
-        // Format d'abord : jamais de tentative reseau sur une saisie invalide.
         String invalid = NetworkProfile.proxyProblem(host, port, null);
         if (invalid != null) return invalid;
-        InetSocketAddress address = new InetSocketAddress(host.trim(), port); // resolution DNS
+        InetSocketAddress address = new InetSocketAddress(host.trim(), port);
         if (address.isUnresolved()) return "hôte du proxy introuvable (DNS)";
         try (Socket socket = sockets.get()) {
             socket.connect(address, (int) timeout.toMillis());
@@ -54,7 +46,7 @@ public final class ProxyReachability {
         }
     }
 
-    /** Message complet : « Proxy injoignable (proxy.banque.local:8080) : connexion refusée… ». */
+    /** Message complet, ex. "Proxy injoignable (proxy.banque.local:8080) : connexion refusee". */
     public static String message(String host, Integer port, String problem) {
         return "Proxy injoignable (" + (host == null ? "" : host.trim()) + ":" + (port == null ? "" : port) + ") : " + problem + ".";
     }

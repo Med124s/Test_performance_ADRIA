@@ -15,13 +15,7 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/**
- * Classeur Excel (.xlsx, format Office Open XML) ecrit directement, sans bibliotheque : une feuille
- * par tableau, en-tetes en gras sur fond colore et figes, filtre automatique, largeur de colonnes
- * adaptee au contenu, nombres stockes comme NOMBRES (avec un format d'affichage), dates comme
- * vraies dates Excel au format jj/mm/aaaa hh:mm:ss. Les textes sont des chaines (jamais des
- * formules) : aucune injection de formule possible.
- */
+/** Classeur Excel (.xlsx) ecrit directement : une feuille par tableau, en-tetes figes, filtre automatique, colonnes ajustees. */
 public final class XlsxWriter {
 
     private XlsxWriter() {
@@ -108,7 +102,7 @@ public final class XlsxWriter {
                     .append("\" r:id=\"rId").append(i + 1).append("\"/>");
         }
         x.append("</sheets><definedNames>");
-        // Plage du filtre automatique de chaque feuille (attendue par Excel en plus de <autoFilter>).
+        // Plage du filtre automatique de chaque feuille.
         for (int i = 0; i < tables.size(); i++) {
             ExportTable t = tables.get(i);
             x.append("<definedName name=\"_xlnm._FilterDatabase\" localSheetId=\"").append(i).append("\" hidden=\"1\">'")
@@ -160,7 +154,7 @@ public final class XlsxWriter {
                 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" \
                 xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">""");
         x.append("<dimension ref=\"").append(range(t)).append("\"/>");
-        // Ligne d'en-tete figee : elle reste visible en faisant defiler.
+        // Ligne d'en-tete figee.
         x.append("<sheetViews><sheetView workbookViewId=\"0\"").append(selected ? " tabSelected=\"1\"" : "")
                 .append("><pane ySplit=\"1\" topLeftCell=\"A2\" activePane=\"bottomLeft\" state=\"frozen\"/>")
                 .append("<selection pane=\"bottomLeft\" activeCell=\"A2\" sqref=\"A2\"/></sheetView></sheetViews>");

@@ -18,15 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * GET /api/profile - protege par le SecurityFilterChain existant
- * (anyRequest().authenticated(), aucun permitAll ici) : requete sans token
- * valide -> 401 avant meme d'atteindre ce controleur.
- *
- * Ne fait aucun acces base de donnees/logique metier directement (voir
- * ProfileService) - se contente de construire l'abstraction CurrentUser a
- * partir du contexte de securite et de deleguer.
- */
+/** Profil de l'utilisateur connecte. */
 @RestController
 @RequestMapping("/api/profile")
 @RequiredArgsConstructor
@@ -37,20 +29,15 @@ public class ProfileController {
     private final com.loadpilot.backend.service.ProfileSecurityService profileSecurityService;
 
     @GetMapping
-    @Operation(summary = "Profil de l'utilisateur courant", description = "Identite/roles derives du JWT Keycloak, plus la preference de fuseau horaire reellement persistee ; 401 si non authentifie.")
+    @Operation(summary = "Profil de l'utilisateur courant", description = "Identite et roles issus du JWT Keycloak, et preferences enregistrees (fuseau horaire, apparence) ; 401 si non authentifie.")
     public ProfileResponse getProfile(@AuthenticationPrincipal Jwt jwt, Authentication authentication) {
         CurrentUser currentUser = CurrentUser.from(jwt, authentication);
         return profileService.getProfile(currentUser);
     }
 
-    /**
-     * P1-D — ouvert a tout role authentifie (self-service, jamais une
-     * action sur la ressource d'un autre) : seul le fuseau horaire est
-     * modifiable ici, jamais username/name/email (proprietes de Keycloak,
-     * voir ProfileServiceImpl).
-     */
+    /** Met a jour le fuseau horaire de l'utilisateur connecte. */
     @PatchMapping
-    @Operation(summary = "Mettre a jour ma preference de fuseau horaire", description = "Seul champ modifiable : timezone (identifiant IANA). username/name/email restent la propriete de Keycloak, jamais modifiables ici.")
+    @Operation(summary = "Mettre a jour ma preference de fuseau horaire", description = "Champs modifiables : timezone (identifiant IANA) et theme. username, name et email sont geres par Keycloak et ne sont pas modifiables ici.")
     @ApiResponse(responseCode = "400", description = "Fuseau horaire invalide")
     public ProfileResponse updateProfile(@Valid @RequestBody ProfileUpdateRequest request,
                                           @AuthenticationPrincipal Jwt jwt,
@@ -59,11 +46,7 @@ public class ProfileController {
         return profileService.updateProfile(currentUser, request);
     }
 
-    /**
-     * Prenom, nom et e-mail du compte connecte, dans le systeme d'authentification. Super
-     * administrateur seulement : 403 avec la raison pour les autres roles (meme en appelant l'API
-     * directement), refus journalise. Jamais le nom d'utilisateur, le role ni l'etat du compte.
-     */
+    /** Modifie le prenom, le nom et l'e-mail du compte connecte (Super administrateur). */
     @org.springframework.web.bind.annotation.PutMapping("/identity")
     @Operation(summary = "Modifier mon nom et mon e-mail (Super administrateur)",
             description = "Journalise avant -> apres. 403 pour Ingénieur performance et Observateur ; 409 si l'e-mail est déjà utilisé.")
@@ -89,7 +72,7 @@ public class ProfileController {
 
     @org.springframework.web.bind.annotation.PostMapping("/password-changed")
     @Operation(summary = "Retour du changement de mot de passe",
-            description = "Importe aussitot l'evenement du systeme d'authentification dans le journal d'audit (jamais le mot de passe). recorded = entree presente.")
+            description = "Importe aussitot l'evenement du systeme d'authentification dans le journal d'audit, sans le mot de passe. recorded = entree presente.")
     public java.util.Map<String, Boolean> passwordChanged(@AuthenticationPrincipal Jwt jwt) {
         return java.util.Map.of("recorded", profileSecurityService.recordPasswordChange(jwt));
     }

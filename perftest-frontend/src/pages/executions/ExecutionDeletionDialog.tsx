@@ -4,13 +4,7 @@ import { ApiError } from '../../services/api/httpClient'
 import { BackendBulkActionResponse, BackendExecutionDeletionImpact } from '../../types/backendContracts'
 import type { ToastType } from '../../context/ToastContext'
 
-// ============================================================
-// Suppression d'exécutions, partagée par les pages Exécutions et Rapports :
-// fenêtre de confirmation (impact réel : exécutions, résultats, métriques ;
-// définitif), message d'erreur clair et compte rendu d'une suppression
-// groupée (succès partiels expliqués). Les règles (droits, exécution active,
-// « réessayez dans quelques secondes », audit) sont celles du serveur.
-// ============================================================
+// Suppression d'exécutions (pages Exécutions et Rapports) : confirmation avec l'impact, messages d'erreur.
 
 export function describeExecutionError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
@@ -105,7 +99,7 @@ export default function ExecutionDeletionDialog({ ids, onConfirm, onClose }: {
                 <ul style={{ fontSize: '13.5px' }} aria-label="Impact">
                   <li><strong>{deletable}</strong> {deletable > 1 ? 'exécutions' : 'exécution'}</li>
                   <li><strong>{impact.results}</strong> {impact.results > 1 ? 'résultats de requêtes' : 'résultat de requête'}</li>
-                  {/* Anciennes lignes de la table metric seulement (plus aucune copie aujourd'hui) : affichees s'il en reste. */}
+                  {/* Anciennes lignes de la table metric, s'il en reste. */}
                   {impact.metrics > 0 && <li><strong>{impact.metrics}</strong> {impact.metrics > 1 ? 'métriques' : 'métrique'}</li>}
                 </ul>
                 {impact.active > 0 && (

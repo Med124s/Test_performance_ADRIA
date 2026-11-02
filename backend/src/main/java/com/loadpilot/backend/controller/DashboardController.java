@@ -20,28 +20,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/dashboard - lecture seule, ouverte a tout utilisateur authentifie
- * quel que soit son role (couvert par SecurityConfig :
- * anyRequest().authenticated()) - pas de @PreAuthorize necessaire, aucun
- * endpoint de creation/modification/suppression n'existe (voir Phase 11).
- */
+/** API du tableau de bord. */
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
-@Tag(name = "Dashboard", description = "Statistiques agregees en temps reel (Applications/Scenarios/Executions/Performance) - lecture seule")
+@Tag(name = "Dashboard", description = "Statistiques agregees des applications, scenarios, executions et performances (lecture seule)")
 public class DashboardController {
 
     private final DashboardService dashboardService;
     private final DashboardOverviewService overviewService;
 
-    /**
-     * P1-C — "from"/"to" optionnels (ISO-8601) : sans eux, comportement
-     * identique a avant P1-C (tout l'historique). Le frontend calcule les
-     * bornes des presets 24h/7j/30j (voir Dashboard.tsx) - aucun preset
-     * cote backend (memes conventions que dateFrom/dateTo sur
-     * /api/executions/history, voir ExecutionController).
-     */
+    /** "from" et "to" (ISO-8601) bornent la periode ; sans eux, tout l'historique est pris en compte. */
     @GetMapping
     @Operation(summary = "Vue globale de la plateforme", description = "Agregats calcules a la volee depuis les tables existantes, aucun stockage dedie. ?from=&to= filtrent optionnellement executions/performance/topScenarios sur une plage temporelle (bornes incluses, sur startedAt/timestamp).")
     public DashboardResponse getGlobalDashboard(

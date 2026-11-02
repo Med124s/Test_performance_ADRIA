@@ -1,10 +1,4 @@
-// ============================================================
-// Variables (type Postman) côté assistant : variables de chemin et paramètres
-// de requête d'une étape, variables du scénario, sources disponibles et
-// avertissements. Mêmes règles que le moteur (backend : RequestBuilder,
-// VariableContext, ScenarioVariables) :
-//   priorité capture (étape précédente) > CSV > scénario > ${authToken}.
-// ============================================================
+// Variables de l'assistant : variables de chemin et paramètres de requête d'une étape, variables du scénario, sources disponibles et avertissements.
 
 export interface QueryParamRow {
   key: string
@@ -41,7 +35,7 @@ export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 const VARIABLE_REF = /\$\{([^}]+)\}/g
 const PATH_VARIABLE = /(?<=\/):([A-Za-z_][A-Za-z0-9_]*)|(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 
-// ---------------------------------------------------------------- URL et paramètres
+// ---- URL et paramètres ----
 
 /** Partie chemin (préfixe absolu compris) et query d'une URL saisie. */
 export function splitUrl(url: string): { path: string; query: string | null } {
@@ -97,7 +91,7 @@ export function stepVariableNames(step: StepLike): string[] {
   return Array.from(new Set(texts.flatMap(referencedVariables)))
 }
 
-// ---------------------------------------------------------------- variables disponibles
+// ---- Variables disponibles ----
 
 /** Variables utilisables par l'étape d'index `index`, par ordre de priorité (une entrée par nom). */
 export function availableVariables(steps: StepLike[], index: number, csvColumns: string[], scenario: VariableRow[],
@@ -154,7 +148,7 @@ export function valueWarnings(value: string, available: KnownVariable[], later: 
   })
 }
 
-// ---------------------------------------------------------------- variables du scénario
+// ---- Variables du scénario ----
 
 export function validateScenarioVariables(rows: VariableRow[], csvColumns: string[]): { errors: string[]; warnings: string[] } {
   const errors: string[] = []

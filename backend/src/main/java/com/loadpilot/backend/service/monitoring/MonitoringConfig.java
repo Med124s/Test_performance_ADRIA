@@ -5,11 +5,7 @@ import com.loadpilot.backend.enums.MonitoringType;
 import com.loadpilot.backend.service.http.NetworkProfile;
 import java.util.Map;
 
-/**
- * Configuration effective du monitoring d'une application (secret compris : jamais journalisee ni
- * exposee). "network" : proxy pour joindre l'endpoint de monitoring (celui de l'application, ou en
- * direct si « Monitoring sans proxy ») ; null = proxy global.
- */
+/** Configuration du monitoring d'une application (secret compris) ; "network" : proxy pour joindre l'endpoint. */
 public record MonitoringConfig(MonitoringType type, String url, MonitoringAuthType authType, String headerName, String secret,
         int intervalSeconds, NetworkProfile network) {
 
@@ -17,7 +13,6 @@ public record MonitoringConfig(MonitoringType type, String url, MonitoringAuthTy
         if (network == null) network = NetworkProfile.inherit();
     }
 
-    /** Compatibilite : proxy global. */
     public MonitoringConfig(MonitoringType type, String url, MonitoringAuthType authType, String headerName, String secret,
             int intervalSeconds) {
         this(type, url, authType, headerName, secret, intervalSeconds, NetworkProfile.inherit());
@@ -43,7 +38,6 @@ public record MonitoringConfig(MonitoringType type, String url, MonitoringAuthTy
 
     @Override
     public String toString() {
-        // Jamais le secret, meme dans un log ou un message d'exception.
         return "MonitoringConfig[type=" + type + ", url=" + url + ", authType=" + authType + ", intervalSeconds=" + intervalSeconds
                 + ", " + network + "]";
     }

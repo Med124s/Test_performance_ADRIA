@@ -3,9 +3,7 @@ import type { BackendAppRole, BackendUserSummaryResponse } from '../../types/bac
 import { fullDate } from '../../utils/userDisplay'
 import { LastLogin, RoleBadge, RoleOptions, StatusLabel, UserAvatar, displayNameOf } from './userParts'
 
-// Panneau latéral d'un utilisateur : identité, choix du rôle, activité, actions du compte.
-// Toutes les actions passent par une confirmation (voir UsersRoles) ; l'administrateur
-// connecté ne peut ni retirer son propre rôle Administrateur ni désactiver son propre compte.
+// Panneau latéral d'un utilisateur : identité, rôle, activité et actions du compte.
 
 export interface UserDrawerProps {
   user: BackendUserSummaryResponse

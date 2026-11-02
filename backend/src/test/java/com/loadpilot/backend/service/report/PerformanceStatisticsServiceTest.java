@@ -11,14 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-/**
- * P1-A — teste PerformanceStatisticsService en isolation (aucun contexte
- * Spring/base de donnees necessaire : ExecutionStepResult/Step sont de
- * simples objets construits en memoire, jamais persistes ici) sur des
- * scenarios reels : 0/1/plusieurs resultats, tout succes, mixte, tout
- * echec - avec verification des VALEURS numeriques exactes (jamais
- * seulement "ca ne plante pas", voir prompt section 33/34).
- */
+/** PerformanceStatisticsService sur des objets construits en memoire, sans base de donnees. */
 class PerformanceStatisticsServiceTest {
 
     private final PerformanceStatisticsService service = new PerformanceStatisticsService();
@@ -123,7 +116,7 @@ class PerformanceStatisticsServiceTest {
         assertThat(stats.totalRequests()).isEqualTo(4);
         assertThat(stats.successfulRequests()).isEqualTo(3);
         assertThat(stats.failedRequests()).isEqualTo(1);
-        // errorRate = 1/4 * 100 = 25.00 (jamais une division par zero, jamais arrondi a 0 ou 100).
+        // errorRate = 1/4 * 100 = 25.00.
         assertThat(stats.errorRate()).isEqualByComparingTo("25.00");
         assertThat(stats.successRate()).isEqualByComparingTo("75.00");
         assertThat(stats.maxResponseTime()).isEqualTo(999L);

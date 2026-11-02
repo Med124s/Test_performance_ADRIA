@@ -1,6 +1,6 @@
 package com.loadpilot.backend.enums;
 
-/** Resultat REEL d'une action auditee - jamais un statut fictif. */
+/** Resultat d'une action auditee. */
 public enum AuditResult {
     SUCCESS,
     FAILURE

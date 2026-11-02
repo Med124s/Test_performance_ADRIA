@@ -12,12 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/**
- * Actions groupees sur les applications. Chaque element est traite dans SA
- * PROPRE transaction (appel au bean DeletionServiceImpl via son proxy) : un
- * echec (ex. execution en cours) n'annule pas les autres, et la reponse
- * detaille le resultat par application.
- */
+/** Actions groupees sur les applications ; chaque element est traite dans sa propre transaction. */
 @Service
 @RequiredArgsConstructor
 public class ApplicationBulkService {

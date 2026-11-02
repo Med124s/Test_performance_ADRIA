@@ -23,12 +23,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * Verifie ExecutionStepResultRepository avec H2 reel - notamment
- * findByExecutionIdOrderByTimestampAsc (JOIN FETCH, Phase 9) et les
- * agregations par succes/application via double-jointure imbriquee
- * (r.execution.scenario.application.id, Phase 11).
- */
+/** ExecutionStepResultRepository sur H2 : ordre chronologique et agregations par succes et par application. */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")

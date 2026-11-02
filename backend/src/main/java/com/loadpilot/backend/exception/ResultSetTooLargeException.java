@@ -2,12 +2,7 @@ package com.loadpilot.backend.exception;
 
 import org.springframework.http.HttpStatus;
 
-/**
- * Lecture refusee AVANT de charger tous les resultats d'une execution (voir ResultLoadGuard) :
- *   - 413 : trop volumineuse pour la memoire de ce serveur, meme seule ;
- *   - 409 : ne tient pas pour l'instant dans la memoire restante (tests en cours, autres lectures),
- *     a reessayer.
- */
+/** Resultats d'une execution trop volumineux pour etre charges : 413 (trop gros pour ce serveur) ou 409 (memoire insuffisante pour l'instant). */
 public class ResultSetTooLargeException extends RuntimeException {
 
     private final HttpStatus status;

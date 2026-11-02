@@ -26,19 +26,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Profil de l'utilisateur connecte.
- *  - Preferences (fuseau horaire, apparence) : tout utilisateur.
- *  - Identite (prenom, nom, e-mail) : Super administrateur seulement, dans le systeme
- *    d'authentification, journalisee avant -> apres.
- *  - Nom d'utilisateur, role, etat du compte : jamais modifiables depuis son profil.
- * Toute demande refusee est journalisee et repond 403 avec la raison.
- */
+/** Profil de l'utilisateur connecte : preferences (tout utilisateur) et identite (Super administrateur, dans Keycloak). */
 @Service
 @RequiredArgsConstructor
 public class ProfileServiceImpl implements ProfileService {
 
-    /** Ordre de priorite si plusieurs roles applicatifs : le plus large d'abord. */
+    /** Roles applicatifs, du plus large au plus restreint. */
     private static final List<String[]> APP_ROLES = List.of(
             new String[] {"ROLE_SUPER_ADMIN", "SUPER_ADMIN", "Super administrateur"},
             new String[] {"ROLE_PERFORMANCE_ENGINEER", "PERFORMANCE_ENGINEER", "Ingénieur performance"},
@@ -57,8 +50,7 @@ public class ProfileServiceImpl implements ProfileService {
     @Transactional
     public ProfileResponse getProfile(CurrentUser currentUser) {
         AppUser appUser = appUserSyncService.sync(currentUser);
-        // Identite/roles refletent toujours le Jwt en cours (source de verite du systeme
-        // d'authentification) ; fuseau horaire et apparence sont les seules preferences locales.
+        // Identite et roles viennent du JWT ; fuseau horaire et apparence sont stockes localement.
         return toResponse(currentUser, appUser);
     }
 
@@ -89,7 +81,7 @@ public class ProfileServiceImpl implements ProfileService {
     public ProfileResponse updateIdentity(CurrentUser currentUser, ProfileIdentityRequest request) {
         if (!isSuperAdmin(currentUser)) throw refused(currentUser, IDENTITY_ADMIN_ONLY);
         if (request.touchesProtectedFields()) throw refused(currentUser, PROTECTED_FIELDS);
-        // Champs verifies APRES le role : un non-administrateur recoit toujours 403, jamais 400.
+        // Champs verifies apres le role : un non-administrateur recoit toujours 403.
         var violations = validator.validate(request);
         if (!violations.isEmpty()) {
             // Dans l'ordre du formulaire : prénom, nom, e-mail.
@@ -123,7 +115,7 @@ public class ProfileServiceImpl implements ProfileService {
                 auditLogService.record(audit.failed(e));
                 throw e;
             }
-            // Projection locale a jour tout de suite (le jeton, lui, change au prochain rafraichissement).
+            // Copie locale mise a jour tout de suite.
             appUser.setName(fullName);
             appUser.setEmail(email);
             appUser = appUserRepository.save(appUser);
@@ -134,7 +126,7 @@ public class ProfileServiceImpl implements ProfileService {
         return toResponse(updated, appUser);
     }
 
-    /** Demande refusee : journalisee (echec, avec la raison) puis 403. */
+    /** Demande refusee : journalisee puis 403. */
     private ForbiddenActionException refused(CurrentUser currentUser, String reason) {
         auditLogService.record(AuditEvent.of(AuditAction.UPDATE, AuditModule.USER)
                 .target(AuditTargetType.USER, currentUser.subject(), label(currentUser))
@@ -158,7 +150,7 @@ public class ProfileServiceImpl implements ProfileService {
                 currentUser.firstName(), currentUser.lastName(), isSuperAdmin(currentUser));
     }
 
-    /** Role applicatif parmi les roles du jeton (jamais offline_access, uma_authorization, default-roles-...). */
+    /** Role applicatif parmi les roles du jeton. */
     static String[] appRole(java.util.Collection<String> roles) {
         if (roles == null) return null;
         for (String[] role : APP_ROLES) {
@@ -167,7 +159,7 @@ public class ProfileServiceImpl implements ProfileService {
         return null;
     }
 
-    /** Jamais un fuseau invalide silencieusement accepte (meme verification que les planifications). */
+    /** Verifie que le fuseau horaire est un identifiant IANA valide. */
     private void validateTimezone(String timezone) {
         try {
             ZoneId.of(timezone);

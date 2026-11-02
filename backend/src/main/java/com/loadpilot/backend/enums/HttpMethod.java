@@ -1,6 +1,6 @@
 package com.loadpilot.backend.enums;
 
-/** Methodes HTTP supportees par un Step - exactement ces 5, aucune de plus. */
+/** Methodes HTTP d'une etape. */
 public enum HttpMethod {
     GET,
     POST,

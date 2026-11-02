@@ -16,12 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * P1-D — modele "opt-out" (voir NotificationPreference) : une ligne
- * n'existe que si l'utilisateur a explicitement change l'etat par defaut
- * (true) pour au moins un type - jamais 5 lignes creees d'office au premier
- * appel.
- */
+/** Preferences de notification ; une ligne n'existe que pour un type dont l'utilisateur a change l'etat par defaut (actif). */
 @Service
 @RequiredArgsConstructor
 public class NotificationPreferenceServiceImpl implements NotificationPreferenceService {
@@ -55,13 +50,7 @@ public class NotificationPreferenceServiceImpl implements NotificationPreference
     @Override
     @Transactional
     public NotificationPreferenceResponse update(CurrentUser currentUser, NotificationType type, Boolean enabled, Boolean emailEnabled) {
-        // sync() cree reellement l'AppUser au besoin (premiere action d'un
-        // utilisateur qui n'a encore jamais declenche AppUserSyncService -
-        // ex: la toute premiere chose qu'il fait apres connexion est de
-        // couper une preference de notification) - jamais une simple
-        // lecture qui echouerait avec un 404 trompeur ("utilisateur
-        // introuvable" alors qu'il est bien authentifie, juste jamais
-        // encore synchronise).
+        // Cree la copie locale de l'utilisateur si besoin.
         AppUser appUser = appUserSyncService.sync(currentUser);
 
         NotificationPreference preference = notificationPreferenceRepository

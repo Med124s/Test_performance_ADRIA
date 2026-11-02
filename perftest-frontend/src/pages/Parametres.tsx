@@ -5,14 +5,7 @@ import Configurations from './Configurations'
 import SettingsIntegrations from './SettingsIntegrations'
 import './executions/executions.css'
 
-// ============================================================
-// « Paramètres » : une seule page pour l'ancien « Settings » (profil et
-// préférences, onglet « Mon profil », pour tous) et l'ancien
-// « Configurations » (limites du serveur, onglet « Système ») avec les
-// intégrations (onglet « Intégrations ») — ces deux derniers réservés au
-// Super Administrateur, comme leurs données côté serveur.
-// Anciennes adresses : /settings, /configurations, /settings/integrations.
-// ============================================================
+// « Paramètres » : onglets Mon profil, Système et Intégrations.
 
 export default function Parametres() {
   const { authProvider, rawRoles } = useAuth()

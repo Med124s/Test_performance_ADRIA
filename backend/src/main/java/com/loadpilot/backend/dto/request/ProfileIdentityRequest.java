@@ -5,11 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-/**
- * PUT /api/profile/identity (Super administrateur uniquement) : prenom, nom et e-mail du compte
- * connecte, enregistres dans le systeme d'authentification. Jamais le nom d'utilisateur, le role
- * ni l'etat du compte : ces champs, s'ils sont envoyes, font refuser la demande (403).
- */
+/** Prenom, nom et e-mail du compte connecte (Super administrateur). */
 public record ProfileIdentityRequest(
         @NotBlank(message = "Le prénom est obligatoire.")
         @Size(max = 100, message = "Le prénom ne doit pas dépasser 100 caractères.")

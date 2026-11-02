@@ -7,11 +7,7 @@ import { formatInt } from '../scenario-wizard/wizardModel'
 import { formatDuration } from './formatDuration'
 import { describeSettingsError } from './settingsErrors'
 
-// Limites des tests (Paramètres > Système, Super administrateur), sur deux niveaux :
-//  - plafond du serveur (variable du serveur), jamais modifiable ici ;
-//  - limite applicative, modifiable, toujours ≤ plafond (par défaut = plafond).
-// Effet immédiat sur les prochains enregistrements, lancements et planifications ; aucun effet sur
-// les exécutions en cours. Chaque changement est inscrit au journal d'audit (avant → après).
+// Limites des tests (Super administrateur) : limite applicative modifiable, toujours inférieure ou égale au plafond du serveur.
 
 /** Explication d'une phrase par limite (infobulle ⓘ). */
 export const LIMIT_HELP: Record<BackendLimitKey, string> = {
@@ -36,17 +32,13 @@ export function limitProblem(label: string, raw: string, ceiling: number): strin
 /** Message identique au serveur (ExecutionLimitsService.TOTAL_BELOW_PER_TEST). */
 export const TOTAL_BELOW_PER_TEST = 'Le total doit être supérieur ou égal au maximum par test.'
 
-/**
- * « Au total » jamais en dessous de « par test » (même règle que le serveur, ExecutionLimitsService.update) :
- * toujours refusé, quel que soit le champ modifié - message sous les deux champs, enregistrement impossible.
- * null si cohérent, ou si l'un des deux champs n'est pas un nombre valide (son propre message s'affiche déjà).
- */
+/** « Au total » ne peut pas être inférieur à « par test » ; null si cohérent. */
 export function totalBelowPerTest(perTestRaw: string, totalRaw: string): string | null {
   if (!/^\d+$/.test(perTestRaw.trim()) || !/^\d+$/.test(totalRaw.trim())) return null
   return Number(totalRaw) < Number(perTestRaw) ? TOTAL_BELOW_PER_TEST : null
 }
 
-/** Ordre d'affichage : le plafond global d'abord, puis celui par test (qui doit lui rester inférieur ou égal). */
+// Ordre d'affichage : « au total » puis « par test ».
 const DISPLAY_ORDER: BackendLimitKey[] = ['virtualUsersTotal', 'virtualUsersPerTest']
 const displayRank = (key: BackendLimitKey) => {
   const i = DISPLAY_ORDER.indexOf(key)
@@ -85,7 +77,7 @@ export default function LimitsCard({ onSaved }: { onSaved?: () => void }) {
     problem: limitProblem(l.label, values[l.key] ?? '', l.ceiling)
       ?? (l.key === 'virtualUsersPerTest' || l.key === 'virtualUsersTotal' ? pairProblem : null),
   })) : []
-  // Affichage seulement (structure et clés inchangées) : « au total » avant « par test », le reste dans l'ordre du serveur.
+  // « Au total » avant « par test », le reste dans l'ordre du serveur.
   const displayed = data ? [...data.limits].sort((a, b) => displayRank(a.key) - displayRank(b.key)) : []
   const valid = problems.every((p) => !p.problem)
   const dirty = !!data && data.limits.some((l) => (values[l.key] ?? '').trim() !== String(l.value))

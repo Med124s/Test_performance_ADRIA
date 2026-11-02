@@ -11,12 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Noms lisibles des objets pour le journal d'audit, ex. une execution :
- * « Parcours bancaire du 07/10 à 14:32 » (scenario + date de lancement).
- * Le nom est fige au moment de l'action : il reste lisible meme si l'objet
- * est supprime ensuite.
- */
+/** Noms lisibles des objets pour le journal d'audit, ex. "Parcours bancaire du 07/10 a 14:32" pour une execution. */
 @Component
 @RequiredArgsConstructor
 public class AuditTargets {
@@ -39,7 +34,7 @@ public class AuditTargets {
         return executionLabel(scenario, execution.getStartedAt());
     }
 
-    /** Nom lisible d'une execution par son id (lecture seule, sans jamais lever d'exception). */
+    /** Nom lisible d'une execution par son id ; ne leve jamais d'exception. */
     @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
     public String executionLabel(UUID executionId) {
         try {
@@ -51,7 +46,7 @@ public class AuditTargets {
         }
     }
 
-    /** Statut d'execution en francais (jamais le code brut). */
+    /** Statut d'execution en francais. */
     public static String statusLabel(com.loadpilot.backend.enums.ExecutionStatus status) {
         if (status == null) {
             return "—";

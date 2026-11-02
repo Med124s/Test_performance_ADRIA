@@ -26,11 +26,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Verifie le module Steps de bout en bout (SecurityFilterChain reel,
- * StepController -> StepServiceImpl -> StepRepository sur H2 reel). Seul
- * JwtDecoder est mocke (aucun Keycloak reel necessaire).
- */
+/** Module Etapes de bout en bout ; seul JwtDecoder est simule. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -307,9 +303,7 @@ class StepControllerTest {
 
     @Test
     void create_withEngineOptions_persistsAndReturnsThemAll() throws Exception {
-        // P1-Q Etape B - think time/timeout/follow-redirects/assertion PAR
-        // ETAPE : verifie le round-trip complet (requete -> persistence ->
-        // reponse), pas seulement que le champ est accepte.
+        // Options par etape (think time, timeout, redirections, assertion) : aller-retour requete -> base -> reponse.
         String appId = createApplicationAndGetId("engine-options-app");
         String scenarioId = createScenarioAndGetId(appId, "engine-options-scenario");
 
@@ -514,7 +508,7 @@ class StepControllerTest {
     void listByScenario_returnsStepsOrderedAscending() throws Exception {
         String appId = createApplicationAndGetId("order-app");
         String scenarioId = createScenarioAndGetId(appId, "order-scenario");
-        // Crees volontairement dans le desordre.
+        // Creees dans le desordre.
         createStepAndGetId(scenarioId, "third", 3);
         createStepAndGetId(scenarioId, "first", 1);
         createStepAndGetId(scenarioId, "second", 2);

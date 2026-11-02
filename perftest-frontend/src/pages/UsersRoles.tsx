@@ -14,17 +14,7 @@ import { LastLogin, RoleBadge, StatusLabel, UserAvatar, UserDialog, describeUser
 import { APP_ROLES, roleMeta } from '../utils/appRoles'
 import './users/users.css'
 
-// ============================================================
-// Onglet « Utilisateurs » : les VRAIS comptes Keycloak (identité, statut,
-// rôle), administrés via le backend Spring Boot (services/api/usersBackend.ts),
-// qui parle lui-même à l'Admin REST API de Keycloak avec un compte de service
-// dédié — jamais un mot de passe transmis par ce frontend : création et
-// réinitialisation passent par un e-mail Keycloak.
-//
-// Accès réservé à SUPER_ADMIN (voir @PreAuthorize sur UserController).
-// `GET /api/users` renvoie tout le realm : recherche, filtres et pagination
-// sont faits ici, sur la liste complète.
-// ============================================================
+// Onglet « Utilisateurs » : comptes (identité, statut, rôle) administrés via le backend.
 
 type RoleFilter = 'all' | BackendAppRole | 'none'
 type StatusFilter = 'all' | 'active' | 'disabled'

@@ -20,12 +20,7 @@ import './scheduling.css'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
 
-// ============================================================
-// Historique d'une planification : toutes les exécutions qu'elle a
-// lancées (date, statut, P95, erreurs, débit, lien vers le rapport) et les
-// lancements ignorés ou manqués avec leur raison ; petit graphique du P95
-// et du taux d'erreurs d'une exécution à l'autre.
-// ============================================================
+// Historique d'une planification : exécutions lancées et lancements ignorés ou manqués.
 
 function describeError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {

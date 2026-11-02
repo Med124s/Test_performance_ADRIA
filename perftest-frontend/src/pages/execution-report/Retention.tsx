@@ -5,10 +5,9 @@ import { executionsBackendApi } from '../../services/api/executionsBackend'
 import { ApiError } from '../../services/api/httpClient'
 import type { BackendResultsRetention } from '../../types/backendContracts'
 
-// Conservation du détail d'une exécution : mention quand une partie a été supprimée
-// (rapport figé conservé) et bouton « Conserver » (jamais purgée).
+// Conservation du détail d'une exécution : mention de suppression et bouton « Conserver ».
 
-/** Rôles autorisés à conserver une exécution (mêmes que la suppression, voir ExecutionController). */
+/** Rôles autorisés à conserver une exécution. */
 export function useCanKeep(): boolean {
   const { authProvider, rawRoles } = useAuth()
   return authProvider === 'keycloak' && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))

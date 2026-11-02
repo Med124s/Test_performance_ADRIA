@@ -3,8 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
 
-// Fuseau horaire de Mon profil : après « Enregistrer », il devient tout de suite (sans recharger la
-// page) le fuseau proposé d'une nouvelle planification et celui de l'affichage des dates.
+// Fuseau horaire du profil : appliqué tout de suite aux dates et aux nouvelles planifications.
 
 const profile = vi.hoisted(() => ({ timezone: 'Africa/Casablanca' as string | null }))
 const api = vi.hoisted(() => ({

@@ -10,24 +10,12 @@ import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Authentification de l'Application partagee par tous les utilisateurs virtuels d'UNE Execution
- * (correction L5). Pour le mode « Connexion automatique » (LOGIN_TOKEN), le jeton obtenu au debut
- * peut expirer pendant un long test : sur un 401, le moteur demande ici un renouvellement.
- *
- *   - Un seul renouvellement a la fois : les utilisateurs virtuels qui recoivent un 401 en meme
- *     temps attendent le premier, puis reutilisent le nouveau jeton (numero de « generation »).
- *   - Echec de la reconnexion : aucune nouvelle tentative pendant {@link #RETRY_COOLDOWN_NANOS}
- *     pour ce jeton (jamais une rafale de connexions vers une page de login en panne).
- *   - Verrou ReentrantLock (jamais synchronized) : la reconnexion est une requete HTTP bloquante,
- *     et un bloc synchronized immobiliserait le thread porteur d'un thread virtuel.
- *   - Les autres modes (jeton fixe, cle API, Basic) ne sont jamais renouveles.
- */
+/** Authentification partagee par les utilisateurs virtuels d'une execution ; en "Connexion automatique", le jeton est renouvele apres un 401. */
 public final class RenewableApplicationAuth {
 
     private static final Logger log = LoggerFactory.getLogger(RenewableApplicationAuth.class);
 
-    /** Pause minimale entre deux tentatives de reconnexion apres un echec (5 s). */
+    /** Pause minimale entre deux reconnexions apres un echec. */
     static final long RETRY_COOLDOWN_NANOS = TimeUnit.SECONDS.toNanos(5);
 
     /** Jeton en vigueur et son numero de generation (0 = jeton obtenu au debut de l'Execution). */
@@ -54,7 +42,7 @@ public final class RenewableApplicationAuth {
                 com.loadpilot.backend.service.http.NetworkProfile.inherit());
     }
 
-    /** "network" : proxy de l'application, utilise aussi pour se reconnecter (voir NetworkProfile). */
+    /** "network" : reglages reseau pour joindre l'application. */
     public RenewableApplicationAuth(ApplicationAuthSpec spec, ResolvedAuth initial, String applicationBaseUrl, long timeoutSeconds,
                                     ApplicationAuthenticator authenticator, RequestDetailRecorder recorder,
                                     com.loadpilot.backend.service.http.NetworkProfile network) {
@@ -99,11 +87,7 @@ public final class RenewableApplicationAuth {
         }
     }
 
-    /**
-     * Jeton a utiliser apres un 401 obtenu avec {@code used} : celui deja renouvele par un autre
-     * utilisateur virtuel, sinon un nouveau (une vraie reconnexion). null si la reconnexion a echoue
-     * (ou vient d'echouer pour ce meme jeton) : l'appelant laisse alors l'echec remonter.
-     */
+    /** Jeton a utiliser apres un 401 obtenu avec {@code used} : celui deja renouvele par un autre utilisateur virtuel, sinon un nouveau ; null si la reconnexion echoue. */
     public Current renewAfter(Current used) {
         if (!renewable()) return null;
         lock.lock();
@@ -126,7 +110,6 @@ public final class RenewableApplicationAuth {
             } catch (ApplicationAuthenticationException e) {
                 failedGeneration = used.generation();
                 failedAtNanos = nanoClock.getAsLong();
-                // Messages construits sans secret (voir ApplicationAuthenticator).
                 log.warn("Reconnexion a l'application impossible apres un 401 : {}", e.getMessage());
                 return null;
             }
@@ -135,7 +118,7 @@ public final class RenewableApplicationAuth {
         }
     }
 
-    /** Le nouveau jeton est masque dans le detail des requetes, comme le premier. */
+    /** Masque le nouveau jeton dans le detail des requetes. */
     private void maskInRequestDetails(ResolvedAuth fresh) {
         if (recorder == null || !recorder.enabled()) return;
         Set<String> secrets = new LinkedHashSet<>(recorder.baseSecrets());

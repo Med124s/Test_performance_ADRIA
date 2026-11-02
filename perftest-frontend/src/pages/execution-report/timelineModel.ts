@@ -1,9 +1,6 @@
 import { BackendExecutionTimeline } from '../../types/backendContracts'
 
-// ============================================================
-// Préparation des données de l'analyse dans le temps (fonctions pures,
-// testées) : libellés de temps, étapes les plus lentes, erreurs par type.
-// ============================================================
+// Données de l'analyse dans le temps : libellés de temps, étapes les plus lentes, erreurs par type.
 
 /** « 16 s » pour un test court, « 2:05 » au-delà de 2 minutes. */
 export function formatT(seconds: number, long: boolean): string {

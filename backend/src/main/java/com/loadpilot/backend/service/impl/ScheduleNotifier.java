@@ -20,15 +20,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Notifications propres aux planifications :
- * - fin d'une execution planifiee, selon le reglage de la planification (ALWAYS : chaque fin ;
- *   PROBLEMS : echec ou regression seulement) : « Test nocturne : réussi · P95 314 ms »,
- *   « … : échoué · 5 % d'erreurs », « … : régression · P95 +35 % par rapport à l'exécution précédente »
- *   (meme seuil reglable que le Dashboard, AppSettingsService.regressionPercent) ; lien vers le rapport
- *   (relatedExecutionId) ;
- * - lancement non fait (ignore, manque, refuse) : toujours notifie, quel que soit le reglage.
- */
+/** Notifications des planifications : fin d'une execution planifiee (selon le reglage ALWAYS / PROBLEMS) et lancement non fait. */
 @Service
 @RequiredArgsConstructor
 public class ScheduleNotifier {
@@ -67,18 +59,18 @@ public class ScheduleNotifier {
                 message(execution, errorRate, prevP95), executionId, scheduleId);
     }
 
-    /** Lancement non fait : toujours notifie (le reglage ne concerne que la fin des executions). */
+    /** Lancement non fait : toujours notifie. */
     public void notRun(UUID recipientAppUserId, UUID scheduleId, String title, String message) {
         notificationService.create(recipientAppUserId, NotificationType.SCHEDULE_FAILED, title, message, null, scheduleId);
     }
 
-    /** Regle de notification de fin, sans acces a la base (testee directement). */
+    /** Regle de notification de fin. */
     public static Decision decide(String name, ExecutionStatus status, Long p95Ms, Double errorRatePercent,
                                   Double p95ChangePercent, ScheduleNotifyMode mode) {
         return decide(name, status, p95Ms, errorRatePercent, p95ChangePercent, mode, DashboardRules.REGRESSION_PERCENT);
     }
 
-    /** Idem avec le seuil de regression reglable (Parametres > Systeme). */
+    /** Regle de notification de fin, avec le seuil de regression. */
     public static Decision decide(String name, ExecutionStatus status, Long p95Ms, Double errorRatePercent,
                                   Double p95ChangePercent, ScheduleNotifyMode mode, double regressionPercent) {
         if (status == ExecutionStatus.FAILED) {
@@ -86,7 +78,7 @@ public class ScheduleNotifier {
             return new Decision(NotificationType.EXECUTION_FAILED, name + " : échoué" + rate);
         }
         if (status == ExecutionStatus.THRESHOLDS_EXCEEDED) {
-            // Test allé au bout mais seuil de réussite dépassé : toujours notifié (c'est un problème).
+            // Seuil de reussite depasse : toujours notifie.
             String rate = errorRatePercent == null ? "" : " · " + DashboardRules.format(errorRatePercent) + " % d'erreurs";
             return new Decision(NotificationType.EXECUTION_THRESHOLDS_EXCEEDED, name + " : seuils dépassés" + rate);
         }
@@ -113,7 +105,7 @@ public class ScheduleNotifier {
         return Math.round(ko * 1000.0 / (ok + ko)) / 10.0;
     }
 
-    /** Heure prevue lisible dans le fuseau de la planification (ex. « 07/10/2026 à 02:00 »). */
+    /** Heure prevue dans le fuseau de la planification, ex. "07/10/2026 a 02:00". */
     public static String plannedLabel(Instant at, String timezone) {
         ZoneId zone;
         try {
@@ -141,7 +133,7 @@ public class ScheduleNotifier {
             statsService.compute(e.getId());
             entityManager.refresh(e);
         } catch (RuntimeException ex) {
-            // Resume indisponible : la notification part sans P95 (jamais invente).
+            // Resume indisponible : notification sans P95.
         }
     }
 }

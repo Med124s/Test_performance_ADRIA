@@ -20,16 +20,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
-/**
- * Vue d'une planification pour l'interface : etat calcule (jamais stocke), derniere execution avec
- * l'ecart de P95 par rapport a la precedente, dernier lancement non fait, et historique complet.
- * Appele dans la transaction du service (les associations paresseuses sont deja chargees).
- */
+/** Vue d'une planification : etat calcule, derniere execution (avec l'ecart de P95), dernier lancement non fait et historique. */
 @Service
 @RequiredArgsConstructor
 public class ScheduleViewService {
 
-    /** Etat et raison (francais, affichee au survol). */
+    /** Etat et raison affichee au survol. */
     public record StateView(ScheduleState state, String reason) {
     }
 
@@ -38,10 +34,7 @@ public class ScheduleViewService {
     private final ExecutionStatsService statsService;
     private final EntityManager entityManager;
 
-    /**
-     * Ordre de priorite : Suspendue (scenario indisponible) > Terminee (unique deja lancee ou passee) >
-     * Expiree (date de fin depassee) > En pause (choix de l'utilisateur) > Active.
-     */
+    /** Priorite : Suspendue > Terminee > Expiree > En pause > Active. */
     public static StateView resolveState(ScheduledExecution s, Instant now) {
         Scenario scenario = s.getScenario();
         if (scenario.isArchived()) {
@@ -156,7 +149,7 @@ public class ScheduleViewService {
             statsService.compute(e.getId());
             entityManager.refresh(e);
         } catch (RuntimeException ex) {
-            // Resume indisponible : valeurs simplement absentes (jamais inventees).
+            // Resume indisponible : valeurs absentes.
         }
     }
 

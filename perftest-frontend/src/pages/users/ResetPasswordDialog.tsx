@@ -6,8 +6,7 @@ import PasswordFields, { EMPTY_PASSWORD, PasswordDraft, passwordProblem } from '
 import { CredentialMode, CredentialModes } from './CreateUserModal'
 import { usePasswordPolicy } from './usePasswordPolicy'
 
-// « Réinitialiser le mot de passe » : nouveau mot de passe saisi / généré ici (temporaire ou non),
-// ou lien envoyé par e-mail. Le mot de passe n'est jamais conservé ni renvoyé par LoadPilot.
+// « Réinitialiser le mot de passe » : nouveau mot de passe saisi ou généré, ou lien envoyé par e-mail.
 
 export default function ResetPasswordDialog({ user, onClose, onDone }: {
   user: BackendUserSummaryResponse

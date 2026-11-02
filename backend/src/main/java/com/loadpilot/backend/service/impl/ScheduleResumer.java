@@ -17,21 +17,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Reprise des planifications suspendues par leur scenario (desactive, archive, ou application archivee),
- * des que le scenario redevient utilisable : actif, non archive, application non archivee.
- *
- * Rien n'est rattrape : une recurrente repart de sa prochaine occurrence a partir de maintenant ; une
- * unique dont l'heure est passee pendant la suspension n'est jamais lancee (enregistree « Non lancée »
- * dans son historique, etat Terminee) - jamais un lancement surprise a la reactivation.
- */
+/** Reprise des planifications suspendues par leur scenario, des que le scenario redevient utilisable ; rien n'est rattrape. */
 @Component
 @RequiredArgsConstructor
 public class ScheduleResumer {
 
     static final String NOT_RUN_WHILE_SUSPENDED = "Non lancée : le scénario n'était pas disponible (désactivé ou archivé) à l'heure prévue.";
 
-    /** Planifications reprises, et uniques dont l'heure est passee pendant la suspension. */
+    /** Planifications reprises, et planifications uniques passees pendant la suspension. */
     public record Result(int resumed, int expired) {
     }
 

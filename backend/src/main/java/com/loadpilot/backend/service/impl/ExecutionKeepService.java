@@ -16,11 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Option « Conserver » d'une execution : ses resultats et le detail de ses requetes ne sont
- * jamais purges. Impossible une fois le detail supprime (seul le rapport fige reste).
- * Ligne verrouillee : jamais en meme temps qu'une purge de cette execution.
- */
+/** Option "Conserver" d'une execution : ses resultats et le detail de ses requetes ne sont jamais purges. */
 @Service
 @RequiredArgsConstructor
 public class ExecutionKeepService {

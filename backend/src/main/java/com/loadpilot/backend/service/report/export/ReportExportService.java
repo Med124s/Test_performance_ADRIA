@@ -27,12 +27,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Exports d'un rapport d'execution TERMINEE (aussi pour un rapport fige « Résumé seul ») :
- *  - Excel (.xlsx) : feuilles Resume, Etapes, Erreurs, Analyse dans le temps ;
- *  - CSV : UN tableau par fichier (Etapes par defaut), ou les quatre dans une archive .zip.
- * 409 pour une execution en attente, en cours ou en pause.
- */
+/** Exports du rapport d'une execution terminee : Excel (.xlsx), un tableau en CSV, ou les quatre tableaux dans un .zip. */
 @Service
 @RequiredArgsConstructor
 public class ReportExportService {
@@ -53,10 +48,7 @@ public class ReportExportService {
     public record ExportFile(String fileName, String contentType, byte[] content, String label) {
     }
 
-    /**
-     * Memoire de l'export entier reservee (rapport, analyse dans le temps et fichier, gardes jusqu'a
-     * la fin de la transaction) : couvre aussi le rapport et l'analyse appeles a l'interieur.
-     */
+    /** Reserve la memoire de l'export entier. */
     private com.loadpilot.backend.service.impl.ResultLoadGuard.Reservation reserve(UUID executionId) {
         return resultLoadGuard.reserve(com.loadpilot.backend.service.impl.ResultLoadGuard.Load.EXPORT,
                 resultRepository.countAllByExecutionId(executionId));
@@ -141,7 +133,7 @@ public class ReportExportService {
         return values == null ? null : values.stream().filter(Objects::nonNull).max(Double::compare).orElse(null);
     }
 
-    /** Tests : horloge et fuseau fixes. */
+    /** Horloge et fuseau fixes (tests). */
     void setClock(Clock clock) {
         this.clock = clock;
     }

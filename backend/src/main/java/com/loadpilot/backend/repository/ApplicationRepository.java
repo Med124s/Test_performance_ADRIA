@@ -13,8 +13,5 @@ public interface ApplicationRepository extends JpaRepository<Application, UUID>,
     List<Application> findByArchived(boolean archived, Sort sort);
 
 
-    /** Utilise par DashboardService (Phase 11) - le statut est nullable
-     * (voir Application/ApplicationStatus) donc une Application jamais
-     * testee ne compte dans aucun de ces totaux, seulement dans count(). */
     long countByStatus(ApplicationStatus status);
 }

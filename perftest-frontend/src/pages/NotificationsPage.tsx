@@ -10,13 +10,7 @@ import {
 import { BackendNotificationResponse, BackendNotificationType, BackendPagedResponse } from '../types/backendContracts'
 import { ApiError } from '../services/api/httpClient'
 
-// ============================================================
-// Page « Toutes mes notifications » : notifications PERSISTÉES côté backend, générées
-// uniquement depuis de vrais événements (fin d'exécution, planification, régression).
-// Pagination côté serveur (20 par page, 20 / 50 / 100) ; filtres lues / non lues et type,
-// combinés à la pagination et gardés dans l'URL. Marquer lu (bouton, ouverture, « Tout
-// marquer comme lu », suppression d'une non lue) fait baisser la cloche tout de suite.
-// ============================================================
+// Page « Toutes mes notifications » : liste paginée et filtrée, état dans l'URL.
 
 export const PAGE_SIZES = [20, 50, 100]
 const DEFAULT_SIZE = 20

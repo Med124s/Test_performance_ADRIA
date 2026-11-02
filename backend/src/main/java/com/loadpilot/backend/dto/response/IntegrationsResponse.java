@@ -2,11 +2,7 @@ package com.loadpilot.backend.dto.response;
 
 import java.util.List;
 
-/**
- * Parametres > Integrations (Super administrateur) - AUCUN secret : ni mot de passe SMTP, ni
- * identifiant, ni secret de monitoring ; les adresses de monitoring sont montrees sans
- * identifiants ni parametres.
- */
+/** Parametres > Integrations, sans aucun secret. */
 public record IntegrationsResponse(Mail mail, AuthMail authenticationMail, List<Monitoring> monitoring) {
 
     /** Serveur e-mail de LoadPilot (notifications, e-mail de test). kind : MAILPIT ou SMTP. */

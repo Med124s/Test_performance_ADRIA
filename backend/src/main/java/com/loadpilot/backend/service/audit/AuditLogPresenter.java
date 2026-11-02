@@ -21,11 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Component;
 
-/**
- * Transforme des entrees du journal en lignes lisibles (libelles francais,
- * phrase, objet concerne et s'il existe encore, avant -> apres). L'existence
- * des objets est verifiee en une requete par type pour toute la page.
- */
+/** Transforme des entrees du journal en lignes lisibles : libelles, phrase, objet concerne, avant -> apres. */
 @Component
 @RequiredArgsConstructor
 public class AuditLogPresenter {
@@ -136,7 +132,7 @@ public class AuditLogPresenter {
             try {
                 ids.computeIfAbsent(type, t -> new HashSet<>()).add(UUID.fromString(row.getTargetId()));
             } catch (IllegalArgumentException ignored) {
-                // identifiant non UUID (compte utilisateur, reglage) : pas de verification en base
+                // Identifiant non UUID : pas de verification en base.
             }
         }
         Map<AuditTargetType, Set<String>> existing = new EnumMap<>(AuditTargetType.class);

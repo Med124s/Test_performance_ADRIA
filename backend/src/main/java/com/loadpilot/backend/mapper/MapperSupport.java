@@ -7,11 +7,7 @@ import java.math.BigDecimal;
 import java.util.UUID;
 import org.mapstruct.Named;
 
-/**
- * Petites conversions partagees par plusieurs mappers MapStruct
- * (ApplicationMapper, ScenarioMapper...) - evite de dupliquer ces methodes
- * dans chaque mapper (voir @Mapper(uses = MapperSupport.class)).
- */
+/** Conversions partagees par les mappers MapStruct. */
 public final class MapperSupport {
 
     private MapperSupport() {
@@ -31,15 +27,6 @@ public final class MapperSupport {
         return appUser.getUsername() != null ? appUser.getUsername() : appUser.getKeycloakSubject();
     }
 
-    /**
-     * P1-C — debit reel (requetes reellement executees / duree en secondes)
-     * pour ExecutionHistoryResponse.throughput - meme formule EXACTE que
-     * PerformanceAggregates/PerformanceStatisticsService (voir
-     * ThroughputCalculator). "requetes reellement executees" =
-     * successfulSteps + failedSteps (jamais totalSteps, qui peut etre
-     * superieur si l'execution s'est arretee au premier echec - voir
-     * Metric.errorRate pour la meme distinction deja etablie).
-     */
     /** Raison principale du statut (voir ExecutionStatusReason). */
     @Named("executionStatusReason")
     public static String executionStatusReason(Execution execution) {
@@ -49,7 +36,6 @@ public final class MapperSupport {
     @Named("executionThroughput")
     public static BigDecimal executionThroughput(Execution execution) {
         int executed = execution.getSuccessfulSteps() + execution.getFailedSteps();
-        // Temps passe en pause exclu (voir Execution#activeDurationMs).
         return ThroughputCalculator.compute(executed, execution.activeDurationMs());
     }
 }

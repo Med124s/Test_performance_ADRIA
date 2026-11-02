@@ -25,15 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Suppression DEFINITIVE d'executions (simple ou groupee) : resultats des requetes, metriques
- * puis execution, dans une transaction par execution. Les liens qui ne sont que des identifiants
- * (notification, derniere execution d'une planification) sont remis a null.
- *
- * Jamais pour une execution en attente, en cours ou en pause, ni pour une execution qui termine
- * son enregistrement (resultats / metriques en cours d'ecriture juste apres la fin) : 409 clair.
- * En groupe, les autres sont supprimees quand meme (resultat detaille par execution).
- */
+/** Suppression definitive d'executions (resultats, metriques puis execution), une transaction par execution. */
 @Service
 @RequiredArgsConstructor
 public class ExecutionDeletionService {
@@ -120,7 +112,7 @@ public class ExecutionDeletionService {
                 default -> "en cours";
             }));
         }
-        // Statut deja terminal mais tache asynchrone pas encore finie (metriques en cours d'ecriture).
+        // Statut termine mais resultats encore en cours d'ecriture.
         if (registry.get(id) != null) {
             throw new ConflictException(FINALIZING_MESSAGE);
         }

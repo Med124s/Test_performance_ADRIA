@@ -3,11 +3,7 @@ package com.loadpilot.backend.service.monitoring;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-/**
- * Lecture PURE d'une reponse Spring Boot Actuator /actuator/metrics/{nom} :
- * {"name":"process.cpu.usage","measurements":[{"statistic":"VALUE","value":0.12}],...}.
- * La valeur est dans le tableau "measurements" : statistique VALUE de preference, sinon la premiere.
- */
+/** Lecture d'une reponse Spring Boot Actuator /actuator/metrics/{nom}. */
 public final class ActuatorMetrics {
 
     private ActuatorMetrics() {
@@ -32,10 +28,7 @@ public final class ActuatorMetrics {
         }
     }
 
-    /**
-     * URL de base Actuator a partir de la saisie : http://hote/actuator, http://hote/actuator/ ou
-     * http://hote/actuator/metrics donnent tous http://hote/actuator.
-     */
+    /** URL de base Actuator a partir de la saisie (http://hote/actuator, .../actuator/ ou .../actuator/metrics). */
     public static String baseUrl(String url) {
         String base = url.trim().replaceAll("/+$", "");
         if (base.endsWith("/metrics")) base = base.substring(0, base.length() - "/metrics".length());

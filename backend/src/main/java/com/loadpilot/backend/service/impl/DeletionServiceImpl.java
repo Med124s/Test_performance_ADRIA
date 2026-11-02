@@ -22,21 +22,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Suppression coherente des Applications et Scenarios :
- *   - impact calcule AVANT confirmation (scenarios, etapes, executions...) ;
- *   - archivage logique (par defaut) : l'element disparait des listes,
- *     l'historique reste consultable, restauration possible ;
- *   - suppression definitive : cascade complete dans UNE transaction
- *     (metriques, resultats, executions, planifications, etapes, scenarios,
- *     application) ;
- *   - toujours refuse si une execution est en cours (QUEUED/RUNNING).
- * Chaque operation est tracee dans l'audit (succes et echec).
- *
- * Les suppressions en masse passent par des requetes SQL natives
- * (portables PostgreSQL/H2) : une seule instruction par table, au lieu de
- * charger chaque entite en memoire.
- */
+/** Suppression des applications et scenarios : impact avant confirmation, archivage logique (par defaut), restauration et suppression definitive. */
 @Service
 @RequiredArgsConstructor
 public class DeletionServiceImpl {
@@ -52,11 +38,7 @@ public class DeletionServiceImpl {
     private final com.loadpilot.backend.service.execution.RunningExecutionRegistry registry;
     private final ScheduleResumer scheduleResumer;
 
-    /**
-     * Refus clair (409) si une execution concernee est terminee en base mais enregistre encore ses
-     * resultats / metriques (tache asynchrone pas finie) : la supprimer maintenant provoquerait une
-     * violation de cle etrangere (metriques inserees pendant la suppression).
-     */
+    /** Refus (409) si une execution concernee enregistre encore ses resultats. */
     private void checkNotFinalizing(String executionCondition, UUID id) {
         java.util.Set<UUID> active = registry.activeExecutionIds();
         if (active.isEmpty()) return;
@@ -69,7 +51,7 @@ public class DeletionServiceImpl {
     @PersistenceContext
     private EntityManager entityManager;
 
-    // ------------------------------------------------------------------ impact
+    // ---- Impact ----
 
     @Transactional(readOnly = true)
     public DeletionImpactResponse applicationsImpact(List<UUID> applicationIds) {
@@ -125,8 +107,7 @@ public class DeletionServiceImpl {
                 running > 0);
     }
 
-    /** Nombre d'executions QUEUED/RUNNING d'un scenario (utilise aussi par la
-     * suppression d'etape). */
+    /** Nombre d'executions en attente ou en cours d'un scenario. */
     @Transactional(readOnly = true)
     public long runningForScenario(UUID scenarioId) {
         return count("SELECT COUNT(e) FROM Execution e WHERE e.scenario.id IN :ids "
@@ -134,7 +115,7 @@ public class DeletionServiceImpl {
                 List.of(scenarioId));
     }
 
-    // ------------------------------------------------------------------ application
+    // ---- Application ----
 
     @Transactional
     public Application archiveApplication(UUID id) {
@@ -204,7 +185,7 @@ public class DeletionServiceImpl {
         }
     }
 
-    // ------------------------------------------------------------------ scenario
+    // ---- Scenario ----
 
     @Transactional
     public Scenario archiveScenario(UUID id) {
@@ -276,7 +257,7 @@ public class DeletionServiceImpl {
         }
     }
 
-    // ------------------------------------------------------------------ helpers
+    // ---- Outils ----
 
     public Application findApplication(UUID id) {
         return applicationRepository.findById(id)
@@ -296,8 +277,7 @@ public class DeletionServiceImpl {
         entityManager.createNativeQuery(sql).setParameter("id", id).executeUpdate();
     }
 
-    /** Desactive les planifications des scenarios concernes (un element
-     * archive ne doit plus etre declenche automatiquement). */
+    /** Desactive les planifications des scenarios concernes. */
     private int disableSchedules(String scenarioCondition, UUID id) {
         return entityManager.createNativeQuery("UPDATE scheduled_execution SET enabled = FALSE, paused_by_scenario = TRUE WHERE enabled = TRUE "
                         + "AND scenario_id IN (SELECT s.id FROM scenario s WHERE " + scenarioCondition + ")")

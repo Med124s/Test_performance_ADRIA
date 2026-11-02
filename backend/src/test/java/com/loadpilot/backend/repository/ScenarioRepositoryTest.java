@@ -16,11 +16,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * Verifie ScenarioRepository avec H2 reel - notamment countByApplicationId
- * et countByApplicationIdAndStatus (Phase 11), jamais testes isolement
- * jusqu'ici (seulement via DashboardServiceImplIntegrationTest).
- */
+/** ScenarioRepository sur H2, notamment countByApplicationId et countByApplicationIdAndStatus. */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")
@@ -79,13 +75,7 @@ class ScenarioRepositoryTest {
 
     @Test
     void findByApplicationId_returnsOnlyThatApplicationsScenarios() {
-        // NB : pas d'assertion sur l'ORDRE exact ici - "createdAt" est un
-        // @CreationTimestamp a la granularite de la milliseconde, et deux
-        // sauvegardes rapprochees dans un test peuvent legitimement obtenir
-        // le meme instant (NEWEST_FIRST, voir ScenarioServiceImpl, n'a pas
-        // de cle de tri secondaire deterministe) - ce test verifie
-        // uniquement le FILTRAGE par application, jamais teste isolement
-        // au niveau repository jusqu'ici.
+        // Pas d'assertion sur l'ordre : deux sauvegardes rapprochees peuvent avoir le meme createdAt.
         Application other = otherApplication();
         Scenario first = save(application, "a-1", ScenarioStatus.ACTIVE);
         Scenario second = save(application, "a-2", ScenarioStatus.ACTIVE);

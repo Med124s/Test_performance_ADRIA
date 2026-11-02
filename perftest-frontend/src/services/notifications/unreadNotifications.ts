@@ -2,16 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { notificationsBackendApi } from '../api/notificationsBackend'
 import { createTabChannel } from '../tabSync'
 
-// ============================================================
-// Nombre de notifications non lues : UNE seule valeur pour la cloche, la page « Notifications »
-// et les autres onglets.
-//  - relu sur le serveur toutes les 15 s, au retour sur l'onglet et peu après la fin d'une
-//    exécution suivie dans cet onglet ;
-//  - baisse immédiate quand l'utilisateur marque lu (une, toutes, ouverture, suppression),
-//    sans attendre le serveur, et annoncée aux autres onglets (même canal que la déconnexion) ;
-//  - « arrivals » augmente à chaque hausse du nombre (nouvelle notification) : la cloche
-//    joue son animation une fois par hausse.
-// ============================================================
+// Nombre de notifications non lues, partagé par la cloche, la page Notifications et les autres onglets ; relu sur le serveur toutes les 15 s.
 
 export const UNREAD_POLL_INTERVAL_MS = 15000
 
@@ -81,7 +72,7 @@ export function refreshUnread(): Promise<void> {
   const started = version
   return notificationsBackendApi.unreadCount()
     .then((r) => { if (started === version) set(r.count, 'server') })
-    .catch(() => { /* compteur non critique : réessayé au prochain passage */ })
+    .catch(() => { })
 }
 
 /** Relit le nombre un peu plus tard (la notification est créée juste après la fin d'une exécution). */

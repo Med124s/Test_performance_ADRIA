@@ -9,14 +9,7 @@ import { ROLE_PERMISSIONS } from '../utils/rolePermissions'
 import { RoleBadge } from './users/userParts'
 import './users/users.css'
 
-// ============================================================
-// Onglet « Rôles » : les 3 rôles applicatifs réels (Keycloak) en lecture
-// seule — une carte par rôle (avec, pour un administrateur, le nombre réel
-// d'utilisateurs, via GET /api/users) et le tableau de ce que chacun peut
-// faire. Ce tableau (utils/rolePermissions.ts) est vérifié par un test
-// contre les annotations @PreAuthorize du backend : il ne peut pas diverger
-// des règles réellement appliquées sans que le test échoue.
-// ============================================================
+// Onglet « Rôles » : une carte par rôle applicatif, en lecture seule.
 
 /** embedded : affichée dans un onglet (Utilisateurs et rôles), sans son propre en-tête. */
 function RolesCatalog({ embedded = false }: { embedded?: boolean } = {}) {
@@ -26,8 +19,7 @@ function RolesCatalog({ embedded = false }: { embedded?: boolean } = {}) {
 
   useEffect(() => {
     if (!isSuperAdmin) return
-    // Seulement pour compter les utilisateurs par rôle ; en cas d'échec le
-    // nombre n'est simplement pas affiché (l'onglet reste une référence).
+    // Nombre d'utilisateurs par rôle ; non affiché en cas d'échec.
     usersBackendApi.list().then(setUsers).catch((err) => { if (!(err instanceof ApiError)) console.error(err) })
   }, [isSuperAdmin])
 

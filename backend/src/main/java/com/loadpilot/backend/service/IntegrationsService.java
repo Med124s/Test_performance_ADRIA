@@ -27,11 +27,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/**
- * Etat des integrations (Parametres > Integrations) : serveur e-mail de LoadPilot (connexion SMTP
- * reelle, sans envoi), serveur e-mail du systeme d'authentification (lu, sans secret) et
- * monitoring CPU / RAM de chaque application (une lecture reelle, en parallele, 3 s max chacune).
- */
+/** Etat des integrations : serveur e-mail de LoadPilot, serveur e-mail du systeme d'authentification, monitoring de chaque application. */
 @Service
 @RequiredArgsConstructor
 public class IntegrationsService {

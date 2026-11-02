@@ -13,14 +13,7 @@ import SecurityCard from './settings/SecurityCard'
 import { describeSettingsError } from './settings/settingsErrors'
 import './settings/settings.css'
 
-// ============================================================
-// Paramètres > « Mon profil » (tout utilisateur connecté) :
-//  - Profil : identité en lecture seule pour l'Ingénieur performance et l'Observateur ;
-//    « Modifier » (prénom, nom, e-mail) pour le Super administrateur seulement — même règle
-//    sur le serveur (403). Rôle en français, « Changer mon mot de passe » (page du système
-//    d'authentification, thème LoadPilot : le mot de passe n'est jamais saisi dans React) ;
-//  - Fuseau horaire, Apparence (Clair · Sombre · Système), Notifications, Sécurité.
-// ============================================================
+// Paramètres > « Mon profil » : identité, préférences (fuseau horaire, apparence) et sécurité du compte.
 
 const COMMON_TIMEZONES = [
   'UTC', 'Africa/Casablanca', 'Europe/Paris', 'Europe/London', 'America/New_York',

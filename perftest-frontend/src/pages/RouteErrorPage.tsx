@@ -1,12 +1,6 @@
 import { Link, isRouteErrorResponse, useRouteError } from 'react-router-dom'
 
-// ============================================================
-// Page d'erreur des routes (errorElement) : remplace l'écran technique
-// « Unexpected Application Error » de React Router par un message clair en
-// français, le détail technique replié, et des actions pour repartir
-// (« Retour aux exécutions », recharger). Affichée dans la mise en page
-// (menu conservé) pour les pages, en pleine page sinon.
-// ============================================================
+// Page d'erreur des routes : message clair en français à la place de l'écran technique de React Router.
 
 function describe(error: unknown): { title: string; message: string; detail: string | null } {
   if (isRouteErrorResponse(error)) {

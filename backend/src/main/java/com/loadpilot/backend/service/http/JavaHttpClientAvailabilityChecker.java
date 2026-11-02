@@ -11,12 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/**
- * Implementation reelle unique (Java 21 java.net.http.HttpClient, aucune
- * dependance externe) - envoie une vraie requete GET, comme le fait deja le
- * frontend existant (Applications.tsx handleTestAndAdd), pour rester
- * coherent avec le comportement deja connu du produit.
- */
+/** Test de connectivite avec java.net.http.HttpClient. */
 @Component
 public class JavaHttpClientAvailabilityChecker implements HttpAvailabilityChecker {
 
@@ -51,14 +46,12 @@ public class JavaHttpClientAvailabilityChecker implements HttpAvailabilityChecke
                     .timeout(timeout)
                     .GET();
             headers.forEach(builder::header);
-            // Proxy avec identifiant : en-tete ajoute seulement si la requete passe par lui.
             HttpRequest request = network.applyTo(builder, URI.create(url), ProxyAuthorization.current()).build();
 
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
             return new HttpAvailabilityResult(true, response.statusCode(), elapsedMs(startedAt), null);
         } catch (IOException e) {
-            // Message lisible, jamais le message brut (peut contenir l'URL,
-            // donc une cle API en parametre) ; log sans la query string.
+            // Message lisible, sans l'URL ; journal sans la query string.
             String message = NetworkErrors.describe(e, timeout.toSeconds());
             log.debug("Test de disponibilite echoue pour {} : {}", NetworkErrors.redact(url), e.getClass().getSimpleName());
             return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), message);
@@ -66,10 +59,8 @@ public class JavaHttpClientAvailabilityChecker implements HttpAvailabilityChecke
             Thread.currentThread().interrupt();
             return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), "requête interrompue");
         } catch (IllegalArgumentException e) {
-            // URI.create()/HttpRequest.newBuilder() rejette une URL malformee.
             return new HttpAvailabilityResult(false, null, elapsedMs(startedAt), "URL invalide");
         } finally {
-            // Corps jamais lu (discarding) : rien n'est plus attendu, client ferme tout de suite.
             HttpClients.shutdownQuietly(client);
         }
     }

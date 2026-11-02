@@ -22,29 +22,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-/**
- * Planification REELLE et PERSISTEE (P1-B) du lancement d'un Scenario -
- * survit a un redemarrage backend (contrairement a l'ancien
- * useScheduledExecutions frontend, decommissionne - voir le rapport P1-B).
- *
- * NE DUPLIQUE JAMAIS la configuration de charge du Scenario : au
- * declenchement (voir ScheduledExecutionPoller), c'est le MEME
- * ExecutionService.executeScheduled(...) que l'endpoint manuel qui est
- * appele - la copie figee des parametres de charge dans l'Execution
- * generee se fait donc EXACTEMENT comme pour un lancement manuel (voir
- * ExecutionTransactionHelper.prepareAndStart), avec la configuration du
- * Scenario TELLE QU'ELLE EST au moment reel du declenchement (jamais
- * retroactivement affectee par un edit ulterieur du Scenario apres coup,
- * puisque l'Execution deja generee est elle-meme immuable).
- *
- * "nextRunAt" est l'UNIQUE champ interroge par le poller
- * (ScheduledExecutionPoller) - toujours un Instant UTC absolu, jamais une
- * paire date/heure locale ambigue. "timezone" ne sert qu'a interpreter
- * "cronExpression" (heure de mur) lors du calcul de la PROCHAINE
- * occurrence (voir ScheduledExecutionServiceImpl#computeNextRunAt) - une
- * fois "nextRunAt" calcule, il est compare a Instant.now() independamment
- * de tout fuseau.
- */
+/** Planification du lancement d'un scenario (date unique ou expression cron). */
 @Entity
 @Table(name = "scheduled_execution")
 @Getter
@@ -74,20 +52,15 @@ public class ScheduledExecution {
     @Column(name = "cron_expression")
     private String cronExpression;
 
-    /** Requis et non-null uniquement si scheduleType == ONE_TIME - instant
-     * absolu (deja converti depuis l'heure locale + timezone choisies par
-     * l'utilisateur au moment de la creation, voir ScheduledExecutionServiceImpl). */
+    /** Requis si scheduleType == ONE_TIME : date et heure absolues. */
     @Column(name = "run_at")
     private Instant runAt;
 
-    /** Identifiant de fuseau horaire IANA (ex: "Africa/Casablanca", "UTC") -
-     * jamais un simple offset fixe (qui casserait silencieusement lors des
-     * changements d'heure ete/hiver pour une planification RECURRING_CRON). */
+    /** Fuseau horaire IANA (ex : "Africa/Casablanca"). */
     @Column(name = "timezone", nullable = false)
     private String timezone;
 
-    /** Null = ne se declenchera plus jamais automatiquement (ONE_TIME deja
-     * declenchee, ou schedule desactivee - voir ScheduledExecutionPoller). */
+    /** Prochain lancement ; null = plus aucun lancement automatique. */
     @Column(name = "next_run_at")
     private Instant nextRunAt;
 
@@ -95,8 +68,7 @@ public class ScheduledExecution {
     @Builder.Default
     private boolean enabled = true;
 
-    /** Desactivee automatiquement par la desactivation de son scenario (reactivable a sa
-     * reactivation) - jamais vrai pour une pause decidee par l'utilisateur. */
+    /** Desactivee par la desactivation de son scenario. */
     @Column(name = "paused_by_scenario", nullable = false)
     @Builder.Default
     private boolean pausedByScenario = false;
@@ -116,15 +88,11 @@ public class ScheduledExecution {
     @Column(name = "last_triggered_at")
     private Instant lastTriggeredAt;
 
-    /** Id (pas une FK) de la derniere Execution reellement generee par cette
-     * planification - simple pointeur d'affichage, jamais recalcule. */
+    /** Derniere execution lancee par cette planification. */
     @Column(name = "last_execution_id")
     private UUID lastExecutionId;
 
-    /** Raison du dernier ECHEC DE DECLENCHEMENT (avant meme la creation
-     * d'une Execution - ex: limite de capacite, scenario introuvable) -
-     * null si le dernier declenchement a reussi ou si aucun declenchement
-     * n'a encore eu lieu. Jamais une exception complete/stacktrace. */
+    /** Raison du dernier echec de declenchement ; null si le dernier a reussi. */
     @Column(name = "last_trigger_error", length = 500)
     private String lastTriggerError;
 

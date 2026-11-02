@@ -37,19 +37,7 @@ function formatResponseBody(body: string): string {
   }
 }
 
-// ============================================================
-// Phase 23 — cette page reste utilisée pour les DEUX chaînes (JSON Server
-// legacy ET Spring Boot), distinguées explicitement par la forme réelle de
-// l'id dans l'URL (jamais par une simple tentative/repli) : un id Spring
-// Boot est TOUJOURS un UUID v4 généré par le backend
-// (@GeneratedValue(strategy = GenerationType.UUID)) ; un id JSON Server ne
-// l'est jamais dans ce projet. Ce test est déterministe et garantit qu'on
-// n'appelle jamais GET /api/executions/{id} avec un id JSON Server (voir
-// énoncé Phase 23, section 13). Les deux chaînes restent des rendus
-// entièrement séparés (LegacyExecutionDetail / SpringExecutionDetail),
-// jamais mélangés dans le même calcul — même politique que Executions.tsx
-// (Phase 20, onglets "Spring Boot"/"Legacy").
-// ============================================================
+// Les identifiants d'exécution du backend sont des UUID.
 const SPRING_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function describeApiError(err: unknown, fallback: string): string {
@@ -79,22 +67,13 @@ function formatDurationMs(ms: number | null): string {
   return `${h}:${m}:${s}`
 }
 
-// ------------------------------------------------------------
-// Vue Spring Boot (Phase 23) — données réelles uniquement. Pas d'onglets/
-// VU/graphiques de bucket de temps de réponse/corps de requête-réponse
-// capturés/CPU-RAM historique par étape : aucun de ces éléments n'existe
-// dans le contrat backend (ExecutionResponse/ExecutionStepResultResponse),
-// jamais simulés. Débit et taux d'erreurs : portés par l'exécution elle-même
-// (throughputRps, errorRatePercent), jamais en rechargeant ses Metric — une par
-// requête, des millions pour un long test.
-// ------------------------------------------------------------
+// Détail d'une exécution : résumé, étapes et requêtes.
 function SpringExecutionDetail({ id }: { id: string }) {
   const navigate = useNavigate()
   const monitor = useExecutionMonitor()
   const { authProvider, rawRoles } = useAuth()
   const isKeycloak = authProvider === 'keycloak'
-  // POST /api/executions/{id}/retry est reserve a SUPER_ADMIN et
-  // PERFORMANCE_ENGINEER (voir ExecutionController, Phase 20).
+  // Relance réservée au Super administrateur et à l'Ingénieur performance.
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
 
   const [execution, setExecution] = useState<BackendExecutionDetailResponse | null>(null)
@@ -118,9 +97,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
     return () => { cancelled = true }
   }, [id])
 
-  // P0-A — polling réel, uniquement tant que l'exécution est réellement
-  // QUEUED/RUNNING (jamais permanent) : voir Executions.tsx pour le même
-  // principe sur la liste.
+  // Rafraîchissement tant que l'exécution est en attente, en cours ou en pause.
   const isActive = execution?.status === 'QUEUED' || execution?.status === 'RUNNING' || execution?.status === 'PAUSED'
   useEffect(() => {
     if (!isActive) return
@@ -192,16 +169,14 @@ function SpringExecutionDetail({ id }: { id: string }) {
     )
   }
 
-  // Table unique des statuts (utils/executionStatus) : un statut inconnu s'affiche en gris, jamais un plantage.
+  // Statut inconnu : affiché en gris.
   const statusInfo = executionStatusMeta(execution.status)
   const meta = { cls: statusInfo.pill, icon: statusInfo.icon, text: statusInfo.detailLabel }
   const executedSteps = execution.successfulSteps + execution.failedSteps
-  // Taux de réussite affiché : dérivé des deux vrais compteurs déjà
-  // renvoyés par le backend (successfulSteps/failedSteps) — jamais
-  // recalculé depuis les résultats bruts, jamais une valeur inventée.
+  // Taux de réussite calculé à partir des compteurs du backend.
   const successRateDisplay = executedSteps > 0 ? (execution.successfulSteps / executedSteps) * 100 : null
 
-  // Débit et taux d'erreurs : calculés par le serveur sur l'exécution (mêmes formules que ses Metric).
+  // Débit et taux d'erreurs calculés par le serveur.
   const fmt = (v: number | null | undefined, unit = ''): string => (v == null ? 'N/D' : `${Math.round(v * 100) / 100}${unit}`)
 
   return (

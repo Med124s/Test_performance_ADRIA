@@ -39,19 +39,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Isole les DEUX SEULES portions transactionnelles courtes de
- * l'orchestration d'une execution (voir ExecutionServiceImpl.execute) : la
- * preparation/creation (avant le vrai travail HTTP) et la finalisation
- * (apres). Le vrai travail HTTP (potentiellement long : plusieurs requetes
- * reelles) se deroule ENTRE ces deux appels, HORS de toute transaction -
- * jamais de connexion DB retenue pendant l'attente reseau (voir Phase 9,
- * consigne explicite sur les transactions).
- *
- * Bean separe (et non des methodes @Transactional sur ExecutionServiceImpl
- * lui-meme) : un appel this.methode() depuis la meme classe ne passe pas
- * par le proxy Spring et @Transactional serait alors ignore.
- */
+/** Transactions courtes d'une execution : preparation, changements de statut sous verrou, ecriture des resultats et finalisation. */
 @Service
 @RequiredArgsConstructor
 public class ExecutionTransactionHelper {
@@ -74,20 +62,7 @@ public class ExecutionTransactionHelper {
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final com.loadpilot.backend.service.monitoring.MonitoringSupport monitoringSupport;
 
-    /**
-     * Cree reellement l'Execution en base avec le statut QUEUED (P0-A) -
-     * plus RUNNING directement : le vrai travail (potentiellement long, VUs
-     * concurrents) n'a pas encore commence, voir ExecutionServiceImpl qui
-     * planifie ensuite la tache asynchrone. Les parametres de charge du
-     * Scenario sont figes ici sur l'Execution (voir Execution.virtualUsers
-     * et suivants) - jamais recalcules depuis le Scenario courant ensuite.
-     *
-     * "triggeredByAppUserId" (P1-B) : reconstruit ICI, DANS cette
-     * transaction, une reference geree fraiche (getReferenceById - meme
-     * idiome que stepRepository.getReferenceById plus bas) - jamais une
-     * entite AppUser recue en parametre depuis un appelant qui l'aurait
-     * chargee dans une AUTRE transaction (voir PreparedExecution).
-     */
+    /** Cree l'execution (QUEUED) et copie tout ce qu'il faut pour la lancer hors transaction. */
     @Transactional
     public PreparedExecution prepareAndStart(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId) {
         Scenario scenario = scenarioRepository.findById(scenarioId)
@@ -109,7 +84,7 @@ public class ExecutionTransactionHelper {
         if (steps.isEmpty()) {
             throw new ConflictException("Le scenario ne possede aucune etape a executer.");
         }
-        // Scenario enregistre avant une regle ou une baisse de limite : jamais modifie, mais pas lance.
+        // Scenario au-dela des regles ou limites actuelles : non modifie, mais pas lance.
         java.util.List<String> loadProblems = com.loadpilot.backend.service.validation.LoadRules.validate(scenario.getVirtualUsers(),
                 scenario.getThinkTimeMs(), scenario.getRampUpSeconds(), scenario.getDurationSeconds(), scenario.getIterations(),
                 scenario.getTargetRps(), executionLimits.loadLimits());
@@ -117,10 +92,8 @@ public class ExecutionTransactionHelper {
             throw new BadRequestException(String.join(" ", loadProblems) + " Modifiez la charge du scénario avant de le lancer.");
         }
 
-        // Acces a l'Application au sein de cette meme transaction courte -
-        // jamais transporte tel quel hors de cette methode (voir StepExecutionSpec).
         String applicationBaseUrl = scenario.getApplication().getUrl();
-        // Copie figee de l'authentification de l'Application au lancement.
+        // Authentification de l'application copiee au lancement.
         ApplicationAuthSpec auth = authSupport.toSpec(scenario.getApplication());
 
         AppUser triggeredByRef = triggeredByAppUserId != null
@@ -160,9 +133,7 @@ public class ExecutionTransactionHelper {
                         scenario.getThrottleDefaultDelaySeconds(), scenario.getThrottleMaxRetries()),
                 scenario.getThinkTimeVariationPercent() == null ? 0 : scenario.getThinkTimeVariationPercent());
 
-        // P1-Q Etape B - parse ICI (transaction courte, Scenario encore
-        // gere) le CSV data source eventuel du Scenario - jamais reparse a
-        // chaque VU/iteration (cout constant, une seule fois par lancement).
+        // CSV lu une seule fois par lancement.
         List<Map<String, String>> vuVariableRows = CsvDataSource.parse(scenario.getCsvData());
 
         VariableSources variableSources = new VariableSources(vuVariableRows, scenario.getCsvDistribution(),
@@ -175,20 +146,7 @@ public class ExecutionTransactionHelper {
                 com.loadpilot.backend.service.http.NetworkProfile.of(scenario.getApplication()));
     }
 
-    /**
-     * Transition reelle QUEUED -> RUNNING, juste avant que le moteur ne
-     * commence reellement a envoyer des requetes (voir ExecutionServiceImpl).
-     *
-     * P0-B : verrou pessimiste + retour booleen (avant : void, silencieux).
-     * PROBLEME identifie : un cancel() concurrent peut avoir deja fait
-     * transiter cette Execution QUEUED -> CANCELLED entre la creation de la
-     * tache asynchrone et cet appel - sans le savoir, l'ancien code
-     * poursuivait quand meme vers le moteur reel, envoyant de VRAIES
-     * requetes HTTP pour une execution que l'utilisateur croyait deja
-     * annulee avant meme son demarrage. Le retour boolean permet a
-     * ExecutionServiceImpl.runAsync de ne JAMAIS invoquer le moteur si la
-     * transition a echoue (statut deja different de QUEUED).
-     */
+    /** QUEUED -> RUNNING sous verrou ; false si l'execution a ete annulee entre-temps. */
     @Transactional
     public boolean markRunning(UUID executionId) {
         Execution execution = executionRepository.findByIdForUpdate(executionId)
@@ -201,40 +159,27 @@ public class ExecutionTransactionHelper {
         return false;
     }
 
-    /**
-     * "wasCancelled" (P0-A) force reellement le statut final a CANCELLED,
-     * quel que soit outcome.finalStatus() (toujours SUCCESS/FAILED cote
-     * engine, voir ScenarioExecutionOutcome) - une annulation demandee
-     * pendant l'execution reste une annulation meme si, par exemple, le
-     * dernier utilisateur virtuel a eu le temps de terminer proprement.
-     *
-     * P0-B : garde ajoutee - si le statut courant (relu SOUS VERROU, jamais
-     * l'instance potentiellement perimee passee en memoire) n'est deja plus
-     * QUEUED/RUNNING, cette Execution a deja ete finalisee par un autre
-     * chemin concurrent (ex: attemptCancellation a gagne la course pendant
-     * que cette tache demarrait a peine, voir markRunning) - ne JAMAIS
-     * ecraser un statut terminal deja reellement atteint.
-     */
+    /** Enregistre les derniers resultats et le statut final ; "wasCancelled" force CANCELLED. */
     @Transactional
     public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled) {
         return finalizeExecution(executionId, outcome, wasCancelled, null);
     }
 
-    /** "cancellationReason" : message d'annulation (ex. pause trop longue) ; null = annulation par l'utilisateur. */
+    /** "cancellationReason" : motif d'une annulation automatique ; null = annulation par l'utilisateur. */
     @Transactional
     public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
             String cancellationReason) {
         return finalizeExecution(executionId, outcome, wasCancelled, cancellationReason, false);
     }
 
-    /** "detailSampleCapReached" : plafond memoire du detail des requetes atteint pendant l'execution. */
+    /** "detailSampleCapReached" : plafond memoire du detail des requetes atteint. */
     @Transactional
     public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
             String cancellationReason, boolean detailSampleCapReached) {
         return finalizeExecution(executionId, outcome, wasCancelled, cancellationReason, detailSampleCapReached, null);
     }
 
-    /** "cancelledBy" : utilisateur qui a demande l'annulation (affiche « Annulée par … »). */
+    /** "cancelledBy" : utilisateur qui a demande l'annulation. */
     @Transactional
     public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
             String cancellationReason, boolean detailSampleCapReached, String cancelledBy) {
@@ -245,9 +190,7 @@ public class ExecutionTransactionHelper {
             return execution;
         }
 
-        // Resultats pas encore enregistres : tous (moteur sans ecriture au fil du test) ou aucun (deja
-        // ecrits par ResultStream, voir appendResults). Une etape ne peut pas etre supprimee pendant une
-        // execution (StepServiceImpl).
+        // Resultats pas encore enregistres (aucun s'ils ont ete ecrits pendant le test).
         if (!outcome.stepOutcomes().isEmpty()) {
             Map<UUID, Step> stepsById = new java.util.HashMap<>();
             for (Step s : stepRepository.findByScenarioId(execution.getScenario().getId(), Sort.unsorted())) {
@@ -259,7 +202,7 @@ public class ExecutionTransactionHelper {
         }
         execution.setDetailSampleCapReached(detailSampleCapReached);
 
-        // Compteurs relus en base : exactement les resultats conserves, ecrits pendant le test ou ici.
+        // Compteurs relus en base.
         executionStepResultRepository.flush();
         long successCount = executionStepResultRepository.countByExecutionIdAndSuccess(executionId, true);
         long failCount = executionStepResultRepository.countByExecutionIdAndSuccess(executionId, false);
@@ -268,7 +211,7 @@ public class ExecutionTransactionHelper {
         closePause(execution, finishedAt);
         execution.setSuccessfulSteps((int) successCount);
         execution.setFailedSteps((int) failCount);
-        // Statut final selon les seuils de reussite copies au lancement (voir ExecutionVerdict).
+        // Statut final selon les seuils de reussite copies au lancement.
         ExecutionVerdict.Result verdict = ExecutionVerdict.decide(outcome, wasCancelled,
                 cancellationReason != null ? cancellationReason : "Execution annulee par l'utilisateur.",
                 execution.getMaxErrorRatePercent(), execution.getMaxP95Ms());
@@ -281,13 +224,7 @@ public class ExecutionTransactionHelper {
         return executionRepository.saveAndFlush(execution);
     }
 
-    /**
-     * Un lot de resultats ecrit PENDANT le test (voir ResultStream), dans sa propre transaction courte.
-     * steps : etapes de l'execution (copie de leur nom, methode et URL dans chaque resultat, pour que
-     * l'historique survive a la suppression ulterieure de l'etape - voir migration 017) ; l'etape et
-     * l'execution sont referencees sans etre relues (getReferenceById).
-     * Aucun verrou sur l'execution : jamais en concurrence avec pause, reprise ou annulation.
-     */
+    /** Ecrit un lot de resultats pendant le test, dans sa propre transaction ; steps sert a copier nom, methode et URL de chaque etape. */
     @Transactional
     public void appendResults(UUID executionId, List<StepOutcome> batch, Map<UUID, StepExecutionSpec> steps) {
         Execution execution = executionRepository.getReferenceById(executionId);
@@ -302,7 +239,7 @@ public class ExecutionTransactionHelper {
         saveResult(stepOutcome, execution, step, null);
     }
 
-    /** Un resultat (et son detail eventuel) ; spec, si fourni, donne la copie de l'etape sans la relire. */
+    /** Enregistre un resultat et son detail eventuel. */
     private void saveResult(StepOutcome stepOutcome, Execution execution, Step step, StepExecutionSpec spec) {
         ExecutionStepResult result = ExecutionStepResult.builder()
                 .execution(execution)
@@ -325,12 +262,7 @@ public class ExecutionTransactionHelper {
         }
     }
 
-    /**
-     * Echec inattendu de la tache asynchrone (erreur memoire, exception imprevue) : passe l'execution
-     * a FAILED sous le MEME verrou que markRunning/finalizeExecution/attemptCancellation, et seulement
-     * si elle est encore active - un statut de fin deja enregistre (erreur survenue apres
-     * finalizeExecution) n'est jamais ecrase. Retourne true si l'execution a ete marquee.
-     */
+    /** Passe l'execution a FAILED sous verrou, seulement si elle est encore active. */
     @Transactional
     public boolean markFailedIfActive(UUID executionId, String errorMessage) {
         Execution execution = executionRepository.findByIdForUpdate(executionId).orElse(null);
@@ -339,7 +271,7 @@ public class ExecutionTransactionHelper {
         }
         Instant finishedAt = Instant.now();
         closePause(execution, finishedAt);
-        // Resultats deja ecrits pendant le test (ResultStream) : conserves et comptes.
+        // Resultats deja ecrits pendant le test : conserves et comptes.
         execution.setSuccessfulSteps((int) executionStepResultRepository.countByExecutionIdAndSuccess(executionId, true));
         execution.setFailedSteps((int) executionStepResultRepository.countByExecutionIdAndSuccess(executionId, false));
         execution.setStatus(ExecutionStatus.FAILED);
@@ -350,43 +282,16 @@ public class ExecutionTransactionHelper {
         return true;
     }
 
-    /**
-     * P0-B — remplace l'ancien cancelQueued() (qui ecrasait aveuglement le
-     * statut sans jamais revalider qu'il etait toujours QUEUED au moment
-     * reel de l'ecriture).
-     *
-     * PROBLEME : ExecutionServiceImpl.cancel() lisait le statut, PUIS
-     * appelait une methode transactionnelle separee qui reecrivait
-     * CANCELLED sans re-verifier - entre les deux, l'execution pouvait deja
-     * avoir reellement demarre (markRunning) voire deja terminer
-     * naturellement (finalizeExecution), auquel cas un SUCCESS/FAILED deja
-     * atteint etait incorrectement ecrase par CANCELLED (course "cancel +
-     * completion naturelle").
-     * OPTIONS : (a) laisser tel quel (risque reel demontre) ; (b) ajouter un
-     * simple garde de statut sans verrou (reduit mais n'elimine pas la
-     * fenetre de course) ; (c) une lecture + decision + ecriture
-     * conditionnelle, le TOUT dans UNE transaction avec verrou pessimiste
-     * (SELECT ... FOR UPDATE) sur cette ligne, serialise avec markRunning/
-     * finalizeExecution qui prennent le MEME verrou.
-     * CHOIX : (c) - verrou sur une seule ligne d'une seule base (jamais
-     * distribue), complexite minimale (une annotation @Lock), elimine
-     * completement la course plutot que de la reduire.
-     *
-     * Retourne le resultat REEL constate (jamais suppose) : le statut a pu
-     * changer entre le moment ou l'appelant a decide d'annuler et celui ou
-     * cette methode a pu acquerir le verrou.
-     */
+    /** Tentative d'annulation sous verrou : CANCELLED directement si l'execution est en attente, sinon resultat a traiter par l'appelant. */
     @Transactional
     public CancellationAttempt attemptCancellation(UUID executionId) {
         return attemptCancellation(executionId, null);
     }
 
-    /** "cancelledBy" : utilisateur qui annule (enregistre tout de suite pour une execution pas encore demarree). */
+    /** "cancelledBy" : utilisateur qui annule. */
     @Transactional
     public CancellationAttempt attemptCancellation(UUID executionId, String cancelledBy) {
-        // JOIN FETCH necessaire ici (contrairement a markRunning/
-        // finalizeExecution) : le resultat est mappe en reponse HTTP par
-        // l'appelant APRES le retour de cette methode transactionnelle.
+        // JOIN FETCH : le resultat est converti en reponse HTTP apres la transaction.
         Execution execution = executionRepository.findByIdWithScenarioAndApplicationForUpdate(executionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + executionId));
 
@@ -402,17 +307,14 @@ public class ExecutionTransactionHelper {
         }
 
         if (execution.getStatus() == ExecutionStatus.RUNNING || execution.getStatus() == ExecutionStatus.PAUSED) {
-            // Jamais d'ecriture ici : finalizeExecution reste l'UNIQUE
-            // ecrivain du statut final d'une execution reellement demarree
-            // (voir sa doc) - deux ecrivains concurrents sur la meme
-            // transition produiraient exactement la course qu'on elimine ici.
+            // Execution en cours : le statut final sera ecrit par finalizeExecution.
             return new CancellationAttempt(CancellationOutcome.CANCELLATION_REQUESTED_WHILE_RUNNING, execution);
         }
 
         return new CancellationAttempt(CancellationOutcome.ALREADY_TERMINAL, execution);
     }
 
-    // ------------------------------------------------------------ pause / reprise
+    // ---- Pause / reprise ----
 
     public static final String PAUSE_NOT_RUNNING = "Seule une exécution en cours peut être mise en pause.";
     public static final String RESUME_NOT_PAUSED = "Cette exécution n'est pas en pause.";
@@ -424,7 +326,7 @@ public class ExecutionTransactionHelper {
             "Cette exécution n'est plus suivie par le serveur (redémarrage du backend depuis son lancement) : "
                     + "elle ne peut être ni mise en pause ni reprise.";
 
-    /** Message clair expliquant pourquoi une pause est refusee, selon le statut reel. */
+    /** Message expliquant pourquoi une pause est refusee. */
     public static String pauseRefusal(ExecutionStatus status) {
         return switch (status) {
             case SUCCESS, THRESHOLDS_EXCEEDED, FAILED, CANCELLED -> PAUSE_FINISHED;
@@ -434,12 +336,12 @@ public class ExecutionTransactionHelper {
         };
     }
 
-    /** Message clair expliquant pourquoi une reprise est refusee, selon le statut reel. */
+    /** Message expliquant pourquoi une reprise est refusee. */
     public static String resumeRefusal(ExecutionStatus status) {
         return status.isActive() ? RESUME_NOT_PAUSED : RESUME_FINISHED;
     }
 
-    /** Statut actuel (404 clair si l'execution n'existe pas). */
+    /** Statut actuel ; 404 si l'execution n'existe pas. */
     @Transactional(readOnly = true)
     public ExecutionStatus currentStatus(UUID executionId) {
         return executionRepository.findById(executionId)
@@ -447,11 +349,7 @@ public class ExecutionTransactionHelper {
                 .getStatus();
     }
 
-    /**
-     * RUNNING -> PAUSED sous verrou (meme verrou que markRunning/finalizeExecution/
-     * attemptCancellation : jamais deux transitions concurrentes sur la meme ligne).
-     * 409 si l'execution n'est pas en cours (en attente, deja en pause, terminee).
-     */
+    /** RUNNING -> PAUSED sous verrou ; 409 si l'execution n'est pas en cours. */
     @Transactional
     public Execution markPaused(UUID executionId) {
         Execution execution = executionRepository.findByIdWithScenarioAndApplicationForUpdate(executionId)
@@ -477,7 +375,7 @@ public class ExecutionTransactionHelper {
         return executionRepository.saveAndFlush(execution);
     }
 
-    /** Chronologie (VU actifs, pauses) enregistree apres la finalisation ; trop volumineuse = ignoree. */
+    /** Enregistre la chronologie (utilisateurs actifs, pauses) ; ignoree si trop volumineuse. */
     @Transactional
     public void saveTimeline(UUID executionId, com.loadpilot.backend.service.execution.RunningExecutionHandle.Timeline timeline) {
         String json = writeJson(Map.of("vus", timeline.virtualUsers(), "pauses", timeline.pauses()));
@@ -488,7 +386,7 @@ public class ExecutionTransactionHelper {
         });
     }
 
-    // ------------------------------------------------------------ monitoring CPU / RAM
+    // ---- Monitoring CPU / RAM ----
 
     /** Monitoring de l'application testee par cette execution (enabled() = false si non configure). */
     @Transactional(readOnly = true)
@@ -498,10 +396,7 @@ public class ExecutionTransactionHelper {
                 .orElse(null);
     }
 
-    /**
-     * Mesures CPU / RAM de l'execution : JSON pour la courbe, resume (CPU moyen / max, RAM max) pour
-     * les listes, message si le monitoring n'a pas toujours repondu.
-     */
+    /** Enregistre les mesures CPU / RAM : JSON pour la courbe, resume pour les listes, message si le monitoring n'a pas toujours repondu. */
     @Transactional
     public void saveResources(UUID executionId, com.loadpilot.backend.service.monitoring.ResourceTrack track) {
         List<com.loadpilot.backend.service.monitoring.ResourceTrack.Sample> samples = track.samples();
@@ -539,7 +434,7 @@ public class ExecutionTransactionHelper {
         });
     }
 
-    // ------------------------------------------------------------ detail des requetes
+    // ---- Detail des requetes ----
 
     private static final int HEADERS_MAX = 16000;
     private static final int CHECKS_MAX = 8000;
@@ -563,7 +458,7 @@ public class ExecutionTransactionHelper {
                 .build();
     }
 
-    /** En-tetes en JSON ; valeurs raccourcies si l'ensemble depasse la colonne (jamais d'echec d'ecriture). */
+    /** En-tetes en JSON ; valeurs raccourcies si l'ensemble depasse la taille de la colonne. */
     private String headersJson(Map<String, String> headers) {
         if (headers == null) return null;
         String json = writeJson(headers);

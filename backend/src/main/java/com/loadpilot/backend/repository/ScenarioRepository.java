@@ -27,12 +27,9 @@ public interface ScenarioRepository extends JpaRepository<Scenario, UUID>, org.s
     @Query("SELECT s FROM Scenario s JOIN FETCH s.application a WHERE a.id = :applicationId AND (s.archived = true OR a.archived = true)")
     List<Scenario> findArchivedViewByApplicationId(@Param("applicationId") UUID applicationId, Sort sort);
 
-    /** Utilise par ApplicationService pour empecher la suppression d'une
-     * Application ayant encore des Scenarios rattaches (voir Phase 7). */
     boolean existsByApplicationId(UUID applicationId);
 
-    // ---- Phase 11 (Dashboard) - agregations, aucun N+1 (une requete COUNT
-    // par statistique, jamais un chargement de la collection entiere). ----
+    // ---- Tableau de bord ----
 
     long countByStatus(ScenarioStatus status);
 

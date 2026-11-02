@@ -33,7 +33,7 @@ describe('Charge — mêmes règles que le moteur', () => {
     expect(validateLoad(load({ rampUpSeconds: '59', durationSeconds: '60' })).rampUpSeconds).toBeUndefined()
     expect(validateLoad(load({ rampUpSeconds: '120', durationSeconds: '' })).rampUpSeconds).toBeUndefined()
     expect(validateLoad(load({ targetRps: '0' })).targetRps).toBe('Le débit cible doit être au moins 1.')
-    // Nouvelles limites (mêmes messages que le serveur).
+    // Limites de durée, d'itérations et de débit (mêmes messages que le serveur).
     expect(validateLoad(load({ durationSeconds: '3601' }), LIMITS).durationSeconds).toBe('La durée ne doit pas dépasser 3 600 s (limite d’un test sur ce serveur).')
     expect(validateLoad(load({ iterations: '10001' }), LIMITS).iterations).toBe('Le nombre d’itérations ne doit pas dépasser 10 000 (limite d’un test sur ce serveur).')
     expect(validateLoad(load({ targetRps: '501' }), LIMITS).targetRps).toBe('Le débit cible ne doit pas dépasser 500 req/s (limite d’un test sur ce serveur).')

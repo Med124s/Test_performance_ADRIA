@@ -14,16 +14,7 @@ import liquibase.exception.SetupException;
 import liquibase.exception.ValidationErrors;
 import liquibase.resource.ResourceAccessor;
 
-/**
- * Migration Liquibase (correction P1, changes/033-encrypt-application-secrets.xml) : chiffre les
- * secrets DEJA enregistres en clair (application.auth_config, application.monitoring_secret) avec
- * la meme cle que l'application (SecretCipher, variable LOADPILOT_SECRETS_KEY).
- *
- *   - null et chaine vide restent tels quels ; une valeur deja chiffree n'est jamais touchee
- *     (migration rejouable sans risque).
- *   - La cle n'est jamais un parametre du changeset (elle entrerait dans sa somme de controle) et
- *     aucune valeur n'est journalisee : seul le nombre de valeurs chiffrees est affiche.
- */
+/** Migration Liquibase 033 : chiffre les secrets des applications encore enregistres en clair. */
 public class EncryptApplicationSecretsChange implements CustomTaskChange {
 
     private static final String[] COLUMNS = {"auth_config", "monitoring_secret"};
@@ -40,7 +31,6 @@ public class EncryptApplicationSecretsChange implements CustomTaskChange {
         } catch (SQLException | liquibase.exception.DatabaseException e) {
             throw new CustomChangeException("Chiffrement des secrets existants impossible (" + e.getClass().getSimpleName() + ").");
         } catch (IllegalStateException e) {
-            // Cle absente ou invalide : message explicite, sans aucune valeur.
             throw new CustomChangeException(e.getMessage());
         }
     }

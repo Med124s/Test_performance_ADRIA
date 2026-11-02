@@ -4,17 +4,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * Contexte de variables d'UN utilisateur virtuel (jamais partage entre threads).
- *
- * Resolution d'un ${nom}, la premiere source trouvee l'emporte :
- *   1. capture   : valeur extraite d'une reponse d'une etape precedente DE L'ITERATION EN COURS
- *                  (videe au debut de chaque iteration : une capture de l'iteration N n'est
- *                  jamais reutilisee par erreur a l'iteration N+1) ;
- *   2. CSV       : ligne attribuee a ce VU (ou a cette iteration, selon la distribution) ;
- *   3. scenario  : variables constantes du scenario ;
- *   4. authToken : jeton de la connexion automatique de l'application (variable integree).
- */
+/** Variables d'un utilisateur virtuel ; ordre de priorite : capture, CSV, variables du scenario, authToken. */
 public final class VariableContext {
 
     public enum Source { CAPTURE, CSV, SCENARIO, AUTOMATIC }
@@ -29,7 +19,7 @@ public final class VariableContext {
         this.authToken = authToken;
     }
 
-    /** Jeton de la connexion automatique renouvele pendant l'Execution (voir RenewableApplicationAuth). */
+    /** Remplace le jeton de connexion automatique. */
     public void updateAuthToken(String token) {
         this.authToken = token;
     }
@@ -62,7 +52,7 @@ public final class VariableContext {
         return ResolvedAuth.TOKEN_VARIABLE.equals(name) && authToken != null ? Source.AUTOMATIC : null;
     }
 
-    /** Toutes les variables visibles (priorite appliquee), pour l'affichage du test detaille. */
+    /** Toutes les variables visibles, pour le test detaille. */
     public Map<String, String> snapshot() {
         Map<String, String> all = new LinkedHashMap<>();
         if (authToken != null) all.put(ResolvedAuth.TOKEN_VARIABLE, authToken);

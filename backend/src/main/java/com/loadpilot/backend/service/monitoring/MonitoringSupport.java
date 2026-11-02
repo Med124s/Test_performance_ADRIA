@@ -10,10 +10,7 @@ import java.net.URI;
 import org.mapstruct.Named;
 import org.springframework.stereotype.Component;
 
-/**
- * Monitoring d'une Application : validation et enregistrement de la configuration saisie, vue
- * sans secret, configuration effective pour les lectures.
- */
+/** Monitoring d'une application : validation et enregistrement de la saisie, vue sans secret, configuration effective. */
 @Component
 public class MonitoringSupport {
 
@@ -43,10 +40,7 @@ public class MonitoringSupport {
         application.setMonitoringIntervalSeconds(config.intervalSeconds());
     }
 
-    /**
-     * Configuration effective et VALIDEE d'une saisie (enregistrement ou « Tester le monitoring ») ;
-     * existing (optionnel) fournit le secret deja enregistre si le champ est laisse vide.
-     */
+    /** Configuration effective et validee d'une saisie ; existing fournit le secret enregistre si le champ est vide. */
     public MonitoringConfig toConfig(ApplicationMonitoringRequest request, Application existing) {
         MonitoringType type = request.type() == null ? MonitoringType.NONE : request.type();
         String url = blankToNull(request.url());

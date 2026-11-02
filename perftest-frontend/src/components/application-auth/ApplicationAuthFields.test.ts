@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { BackendApplicationAuthResponse } from '../../types/backendContracts'
 import { AuthForm, EMPTY_AUTH_FORM, authFormToRequest, validateAuthForm } from './ApplicationAuthFields'
 
-// Les messages attendus ici sont ceux de ApplicationAuthSupport (backend) :
-// si l'un change d'un côté, ce test et ApplicationAuthSupportTest doivent
-// changer ensemble.
+// Messages identiques à ceux de ApplicationAuthSupport (backend).
 
 const form = (patch: Partial<AuthForm>): AuthForm => ({ ...EMPTY_AUTH_FORM, ...patch })
 

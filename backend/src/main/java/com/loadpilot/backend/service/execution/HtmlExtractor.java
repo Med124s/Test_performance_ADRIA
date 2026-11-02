@@ -9,27 +9,10 @@ import org.jsoup.select.Elements;
 import org.jsoup.select.QueryParser;
 import org.jsoup.select.Selector;
 
-/**
- * Extraction d'une valeur depuis le corps HTML d'une reponse (capture de source HTML, voir
- * CaptureSource), pendant de JsonPathExtractor (corps JSON) et ResponseHeaderExtractor (en-tetes).
- *
- * Le « chemin » est un selecteur CSS (syntaxe jsoup), suivi eventuellement de "::attr(NOM)" :
- *   - "input[name=csrf_token]::attr(value)" -> valeur de l'attribut value du champ cache ;
- *   - "div#compte::attr(data-account-id)"   -> attribut data-* ;
- *   - "span.solde"                          -> texte de l'element (sans ::attr).
- *
- * Regles :
- *   - plusieurs elements correspondent : le PREMIER dans l'ordre de la page est retenu (meme regle
- *     qu'un en-tete a plusieurs valeurs) ; {@link Match#count()} permet de le signaler ;
- *   - attribut present mais vide, ou element sans texte : aucune valeur (comme un en-tete vide) ;
- *   - HTML mal forme : jsoup le corrige comme un navigateur, jamais une erreur ;
- *   - au plus {@link #MAX_CHARS} caracteres analyses (au-dela, la fin de la page est ignoree).
- *
- * Ne leve JAMAIS d'exception : aucune valeur = null, avec la raison dans {@link Match#reason()}.
- */
+/** Extraction d'une valeur dans un corps HTML avec un selecteur CSS (jsoup), ex. "input[name=csrf_token]::attr(value)". */
 public final class HtmlExtractor {
 
-    /** Limite d'analyse (comme le test de validation) : borne le cout processeur et memoire par reponse. */
+    /** Taille maximale analysee. */
     static final int MAX_CHARS = 5 * 1024 * 1024;
 
     private static final Pattern ATTRIBUTE_SUFFIX = Pattern.compile("^(.*?)\\s*::attr\\(\\s*([^)]*?)\\s*\\)\\s*$", Pattern.DOTALL);
@@ -37,11 +20,7 @@ public final class HtmlExtractor {
     private HtmlExtractor() {
     }
 
-    /**
-     * Resultat : valeur (ou null), raison de l'absence (en minuscule, sans point final), nombre
-     * d'elements correspondant au selecteur, et nom de l'element retenu (attribut name ou id, pour
-     * decider du masquage d'une valeur sensible).
-     */
+    /** Valeur (ou null), raison de l'absence, nombre d'elements trouves et nom de l'element retenu. */
     record Match(String value, String reason, int count, String elementName) {
         static Match failure(String reason, int count) {
             return new Match(null, reason, count, null);
@@ -58,10 +37,7 @@ public final class HtmlExtractor {
         return m.matches() ? new Spec(m.group(1).trim(), m.group(2)) : new Spec(trimmed, null);
     }
 
-    /**
-     * Probleme de syntaxe du chemin (selecteur CSS invalide, attribut vide), en minuscule et sans
-     * point final, ou null. Utilise par la validation d'une etape (StepRules).
-     */
+    /** Probleme de syntaxe du chemin (selecteur invalide, attribut vide), ou null. */
     public static String specProblem(String spec) {
         Spec parsed = parseSpec(spec);
         if (parsed.selector().isEmpty()) return "indiquez un sélecteur CSS (ex. input[name=csrf_token])";

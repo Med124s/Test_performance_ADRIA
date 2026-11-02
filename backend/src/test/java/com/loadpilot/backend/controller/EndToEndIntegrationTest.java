@@ -32,13 +32,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Parcours d'integration bout-en-bout (Phase 14, section 18) : traverse
- * reellement TOUS les modules dans le meme test, plutot que de se fier a la
- * couverture eparpillee entre les *ControllerTest de chaque module pris
- * separement. H2 + serveurs HTTP JDK embarques uniquement (aucune
- * dependance externe, aucun banking-test-api/local-monitoring-server reels).
- */
+/** Parcours complet a travers tous les modules dans un meme test. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -129,12 +123,7 @@ class EndToEndIntegrationTest {
         throw new AssertionError("Execution " + executionId + " n'a pas atteint un statut terminal a temps.");
     }
 
-    /**
-     * Parcours 1 : AppUser (via JWT) -> Application -> Scenario -> Step ->
-     * Execution -> ExecutionStepResult -> Metric -> Dashboard -> Audit.
-     * Chaque etape verifie que la precedente est bien visible en aval, avec
-     * de vraies donnees (aucune valeur inventee).
-     */
+    /** Application -> Scenario -> Etape -> Execution -> Resultats -> Metriques -> Dashboard -> Audit. */
     @Test
     void parcours1_fullChainFromApplicationToDashboardAndAudit() throws Exception {
         String appName = "e2e-parcours1-" + UUID.randomUUID();
@@ -144,7 +133,7 @@ class EndToEndIntegrationTest {
 
         String executionId = execute(scenarioId);
 
-        // Execution detail -> ExecutionStepResult reel.
+        // Detail de l'execution et ses resultats.
         String executionDetail = mockMvc.perform(get("/api/executions/" + executionId).with(AS_VIEWER))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -171,7 +160,7 @@ class EndToEndIntegrationTest {
         assertThat(dashboard.get("executions").get("successfulExecutions").asInt()).isEqualTo(1);
         assertThat(dashboard.get("performance").get("averageResponseTime").isNull()).isFalse();
 
-        // Audit : au moins CREATE/APPLICATION et EXECUTE/EXECUTION reellement enregistres.
+        // Audit : CREATE / APPLICATION et EXECUTE / EXECUTION.
         String auditResponse = mockMvc.perform(get("/api/audit-logs")
                         .param("module", "APPLICATION").param("action", "CREATE").param("size", "200")
                         .with(AS_SUPER_ADMIN))

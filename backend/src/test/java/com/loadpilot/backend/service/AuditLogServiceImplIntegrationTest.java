@@ -26,18 +26,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * Verifie AuditLogService avec de VRAIES donnees H2 (voir application-test.yml).
- *
- * record() ecrit toujours via AuditLogWriter en transaction REQUIRES_NEW
- * (voir Phase 12, section 15) : contrairement aux autres tests d'integration
- * de ce projet, un @Transactional de classe ici NE PROTEGERAIT PAS contre la
- * pollution inter-tests (une transaction REQUIRES_NEW committe
- * independamment n'est jamais annulee par le rollback du test appelant).
- * Chaque test utilise donc un userId Keycloak unique (authentification
- * simulee) pour s'isoler par filtrage exact, ou une comparaison delta
- * avant/apres pour les statistiques globales non filtrables par utilisateur.
- */
+/** AuditLogService sur H2 ; record() ecrit dans sa propre transaction (REQUIRES_NEW). */
 @SpringBootTest
 @ActiveProfiles("test")
 class AuditLogServiceImplIntegrationTest {
@@ -159,7 +148,7 @@ class AuditLogServiceImplIntegrationTest {
 
         assertThat(lines[0]).isEqualTo("\uFEFFDate;Utilisateur;Catégorie;Action;Détail;Avant → après;Résultat;Adresse IP");
         assertThat(lines).hasSize(2);
-        // Libelles francais, jamais les codes bruts.
+        // Libelles francais, pas les codes bruts.
         assertThat(lines[1]).contains(";Exécutions;Annulation · Exécutions;cancel-desc;;Réussi;").doesNotContain("CANCEL", "EXECUTION", "SUCCESS");
     }
 }

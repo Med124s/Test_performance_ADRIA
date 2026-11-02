@@ -1,11 +1,6 @@
 package com.loadpilot.backend.service.monitoring;
 
-/**
- * Mesures de LoadPilot lui-meme (l'injecteur) pendant UNE execution : derniere lecture, CPU maximal,
- * et saturation (CPU du processus au-dela du seuil au moins une fois). Un injecteur sature fausse
- * les temps de reponse mesures (les requetes attendent un processeur, pas la cible) : c'est ce que
- * le suivi en direct signale. Ecrit par un seul thread (InjectorMonitor), lu par le suivi en direct.
- */
+/** Mesures de LoadPilot pendant une execution : derniere lecture, CPU maximal et saturation. */
 public final class InjectorTrack {
 
     /** Une lecture : CPU en % de la machine entiere (null si indisponible), memoire en Mo. */

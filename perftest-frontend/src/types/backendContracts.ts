@@ -1,22 +1,6 @@
-// ============================================================
-// Phase 15 — Contrats REST du backend Spring Boot LoadPilot, tels
-// qu'implémentés réellement (Phases 4 à 14), recopiés ici à titre de
-// RÉFÉRENCE pour la future migration.
-//
-// Ce fichier n'est importé par AUCUNE page ni service actuel : il ne
-// remplace PAS `types/index.ts` (qui reflète JSON Server et reste la seule
-// source de vérité tant que la migration n'a pas eu lieu) et ne change
-// donc AUCUN comportement existant. Son seul but est d'éviter de
-// re-déterminer ces formes depuis zéro lors de la connexion réelle au
-// backend (Phase 16+) : les noms de champs ci-dessous sont ceux des DTO
-// Java (`dto/response/*.java`), pas une supposition.
-//
-// Toutes les entités backend utilisent un UUID sérialisé en `string` (voir
-// EntityId dans types/index.ts, déjà cohérent — aucune migration de type
-// nécessaire sur les IDs).
-// ============================================================
+// Types des requêtes et réponses JSON de l'API du backend.
 
-// ---- Enums réels du backend (voir backend/src/main/java/.../enums) ----
+// ---- Enums du backend ----
 
 export type BackendApplicationStatus = 'CONNECTED' | 'FAILED' | 'ERROR'
 /** DRAFT : brouillon de l'assistant (ni exécutable ni planifiable). */
@@ -37,7 +21,7 @@ export type BackendAuditModule =
 export type BackendAuditCategory = 'APPLICATIONS' | 'SCENARIOS' | 'EXECUTIONS' | 'SCHEDULING' | 'USERS' | 'SECURITY' | 'SETTINGS'
 export type BackendAuditResult = 'SUCCESS' | 'FAILURE'
 
-// P1-B — voir enums.NotificationType/ScheduleType côté backend.
+/** Type de notification. */
 export type BackendNotificationType =
   | 'EXECUTION_SUCCESS' | 'EXECUTION_THRESHOLDS_EXCEEDED' | 'EXECUTION_FAILED' | 'EXECUTION_CANCELLED' | 'SCHEDULE_TRIGGERED' | 'SCHEDULE_FAILED' | 'SCHEDULE_REGRESSION'
 export type BackendScheduleType = 'ONE_TIME' | 'RECURRING_CRON'
@@ -55,10 +39,9 @@ export interface BackendProfileResponse {
   name: string | null
   email: string | null
   roles: string[]
-  /** P1-D — préférence RÉELLE persistée (voir AppUser.timezone côté backend),
-   * jamais issue du Jwt. `null` si l'utilisateur n'a jamais choisi de fuseau. */
+  /** Fuseau horaire IANA choisi ; `null` si jamais choisi. */
   timezone: string | null
-  /** Rôle applicatif (jamais offline_access, uma_authorization, default-roles-…) et son libellé français. */
+  /** Rôle applicatif et son libellé français. */
   appRole?: 'SUPER_ADMIN' | 'PERFORMANCE_ENGINEER' | 'VIEWER' | null
   appRoleLabel?: string | null
   /** Apparence mémorisée sur le profil ; null = jamais choisie. */
@@ -70,15 +53,14 @@ export interface BackendProfileResponse {
   canEditIdentity?: boolean
 }
 
-/** PUT /api/profile/identity (Super administrateur) : jamais le nom d'utilisateur, le rôle ni l'état du compte. */
+/** PUT /api/profile/identity (Super administrateur). */
 export interface BackendProfileIdentityRequest {
   firstName: string
   lastName: string
   email: string
 }
 
-/** PATCH /api/profile : préférences facultatives (null = inchangée). username/name/email restent
- * la propriété du système d'authentification, jamais éditables ici. */
+/** PATCH /api/profile : préférences facultatives (null = inchangée). */
 export interface BackendProfileUpdateRequest {
   timezone?: string
   theme?: 'LIGHT' | 'DARK' | 'SYSTEM'
@@ -152,8 +134,7 @@ export interface BackendIntegrations {
 
 // ---- Applications ----
 
-/** Authentification appliquée automatiquement à toutes les requêtes vers
- * l'Application (voir enums.ApplicationAuthType côté backend). */
+/** Authentification appliquée à toutes les requêtes vers l'application. */
 export type BackendApplicationAuthType = 'NONE' | 'BEARER_TOKEN' | 'API_KEY' | 'BASIC' | 'LOGIN_TOKEN'
 export type BackendApiKeyLocation = 'HEADER' | 'QUERY'
 
@@ -164,8 +145,7 @@ export type BackendCaptureSource = 'JSON' | 'HEADER' | 'HTML'
 /** Comparaison de l'assertion JSON d'une étape : égale (défaut) ou contient. */
 export type BackendJsonAssertionOperator = 'EQUALS' | 'CONTAINS'
 
-/** Secrets (token, apiKeyValue, password, loginBody) : vides en mise à jour
- * = valeur déjà enregistrée conservée (jamais renvoyée par le backend). */
+/** Secrets (token, apiKeyValue, password, loginBody) : vides en mise à jour = valeur enregistrée conservée. */
 export interface BackendApplicationAuthRequest {
   type: BackendApplicationAuthType
   token?: string | null
@@ -181,12 +161,11 @@ export interface BackendApplicationAuthRequest {
   tokenSource?: BackendCaptureSource | null
   tokenHeaderName?: string | null
   tokenPrefix?: string | null
-  /** BEARER_TOKEN / API_KEY / BASIC : endpoint protégé où le test de
-   * connectivité vérifie réellement les identifiants (obligatoire). */
+  /** BEARER_TOKEN / API_KEY / BASIC : endpoint protégé utilisé par le test de connectivité. */
   verificationPath?: string | null
 }
 
-/** Vue SANS secret : seules des indications "configuré" sont exposées. */
+/** Vue sans secret : seulement des indications "configuré". */
 export interface BackendApplicationAuthResponse {
   type: BackendApplicationAuthType
   apiKeyName: string | null
@@ -213,22 +192,21 @@ export interface BackendApplicationRequest {
   auth?: BackendApplicationAuthRequest
   /** Absent = aucun monitoring à la création, inchangé en mise à jour. */
   monitoring?: BackendMonitoringRequest
-  /** Absent = proxy du serveur à la création, réseau inchangé en mise à jour. */
+  /** Absent = aucun proxy à la création, réseau inchangé en mise à jour. */
   network?: BackendNetworkRequest
 }
 
 /** Proxy pour joindre l'application : du serveur (défaut), aucun, ou propre à l'application. */
 export type BackendProxyMode = 'INHERIT' | 'NONE' | 'CUSTOM'
 
-/** Mot de passe vide en modification = mot de passe enregistré conservé (jamais renvoyé). */
+/** Mot de passe vide en modification = mot de passe enregistré conservé. */
 export interface BackendNetworkRequest {
   proxyMode: BackendProxyMode
   proxyHost: string | null
   proxyPort: number | null
   proxyUsername: string | null
   proxyPassword: string | null
-  /** Autorité(s) de certification (PEM) ajoutées à la confiance de la JVM pour cette application ;
-   * absent ou vide = confiance de la JVM seule. */
+  /** Autorités de certification (PEM) propres à cette application ; vide = confiance de la JVM seule. */
   tlsCaCertificate?: string | null
 }
 
@@ -290,20 +268,16 @@ export interface BackendApplicationResponse {
   description: string | null
   url: string
   auth: BackendApplicationAuthResponse
-  /** Monitoring CPU / RAM (absent : serveur antérieur, équivaut à NONE). */
+  /** Monitoring CPU / RAM (absent = NONE). */
   monitoring?: BackendMonitoringResponse
-  /** Proxy pour joindre l'application, sans le mot de passe (absent : serveur antérieur, proxy du serveur). */
+  /** Proxy pour joindre l'application, sans le mot de passe. */
   network?: BackendNetworkResponse
   /** Archivage logique : masquée des listes par défaut, restaurable. */
   archived: boolean
   archivedAt: string | null
-  /** `null` tant qu'aucun test de disponibilité réel n'a été lancé — voir
-   * BackendApplicationStatus. Ne pas confondre avec Application.status côté
-   * frontend actuel (`Actif`/`Inactif`), qui est un simple bascule
-   * activé/désactivé et n'a pas d'équivalent direct côté backend. */
+  /** `null` tant qu'aucun test de connectivité n'a été lancé. */
   status: BackendApplicationStatus | null
-  /** Message lisible du dernier test (jamais de secret) ; null si aucun test
-   * valide (jamais testée, ou modifiée depuis le dernier test). */
+  /** Message du dernier test ; null si aucun test valide. */
   statusMessage: string | null
   statusCheckedAt: string | null
   createdBy: string
@@ -324,25 +298,15 @@ export interface BackendScenarioRequest {
   applicationId: string
   name: string
   description: string | null
-  /** P0-A — moteur de charge reel (voir HttpClientExecutionEngine). Tous
-   * nullable : le backend applique ses propres defauts reels cote service
-   * (virtualUsers=1, rampUpSeconds=0, thinkTimeMs=0) si null — jamais
-   * fabrique cote frontend. */
+  /** Paramètres de charge, tous optionnels (valeurs par défaut appliquées par le backend). */
   virtualUsers?: number | null
   rampUpSeconds?: number | null
   durationSeconds?: number | null
   iterations?: number | null
   thinkTimeMs?: number | null
-  /** P1-Q Etape B — donnees CSV brutes optionnelles (premiere ligne = noms
-   * de colonnes/variables), une ligne distribuee par utilisateur virtuel
-   * (voir Scenario.csvData/CsvDataSource cote backend). null/absent =
-   * aucune variable de donnees, comportement historique inchange. */
+  /** Données CSV optionnelles (première ligne = noms des variables). */
   csvData?: string | null
-  /** Master prompt final (Lot A) — debit cible optionnel (requetes/s,
-   * approximatif, partage entre tous les VUs — voir Scenario.targetRps/
-   * PacingGate cote backend). null/absent = aucun pacing, comportement
-   * historique inchange. Ne remplace jamais virtualUsers/rampUpSeconds/
-   * thinkTimeMs. */
+  /** Débit cible optionnel (requêtes/s, partagé entre les utilisateurs virtuels) ; null = aucun pacing. */
   targetRps?: number | null
   /** Création uniquement : true crée un brouillon (DRAFT), publié ensuite via /publish. */
   draft?: boolean | null
@@ -393,9 +357,7 @@ export interface BackendScenarioResponse {
   name: string
   description: string | null
   status: BackendScenarioStatus
-  /** P0-A — valeurs REELLEMENT appliquees par le moteur de charge a chaque
-   * Execution de ce Scenario (voir ExecutionTransactionHelper.prepareAndStart,
-   * qui les copie telles quelles sur l'Execution au lancement). */
+  /** Paramètres de charge du scénario. */
   virtualUsers: number
   rampUpSeconds: number
   durationSeconds: number | null
@@ -445,17 +407,12 @@ export interface BackendStepRequest {
   body: string | null
   order: number
   expectedStatus: number | null
-  /** P1-Q Etape B — toutes optionnelles (voir StepRequest.java) : absentes/
-   * null = comportement historique inchange (voir HttpClientExecutionEngine). */
+  /** Options de l'étape, toutes optionnelles. */
   thinkTimeMs?: number | null
   timeoutSeconds?: number | null
   followRedirects?: boolean | null
   assertionBodyContains?: string | null
-  /** Master prompt final (Lot B) — capture de variable dynamique depuis la
-   * reponse de CETTE etape (voir Step.captureVariableName/captureJsonPath,
-   * JsonPathExtractor cote backend). N'a d'effet que si les DEUX champs
-   * sont renseignes ; disponible aux etapes suivantes du MEME utilisateur
-   * virtuel uniquement (jamais partage entre VUs). */
+  /** Capture d'une variable dans la réponse, disponible pour les étapes suivantes du même utilisateur virtuel. */
   captureVariableName?: string | null
   captureJsonPath?: string | null
   /** Source de la capture : JSON (défaut, null) ou HEADER (captureJsonPath = nom de l'en-tête, ou « Set-Cookie:NOM »). */
@@ -472,10 +429,7 @@ export interface BackendStepRequest {
   queryParams?: string | null
 }
 
-// ------------------------------------------------------------
-// Test détaillé (TestRunController / TestRunResponse.java) : 1 utilisateur
-// virtuel, 1 passage, aucune Execution créée. Secrets déjà masqués ("••••••").
-// ------------------------------------------------------------
+// ---- Test détaillé : 1 utilisateur virtuel, 1 passage, secrets masqués ----
 
 export type BackendTestRunStepStatus = 'PASSED' | 'FAILED' | 'SKIPPED'
 
@@ -493,8 +447,7 @@ export interface BackendTestRunStepResult {
   status: BackendTestRunStepStatus
   success: boolean
   error: string | null
-  /** TIMEOUT, CONNECTION_REFUSED, DNS, TLS, NETWORK, INVALID_REQUEST, UNRESOLVED_VARIABLE,
-   * HTTP_STATUS, ASSERTION, AUTH_FAILED, GLOBAL_TIMEOUT, PREVIOUS_FAILED, INTERRUPTED */
+  /** TIMEOUT, CONNECTION_REFUSED, DNS, TLS, NETWORK, INVALID_REQUEST, UNRESOLVED_VARIABLE, HTTP_STATUS, ASSERTION, AUTH_FAILED, GLOBAL_TIMEOUT, PREVIOUS_FAILED, INTERRUPTED */
   errorKind: string | null
   request: {
     method: BackendHttpMethod
@@ -552,12 +505,7 @@ export type BackendTestRunEvent =
 export interface BackendStepResponse {
   id: string
   scenarioId: string
-  /** Phase 19 — ajouté après lecture réelle de StepMapper/StepResponse.java :
-   * exposé par le backend en plus de scenarioId, par confort d'affichage
-   * (jamais l'entité Scenario complète), comme applicationName sur
-   * BackendScenarioResponse. Absent de la version initiale de ce fichier
-   * (Phase 15, écrite avant lecture du code réel) — ajout minimal, pas une
-   * supposition. */
+  /** Nom du scénario de l'étape. */
   scenarioName: string
   name: string
   method: BackendHttpMethod
@@ -599,9 +547,7 @@ export interface BackendExecutionResponse {
   startedAt: string
   finishedAt: string | null
   status: BackendExecutionStatus
-  /** P0-A — copie figee des parametres de charge du Scenario au moment du
-   * lancement (voir Execution.java) : reste fidele meme si le Scenario est
-   * reconfigure plus tard. */
+  /** Paramètres de charge copiés au lancement. */
   virtualUsers: number
   rampUpSeconds: number
   durationSeconds: number | null
@@ -613,11 +559,6 @@ export interface BackendExecutionResponse {
   errorMessage: string | null
 }
 
-/** P0-A — GET /api/executions/{id}/status (voir ExecutionController) :
- * reponse legere dediee au polling frequent pendant une execution encore
- * QUEUED/RUNNING. `progressPercent` est `null` tant qu'il n'est pas
- * reellement calculable (voir ExecutionServiceImpl.computeProgressPercent —
- * jamais fabrique en mode iterations/1-passe sans durationSeconds). */
 /** LoadPilot lui-même (l'injecteur) : CPU en % de la machine (null si indisponible), mémoire en Mo. */
 export interface BackendInjectorStatus {
   cpuPercent: number | null
@@ -665,10 +606,7 @@ export interface BackendExecutionStatusResponse {
   injector?: BackendInjectorStatus | null
 }
 
-/**
- * CPU (en % d'un cœur : 100 % = un cœur entièrement occupé) et RAM (Mo) du PROCESSUS de
- * l'application testée — ni la machine entière, ni LoadPilot.
- */
+/** CPU (% d'un cœur) et RAM (Mo) du processus de l'application testée. */
 export interface BackendExecutionResources {
   source: BackendMonitoringType | null
   intervalSeconds: number
@@ -707,13 +645,7 @@ export interface BackendLiveStats {
   steps: BackendLiveStepStats[]
 }
 
-/** P1-A — GET /api/executions/history (voir ExecutionController#history) :
- * vue allegee d'une execution pour les listes (page Executions via /page, page Rapports via
- * /history), paginee cote backend.
- *
- * ABSENCE DOCUMENTEE : aucun champ "createdBy"/"launchedBy" — Execution n'a
- * aucune colonne referencant un utilisateur (voir ExecutionHistoryResponse
- * cote backend pour la justification complete). Ne jamais l'inventer ici. */
+/** Ligne des listes d'exécutions (GET /api/executions/history et /page). */
 export interface BackendExecutionHistoryResponse {
   id: string
   scenarioId: string
@@ -731,12 +663,9 @@ export interface BackendExecutionHistoryResponse {
   totalSteps: number
   successfulSteps: number
   failedSteps: number
-  /** P1-C — utilisateur ayant réellement lancé cette exécution (voir P1-B,
-   * Execution.triggeredBy) — `null` pour toute exécution antérieure à P1-B
-   * ou dont l'origine n'a pu être associée à personne, jamais deviné. */
+  /** Utilisateur qui a lancé l'exécution ; `null` si inconnu. */
   triggeredByUsername: string | null
-  /** P1-C — requêtes réellement exécutées / durée (s), même formule que
-   * PerformanceStatisticsService — `null` si non calculable. */
+  /** Requêtes exécutées / durée (s) ; `null` si non calculable. */
   throughput: number | null
   /** CPU moyen / max du processus testé (% d'un cœur) et RAM max (Mo) ; null/absent sans monitoring. */
   cpuAvgPercent?: number | null
@@ -774,7 +703,7 @@ export interface BackendResultsRetentionSettings {
   requestDetailsDays: number
 }
 
-/** P1-A — filtres reels de GET /api/executions/history, tous optionnels. */
+/** Filtres de GET /api/executions/history, tous optionnels. */
 export interface ExecutionHistoryFilters {
   status?: BackendExecutionStatus
   scenarioId?: string
@@ -789,11 +718,7 @@ export interface ExecutionHistoryFilters {
   finished?: boolean
 }
 
-/** P1-A — statistiques REELLEMENT calculees (voir
- * PerformanceStatisticsService cote backend) : percentiles calcules a la
- * demande depuis ExecutionStepResult (le backend ne les calculait nulle
- * part avant P1-A — jamais une valeur approximative). Toute valeur est
- * `null` quand non calculable (population vide), jamais fabriquee. */
+/** Statistiques d'une exécution ; temps en millisecondes. */
 export interface BackendExecutionStatistics {
   totalRequests: number
   successfulRequests: number
@@ -837,15 +762,7 @@ export interface BackendReportErrorEntry {
   timestamp: string
 }
 
-/** P1-A — GET /api/executions/{id}/report. Distinct de
- * BackendExecutionDetailResponse (vue brute, deja utilisee par
- * ExecutionDetail.tsx) : celui-ci est la vue agregee/statistique dediee au
- * reporting (ExecutionReport.tsx).
- *
- * ABSENCE DOCUMENTEE : pas de "thinkTimeMs" — jamais fige sur Execution en
- * P0-A (voir ExecutionReportResponse cote backend), jamais reconstitue ici
- * depuis le Scenario courant (violerait l'immutabilite des parametres
- * historiques d'une execution deja terminee). */
+/** Rapport statistique d'une exécution (GET /api/executions/{id}/report). */
 export interface BackendReportThresholds {
   maxErrorRatePercent: number
   errorRatePercent: number
@@ -870,7 +787,7 @@ export interface BackendExecutionReportResponse {
   rampUpSeconds: number
   durationSeconds: number | null
   iterations: number | null
-  /** P1-C — voir BackendExecutionHistoryResponse.triggeredByUsername. */
+  /** Utilisateur qui a lancé l'exécution ; `null` si inconnu. */
   triggeredByUsername: string | null
   /** Temps total passé en pause (ms) ; le débit est calculé sans ce temps. */
   pausedDurationMs: number
@@ -886,7 +803,7 @@ export interface BackendExecutionStepResultResponse {
   stepId: string
   stepName: string
   method: BackendHttpMethod
-  /** URL déjà résolue (relative -> absolue via Application.url), jamais l'URL brute du Step. */
+  /** URL réellement appelée. */
   url: string
   httpStatus: number | null
   responseTime: number
@@ -1067,9 +984,9 @@ export interface BackendMetricResponse {
   /** Millisecondes. */
   responseTime: number | null
   statusCode: number | null
-  /** Requêtes/seconde — valeur AU NIVEAU DE L'EXÉCUTION, pas mesurée par step. */
+  /** Requêtes/seconde de l'exécution. */
   throughput: number | null
-  /** Pourcentage (0-100), basé sur les steps réellement exécutés. */
+  /** Taux d'erreurs de l'exécution (%). */
   errorRate: number | null
   timestamp: string
 }
@@ -1095,24 +1012,23 @@ export interface BackendExecutionsSummary {
   failedExecutions: number
   runningExecutions: number
   cancelledExecutions: number
-  /** Steps RÉELLEMENT exécutés (pas la somme des Steps configurés — voir
-   * politique stop-on-failure du moteur d'exécution backend). */
+  /** Nombre d'étapes exécutées. */
   totalStepsExecuted: number
   successfulSteps: number
   failedSteps: number
-  /** `null` si totalStepsExecuted === 0 (jamais 0/100 inventé). */
+  /** `null` si totalStepsExecuted === 0. */
   successRate: number | null
   failureRate: number | null
 }
 
 export interface BackendPerformanceSummary {
-  /** `null` si aucune Metric n'existe pour le périmètre demandé. */
+  /** `null` si aucune métrique. */
   averageResponseTime: number | null
   averageThroughput: number | null
   averageErrorRate: number | null
 }
 
-/** P1-C — un scénario du widget "Top scénarios" (voir DashboardServiceImpl#buildTopScenarios). */
+/** Scénario du classement "Top scénarios". */
 export interface BackendTopScenarioResponse {
   scenarioId: string
   scenarioName: string
@@ -1122,10 +1038,7 @@ export interface BackendTopScenarioResponse {
   avgResponseTime: number | null
 }
 
-/**
- * GET /api/dashboard/overview?applicationId=&from=&to= : tout le Dashboard, filtré par application
- * et par période (exécutions lancées dans la période). null = non calculable, jamais inventé.
- */
+/** GET /api/dashboard/overview : tableau de bord filtré par application et période ; null = non calculable. */
 export interface BackendDashboardOverview {
   applicationId: string | null
   from: string | null
@@ -1237,10 +1150,7 @@ export interface BackendDashboardResponse {
   scenarios: BackendScenariosSummary
   executions: BackendExecutionsSummary
   performance: BackendPerformanceSummary
-  /** P1-C — plage réellement appliquée (`null`/`null` = tout l'historique,
-   * comportement identique à avant P1-C). "executions"/"performance"/
-   * "topScenarios" sont filtrés par cette plage ; "applications"/
-   * "scenarios" restent toujours all-time (voir DashboardResponse côté backend). */
+  /** Période appliquée (`null` / `null` = tout l'historique). */
   rangeFrom: string | null
   rangeTo: string | null
   topScenarios: BackendTopScenarioResponse[]
@@ -1259,10 +1169,9 @@ export interface BackendApplicationDashboardResponse {
   performance: BackendPerformanceSummary
 }
 
-// ---- Users (Phase 25 — Keycloak reel, aucun stockage local) ----
+// ---- Utilisateurs ----
 
-/** Les 3 seuls roles applicatifs reels (voir enums.AppRole cote backend,
- * provisionnes dans Keycloak en Phase 16.5). */
+/** Rôles applicatifs. */
 export type BackendAppRole = 'SUPER_ADMIN' | 'PERFORMANCE_ENGINEER' | 'VIEWER'
 
 export interface BackendUserSummaryResponse {
@@ -1270,8 +1179,7 @@ export interface BackendUserSummaryResponse {
   username: string
   email: string | null
   enabled: boolean
-  /** Le seul des 3 BackendAppRole reellement assigne cote Keycloak ;
-   * `null` si aucun des 3 (jamais une valeur inventee par defaut). */
+  /** Rôle applicatif de l'utilisateur ; `null` si aucun. */
   role: BackendAppRole | null
   createdAt: string | null
   firstName?: string | null
@@ -1385,7 +1293,7 @@ export interface BackendAuditStatsResponse {
   actionsByAction: Record<string, number>
 }
 
-// ---- Notifications (P1-B — GET /api/notifications, réelles, personnelles) ----
+// ---- Notifications ----
 
 export interface BackendNotificationResponse {
   id: string
@@ -1399,17 +1307,17 @@ export interface BackendNotificationResponse {
   readAt: string | null
 }
 
-// ---- Scheduled Executions (P1-B — GET/POST /api/scheduled-executions) ----
+// ---- Planifications ----
 
 export interface BackendScheduledExecutionRequest {
   scenarioId: string
   name: string
   scheduleType: BackendScheduleType
-  /** Requis (et uniquement pertinent) si scheduleType === 'RECURRING_CRON'. */
+  /** Requis si scheduleType === 'RECURRING_CRON'. */
   cronExpression?: string | null
-  /** Requis (et uniquement pertinent) si scheduleType === 'ONE_TIME' — ISO 8601, doit être dans le futur. */
+  /** Requis si scheduleType === 'ONE_TIME' : date ISO 8601 dans le futur. */
   runAt?: string | null
-  /** Identifiant de fuseau horaire IANA (ex: "Africa/Casablanca", "UTC") — toujours obligatoire. */
+  /** Fuseau horaire IANA (ex. "Africa/Casablanca"). */
   timezone: string
   /** Récurrente seulement : aucune occurrence après cet instant (ISO 8601). */
   endAt?: string | null
@@ -1427,7 +1335,7 @@ export interface BackendScheduledExecutionResponse {
   cronExpression: string | null
   runAt: string | null
   timezone: string
-  /** `null` = ne se déclenchera plus jamais automatiquement (ONE_TIME déjà déclenchée, ou désactivée). */
+  /** `null` = plus aucun lancement automatique. */
   nextRunAt: string | null
   enabled: boolean
   createdByUsername: string | null
@@ -1435,13 +1343,12 @@ export interface BackendScheduledExecutionResponse {
   updatedAt: string
   lastTriggeredAt: string | null
   lastExecutionId: string | null
-  /** Raison du dernier ÉCHEC DE DÉCLENCHEMENT (avant même la création d'une Execution) — `null` si le dernier déclenchement a réussi ou n'a jamais eu lieu. */
+  /** Raison du dernier échec de déclenchement ; `null` si le dernier a réussi. */
   lastTriggerError: string | null
   endAt: string | null
   notifyMode: BackendScheduleNotifyMode
   state: BackendScheduleState
-  /** Raison de l'état (au survol), en français ; 
-ull pour une planification active. */
+  /** Raison de l'état (au survol) ; null pour une planification active. */
   stateReason: string | null
   /** Dernière exécution lancée ; p95ChangePercent = écart avec l'exécution précédente de la planification. */
   lastRun: BackendScheduleLastRun | null
@@ -1492,7 +1399,7 @@ export interface BackendScheduleHistoryResponse {
   truncated: boolean
 }
 
-// ---- Notification Preferences (P1-D — GET/PATCH /api/notification-preferences) ----
+// ---- Préférences de notification ----
 
 export interface BackendNotificationPreferenceResponse {
   type: BackendNotificationType
@@ -1514,7 +1421,7 @@ export interface BackendNotificationPreferenceUpdateRequest {
   enabled: boolean
 }
 
-// ---- System Config (P1-D — GET /api/system/config, lecture seule, SUPER_ADMIN) ----
+// ---- Limites du serveur (lecture seule, Super administrateur) ----
 
 export interface BackendSystemConfigResponse {
   maxVirtualUsersPerExecution: number
@@ -1525,7 +1432,7 @@ export interface BackendSystemConfigResponse {
   schedulerPollIntervalMs: number
 }
 
-// ---- Format d'erreur uniforme (voir GlobalExceptionHandler) ----
+// ---- Format des erreurs ----
 
 export interface BackendErrorResponse {
   timestamp: string
@@ -1535,7 +1442,7 @@ export interface BackendErrorResponse {
   path: string
 }
 
-// ---- Suppression cohérente (migration 017) ----
+// ---- Suppression ----
 
 /** Impact d'une suppression / d'un archivage, affiché avant confirmation. */
 export interface BackendDeletionImpact {
@@ -1548,7 +1455,6 @@ export interface BackendDeletionImpact {
   hasRunningExecution: boolean
 }
 
-/** Résultat d'une action groupée, élément par élément (succès partiels). */
 /** GET /api/executions/page : lignes de la page + compteurs par statut avec les mêmes filtres. */
 export interface BackendExecutionPageResponse {
   content: BackendExecutionHistoryResponse[]

@@ -37,18 +37,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Nouveau Dashboard : tout est calcule cote serveur, filtre par application et par periode
- * (executions LANCEES entre from et to, bornes incluses ; sans borne = tout l'historique).
- *
- * Performance : comptages et sommes en SQL ; P95 de la periode calcule par la base
- * (PERCENTILE_DISC = methode du « rang le plus proche » des rapports, aucune requete chargee en
- * memoire) ; P95 / debit / P95 par etape de chaque execution lus dans son resume enregistre
- * (ExecutionStatsService, calcule une seule fois pour une execution terminee).
- *
- * Comparaison : derniere execution de chaque scenario dans la periode vs l'execution precedente
- * (reussie ou echouee) du meme scenario, meme anterieure a la periode (seuils : DashboardRules).
- */
+/** Tableau de bord filtre par application et par periode (executions lancees entre from et to) ; comptages et P95 calcules en SQL. */
 @Service
 @RequiredArgsConstructor
 public class DashboardOverviewService {
@@ -57,7 +46,7 @@ public class DashboardOverviewService {
     static final int UPCOMING_LIMIT = 3;
     static final int SLOWEST_STEPS_LIMIT = 5;
     static final int TREND_LIMIT = 200;
-    /** Tableau « Derniere execution par scenario » : 10 lignes par page par defaut (interface), 100 au plus. */
+    /** Taille maximale d'une page du tableau "Derniere execution par scenario". */
     static final int MAX_PAGE_SIZE = 100;
     private static final List<ExecutionStatus> COMPARABLE = List.of(ExecutionStatus.SUCCESS, ExecutionStatus.THRESHOLDS_EXCEEDED, ExecutionStatus.FAILED);
     private static final List<ExecutionStatus> ACTIVE = List.of(ExecutionStatus.QUEUED, ExecutionStatus.RUNNING, ExecutionStatus.PAUSED);
@@ -66,7 +55,7 @@ public class DashboardOverviewService {
     private final ExecutionStatsService statsService;
     private final com.loadpilot.backend.service.AppSettingsService settings;
 
-    /** P95 de periode deja calcules (cle : filtre + nombre d'executions + derniere fin) - petite LRU. */
+    /** P95 de periode deja calcules (petit cache LRU). */
     private final Map<String, Long> periodP95Cache = Collections.synchronizedMap(new LinkedHashMap<>(64, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
@@ -92,7 +81,7 @@ public class DashboardOverviewService {
     public DashboardOverviewResponse overview(UUID applicationId, Instant from, Instant to) {
         Filter f = new Filter(applicationId, from != null ? from : Instant.EPOCH, to != null ? to : Instant.now());
 
-        // ---- comptages par statut, requetes envoyees et en echec (sommes SQL)
+        // ---- Comptages par statut, requetes envoyees et en echec ----
         Map<ExecutionStatus, long[]> byStatus = new EnumMap<>(ExecutionStatus.class);
         for (Object[] row : f.bind(entityManager.createQuery("select e.status, count(e), coalesce(sum(e.successfulSteps), 0), "
                 + "coalesce(sum(e.failedSteps), 0) from Execution e where " + f.where("e") + " group by e.status", Object[].class))
@@ -113,9 +102,7 @@ public class DashboardOverviewService {
                 count(byStatus, ExecutionStatus.CANCELLED), running, count(byStatus, ExecutionStatus.THRESHOLDS_EXCEEDED));
         Kpis kpis = new Kpis(periodP95(f, executions), rate(failedRequests, requests), requests, executions, running);
 
-        // ---- derniere execution par scenario (resume calcule si besoin) et comparaison : pour les points a
-        // surveiller et les etapes les plus lentes (tous les scenarios). Le tableau, lui, est pagine
-        // (latestByScenario ci-dessous) ; ici seulement la liste des scenarios pour « Evolution ».
+        // ---- Derniere execution de chaque scenario et comparaison avec la precedente ----
         List<Execution> latest = latestExecutions(f, null, null);
         List<ScenarioRow> rows = new ArrayList<>();
         Map<String, Execution> latestById = new LinkedHashMap<>();
@@ -129,11 +116,7 @@ public class DashboardOverviewService {
                 watchItems(f, rows, latest), scenarios, slowestSteps(latestById, rows), active(f), recent(f), upcoming(applicationId));
     }
 
-    /**
-     * Tableau « Derniere execution par scenario », pagine cote serveur : une ligne par scenario execute
-     * dans la periode (sa derniere execution), de la plus recente a la plus ancienne. Seules les lignes de
-     * la page sont calculees (comparaison avec l'execution precedente, resume).
-     */
+    /** Tableau "Derniere execution par scenario", pagine : une ligne par scenario execute dans la periode. */
     @Transactional(readOnly = true)
     public PagedResponse<ScenarioRow> latestByScenario(UUID applicationId, Instant from, Instant to, int page, int size) {
         int safePage = Math.max(0, page);
@@ -172,11 +155,7 @@ public class DashboardOverviewService {
         return scenarioTrend(scenarioId, from, to, null);
     }
 
-    /**
-     * « Évolution des performances » : executions terminees (reussies / echouees) du scenario dans la
-     * periode ; stepName (optionnel) : P95 et taux d'erreurs de cette etape dans chaque execution
-     * (resume enregistre, meme calcul que le tableau des etapes du rapport).
-     */
+    /** "Evolution des performances" d'un scenario sur la periode ; stepName (optionnel) : P95 et taux d'erreurs de cette etape. */
     @Transactional(readOnly = true)
     public ScenarioTrendResponse scenarioTrend(UUID scenarioId, Instant from, Instant to, String stepName) {
         com.loadpilot.backend.entity.Scenario scenario = entityManager.find(com.loadpilot.backend.entity.Scenario.class, scenarioId);
@@ -205,11 +184,11 @@ public class DashboardOverviewService {
         return new ScenarioTrendResponse(scenarioId.toString(), scenario.getName(), List.copyOf(options.values()), wanted, points);
     }
 
-    // ------------------------------------------------------------------ blocs
+    // ---- Blocs ----
 
     private List<WatchItem> watchItems(Filter f, List<ScenarioRow> rows, List<Execution> latest) {
         List<WatchItem> items = new ArrayList<>();
-        // Applications en echec de connexion (etat actuel)
+        // Applications en echec de connexion
         TypedQuery<Application> apps = entityManager.createQuery("select a from Application a where a.archived = false "
                 + "and a.status in :st" + (f.applicationId() != null ? " and a.id = :app" : "") + " order by a.name", Application.class)
                 .setParameter("st", List.of(ApplicationStatus.FAILED, ApplicationStatus.ERROR));
@@ -235,7 +214,7 @@ public class DashboardOverviewService {
                         + oneDecimal(r.p95Ms()) + " ms par rapport à l'exécution précédente", "/executions/report/" + r.executionId()));
             }
         }
-        // Monitoring configure mais muet lors de la derniere execution de l'application dans la periode
+        // Monitoring configure mais sans reponse lors de la derniere execution de l'application
         Map<UUID, Execution> lastByApp = new LinkedHashMap<>();
         for (Execution e : latest) {
             Application a = e.getScenario().getApplication();
@@ -286,19 +265,15 @@ public class DashboardOverviewService {
                 .map(s -> new ScheduledBrief(s.getId().toString(), s.getName(), s.getScenario().getName(), s.getNextRunAt())).toList();
     }
 
-    // ------------------------------------------------------------------ calculs
+    // ---- Calculs ----
 
-    /**
-     * P95 de toutes les requetes des executions de la periode, calcule par la base
-     * (PERCENTILE_DISC(0.95) = rang le plus proche, comme les rapports). Mis en cache tant que le
-     * nombre d'executions et la derniere fin d'execution du filtre ne changent pas.
-     */
+    /** P95 de toutes les requetes de la periode (PERCENTILE_DISC(0.95) en base), mis en cache tant que les donnees ne changent pas. */
     private Long periodP95(Filter f, long executions) {
         if (executions == 0) return null;
         Object[] signature = f.bind(entityManager.createQuery("select count(e), max(e.finishedAt) from Execution e where " + f.where("e")
                 + " and e.status not in :st", Object[].class)).setParameter("st", ACTIVE).getSingleResult();
         long active = executions - ((Number) signature[0]).longValue();
-        // Cache seulement si toutes les executions du filtre sont terminees (resultats definitifs).
+        // Cache seulement si toutes les executions du filtre sont terminees.
         String key = active > 0 ? null : f.applicationId() + "|" + f.from() + "|" + (f.to().getEpochSecond() / 60) + "|"
                 + signature[0] + "|" + signature[1];
         if (key != null && periodP95Cache.containsKey(key)) return periodP95Cache.get(key);
@@ -326,14 +301,14 @@ public class DashboardOverviewService {
         return list.get(0);
     }
 
-    /** Resume absent (execution anterieure) : calcule une fois, enregistre, puis relu. */
+    /** Resume absent : calcule une fois puis enregistre. */
     private void ensureStats(Execution e) {
         if (!ExecutionStatsService.needsComputation(e)) return;
         try {
             statsService.compute(e.getId());
             entityManager.refresh(e);
         } catch (RuntimeException ex) {
-            // Resume indisponible : valeurs simplement absentes (jamais inventees).
+            // Resume indisponible : valeurs absentes.
         }
     }
 

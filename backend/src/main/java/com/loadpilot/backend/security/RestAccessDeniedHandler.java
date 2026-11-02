@@ -9,11 +9,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
 
-/**
- * 403 - utilisateur authentifie mais role/permission insuffisant (que la
- * verification vienne de authorizeHttpRequests() ou d'un @PreAuthorize
- * methode). JSON coherent avec le futur format d'erreur global.
- */
+/** Reponse JSON 403 : utilisateur authentifie mais role insuffisant. */
 @Component
 @RequiredArgsConstructor
 public class RestAccessDeniedHandler implements AccessDeniedHandler {

@@ -14,11 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/**
- * Lecture du rapport fige (table execution_report_snapshot) et etat de conservation d'une execution.
- * Aucune dependance vers les services de calcul : utilisable par le rapport, l'analyse dans le
- * temps, les cartes Minimum / Maximum et la comparaison.
- */
+/** Lecture du rapport fige et etat de conservation d'une execution. */
 @Component
 @RequiredArgsConstructor
 public class ReportSnapshots {
@@ -29,7 +25,7 @@ public class ReportSnapshots {
     private final AppSettingsService settings;
     private final ExecutionReportSnapshotRepository repository;
 
-    /** Vrai si le rapport doit venir du rapport fige : detail des requetes supprime. */
+    /** true si le detail des requetes a ete supprime : le rapport vient du rapport fige. */
     public static boolean purged(Execution execution) {
         return execution.getResultsPurgedAt() != null;
     }

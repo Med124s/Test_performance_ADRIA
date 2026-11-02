@@ -18,12 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-/**
- * Serveur e-mail de LoadPilot (notifications par e-mail, e-mail de test) : SMTP configure par
- * variables d'environnement (LOADPILOT_MAIL_*), Mailpit en developpement (localhost:1025, rien
- * n'est reellement delivre). Distinct du serveur e-mail du systeme d'authentification (mot de
- * passe oublie...). Le mot de passe SMTP n'est jamais renvoye ni journalise.
- */
+/** Serveur e-mail de LoadPilot (notifications, e-mail de test), configure par LOADPILOT_MAIL_* ; Mailpit en developpement. */
 @Service
 public class MailService {
 

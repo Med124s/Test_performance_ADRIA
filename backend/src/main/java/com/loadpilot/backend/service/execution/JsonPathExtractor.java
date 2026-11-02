@@ -7,30 +7,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Master prompt final (Lot B) — extraction REELLE d'une valeur depuis un
- * corps de reponse JSON, pour la capture de variable dynamique (voir
- * Step.captureVariableName/captureJsonPath, HttpClientExecutionEngine) et le
- * jeton de la Connexion automatique (ApplicationAuthenticator).
- *
- * Sous-ensemble VOLONTAIREMENT SIMPLE, jamais un vrai moteur JSONPath
- * complet (pas de filtres/wildcards/fonctions/index negatifs) : navigation
- * par segments separes par des points dans l'arbre JSON (Jackson JsonNode,
- * DEJA une dependance reelle de ce projet — voir parseHeaders — donc aucune
- * nouvelle dependance ajoutee pour ce besoin), chaque segment pouvant etre
- * suivi d'un ou plusieurs index de tableau entre crochets (entier >= 0). Le
- * prefixe "$." ou "$" est accepte et ignore par confort (convention JSONPath
- * usuelle), mais n'active aucune semantique JSONPath supplementaire.
- * Exemples supportes : "token", "$.token", "data.token", "$.data.token",
- * "data.accounts[0].id", "items[2].name", "data[0][1].value", "$[0].id"
- * (reponse dont la racine est un tableau).
- *
- * Ne leve JAMAIS d'exception vers l'appelant : une reponse non-JSON, un
- * chemin introuvable ou invalide, ou un chemin/JSON null renvoient simplement
- * null (aucune variable produite, jamais une erreur d'execution — voir
- * politique documentee sur Step.captureJsonPath). {@link #explain} donne la
- * raison de cet echec, pour les messages affiches a l'utilisateur.
- */
+/** Extraction d'une valeur dans un corps JSON avec un chemin simple : "$.token", "data.token", "data.accounts[0].id". */
 final class JsonPathExtractor {
 
     /** Un segment : nom de champ (eventuellement vide), puis zero ou plusieurs index "[n]" (9 chiffres au plus). */
@@ -44,10 +21,7 @@ final class JsonPathExtractor {
         return evaluate(objectMapper, json, path, false).value();
     }
 
-    /**
-     * Comme {@link #extract}, mais un objet ou un tableau est rendu en JSON compact (ex. ["a","b"])
-     * au lieu d'une chaine vide : utilise par l'assertion JSON (voir StepChecks).
-     */
+    /** Comme {@link #extract}, mais un objet ou un tableau est rendu en JSON compact. */
     static String extractForAssertion(ObjectMapper objectMapper, String json, String path) {
         return evaluate(objectMapper, json, path, true).value();
     }
@@ -58,12 +32,7 @@ final class JsonPathExtractor {
         return parse(stripRoot(path.trim())) != null;
     }
 
-    /**
-     * Raison lisible pour laquelle {@link #extract} ne trouve rien (ex. « index 3 hors limites pour
-     * data.accounts (tableau de 2 éléments) »), en minuscule et sans point final, a placer apres le
-     * chemin dans le message de l'appelant. null si une valeur est trouvee, ou si le JSON ou le chemin
-     * sont vides.
-     */
+    /** Raison pour laquelle {@link #extract} ne trouve rien (ex. "index 3 hors limites pour data.accounts"), ou null. */
     static String explain(ObjectMapper objectMapper, String json, String path) {
         return evaluate(objectMapper, json, path, false).reason();
     }
@@ -127,11 +96,7 @@ final class JsonPathExtractor {
         }
     }
 
-    /**
-     * Decoupe le chemin en noms de champ (String) et index de tableau (Integer), dans l'ordre.
-     * Segments vides ignores (comme avant : "data..token" == "data.token"). null = chemin invalide
-     * (crochet non ferme, index non entier ou negatif, crochet au milieu d'un nom).
-     */
+    /** Decoupe le chemin en noms de champ et index de tableau ; null si le chemin est invalide. */
     private static List<Object> parse(String path) {
         List<Object> tokens = new ArrayList<>();
         for (String segment : path.split("\\.")) {

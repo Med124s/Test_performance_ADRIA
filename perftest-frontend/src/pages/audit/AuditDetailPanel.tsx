@@ -3,8 +3,7 @@ import { Link } from 'react-router-dom'
 import type { BackendAuditLogResponse } from '../../types/backendContracts'
 import { fullDate } from '../../utils/userDisplay'
 
-// Panneau latéral (icône œil) : tout ce que contient une entrée du journal,
-// en lecture seule. Aucune action de modification ni de suppression.
+// Panneau latéral : détail d'une entrée du journal, en lecture seule.
 
 const TARGET_TYPE_LABELS: Record<NonNullable<BackendAuditLogResponse['targetType']>, string> = {
   APPLICATION: 'Application',
@@ -30,7 +29,7 @@ export function targetLink(row: Pick<BackendAuditLogResponse, 'targetType' | 'ta
   }
 }
 
-/** Navigateur lisible à partir du User-Agent (approximation volontairement simple). */
+/** Navigateur lisible à partir du User-Agent (approximation). */
 export function browserLabel(userAgent: string | null): string | null {
   if (!userAgent) return null
   const ua = userAgent

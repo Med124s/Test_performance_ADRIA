@@ -5,10 +5,7 @@ import { ApiError } from '../../services/api/httpClient'
 import type { BackendResultsRetentionSettings, BackendStorageInfo } from '../../types/backendContracts'
 import StorageStatus from '../settings/StorageStatus'
 
-// Conservation des résultats détaillés (Paramètres > Système, Super administrateur) :
-//  - résultats (une ligne par requête) : 90 jours par défaut ;
-//  - en-têtes et corps des requêtes : 30 jours par défaut, jamais plus que les résultats.
-// Purge automatique chaque nuit ; rapports figés conservés ; exécutions « Conservées » et en cours jamais purgées.
+// Conservation des résultats détaillés : résultats (90 jours par défaut), en-têtes et corps des requêtes (30 jours par défaut).
 
 export const RESULTS_MIN = 7
 export const DETAILS_MIN = 1

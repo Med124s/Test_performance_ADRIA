@@ -3,23 +3,13 @@ package com.loadpilot.backend.service.report;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
-/**
- * P1-C — extrait la formule de throughput (requetes reellement executees /
- * duree en secondes), jusqu'ici dupliquee a l'identique dans
- * PerformanceAggregates ET PerformanceStatisticsService (chacune
- * documentant deja explicitement "meme formule que l'autre") - UNE seule
- * implementation reelle desormais, reutilisee aussi par ExecutionMapper
- * (voir MapperSupport#throughputOf) pour renseigner
- * ExecutionHistoryResponse.throughput. Comportement STRICTEMENT identique
- * a avant (memes arrondis/echelles) - aucune regression sur les Metric
- * deja generees ni sur les rapports P1-A.
- */
+/** Debit : requetes executees / duree en secondes. */
 public final class ThroughputCalculator {
 
     private ThroughputCalculator() {
     }
 
-    /** Null si duree ou nombre de requetes absent/nul - jamais une division par zero. */
+    /** null si la duree ou le nombre de requetes est nul. */
     public static BigDecimal compute(int executedRequests, Long durationMs) {
         if (durationMs == null || durationMs <= 0 || executedRequests <= 0) {
             return null;

@@ -22,13 +22,7 @@ import './applications.css'
 import './executions/executions.css'
 import './scheduling/scheduling.css'
 
-// ============================================================
-// Planification : lancer des scénarios automatiquement (une fois ou de
-// façon récurrente). Le serveur calcule l'état (Active, En pause,
-// Suspendue, Terminée, Expirée), la dernière exécution et son écart de
-// P95 ; cette page filtre (état, scénario, recherche), pagine et agit.
-// SUPER_ADMIN et PERFORMANCE_ENGINEER gèrent ; VIEWER consulte.
-// ============================================================
+// Planification : lancer des scénarios automatiquement, une fois ou de façon récurrente.
 
 const PAGE_SIZES = [10, 20, 50]
 const REFRESH_MS = 30_000

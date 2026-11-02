@@ -7,13 +7,7 @@ import Pagination from '../../components/Pagination'
 import RequestDetailPanel from './RequestDetailPanel'
 import './executionDetail.css'
 
-// ============================================================
-// « Résultats par étape » : chaque étape s'ouvre sur la liste paginée
-// (côté serveur) de ses requêtes — utilisateur virtuel, itération, heure,
-// code HTTP, temps, succès / échec — filtrable par VU, par itération et
-// « échecs seulement ». Un clic sur une requête dont le détail a été
-// conservé ouvre la requête envoyée et la réponse reçue.
-// ============================================================
+// « Résultats par étape » : requêtes de chaque étape, paginées côté serveur.
 
 const PAGE_SIZE = 20
 

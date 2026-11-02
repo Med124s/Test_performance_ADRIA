@@ -5,12 +5,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Comparaison de 2 a 4 executions terminees (GET /api/executions/compare?ids=) : une colonne par
- * execution (ordre chronologique), valeurs calculees exactement comme le rapport de chacune.
- * steps : P95 de chaque etape (meme nom et meme methode) dans chaque execution, null si absente.
- * warning : non nul si les executions n'utilisent pas toutes le meme scenario.
- */
+/** Comparaison de 2 a 4 executions terminees, une colonne par execution (ordre chronologique). */
 public record ExecutionComparisonResponse(
         boolean sameScenario,
         String warning,

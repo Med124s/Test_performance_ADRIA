@@ -33,38 +33,21 @@ export interface AuthUser {
 interface AuthContextValue {
   user: AuthUser | null
   isAuthenticated: boolean
-  /** `true` UNIQUEMENT pendant le traitement initial du retour Keycloak
-   * (échange du code d'autorisation contre les tokens, avant de savoir si
-   * l'utilisateur est réellement authentifié) — `ProtectedRoute` doit
-   * attendre cette résolution avant de rediriger vers Keycloak, sous peine
-   * de boucle de redirection. */
+  /** `true` pendant le traitement du retour de Keycloak. */
   isLoading: boolean
-  /** Source de vérité unique pour le contrôle d'accès en écriture : false
-   * pour le rôle Visiteur (accès "Consultation" en lecture seule — voir
-   * RolesCatalog.tsx). Tout bouton ou route qui modifie des données doit
-   * se fier à cette valeur plutôt que de retester `user.role` lui-même,
-   * pour garder une seule règle appliquée partout. */
+  /** false pour le rôle Observateur (lecture seule). */
   canEdit: boolean
-  /** P1-O — conservé comme simple étiquette (de nombreuses pages dérivent
-   * `isKeycloak = authProvider === 'keycloak'` avant d'autoriser une
-   * écriture Spring Boot) ; ne vaut plus jamais que 'keycloak' depuis le
-   * retrait du Mode mock. */
+  /** Fournisseur d'authentification. */
   authProvider: 'keycloak'
-  /** Rôles techniques bruts (ROLE_SUPER_ADMIN/ROLE_PERFORMANCE_ENGINEER/
-   * ROLE_VIEWER) — alimentés par le vrai JWT Keycloak (voir
-   * utils/roleMapping.ts). */
+  /** Rôles techniques du jeton (ROLE_SUPER_ADMIN, ROLE_PERFORMANCE_ENGINEER, ROLE_VIEWER). */
   rawRoles: string[]
-  /** Redirige vers la vraie page de login Keycloak (aucun mot de passe ne
-   * transite par React, voir services/auth/keycloakClient.ts). `returnTo` :
-   * page de l'application à rouvrir après la connexion. */
+  /** Redirige vers la page de connexion ; `returnTo` : page à rouvrir après la connexion. */
   loginWithKeycloak: (returnTo?: string) => void
   logout: () => void
-  /** Page demandée avant la connexion, à rouvrir une seule fois juste après
-   * le retour de Keycloak (voir ProtectedRoute) ; `null` sinon. */
+  /** Page demandée avant la connexion, à rouvrir une fois ; `null` sinon. */
   returnTo: string | null
   clearReturnTo: () => void
-  /** Échec du retour de Keycloak (échange du code refusé, état invalide…) :
-   * la redirection automatique est alors suspendue pour éviter une boucle. */
+  /** Échec du retour de Keycloak ; la redirection automatique est alors suspendue. */
   authError: string | null
   /** Recharge l'identité affichée depuis un nouveau jeton (après « Modifier » dans Mon compte). */
   refreshUser: () => Promise<void>
@@ -85,8 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const roles = claims?.realm_access?.roles ?? []
     const role = claims ? backendRolesToFrontendRole(roles) : null
     setRawRoles(roles)
-    // Initiales calculées sur le nom AFFICHÉ (« Admin Test » -> « AT »),
-    // jamais sur l'e-mail, pour que l'avatar corresponde au nom à côté.
+    // Initiales calculées sur le nom affiché (« Admin Test » -> « AT »).
     const name = claims?.name || claims?.preferred_username || 'Utilisateur'
     setUser(claims && role ? { id: claims.sub, name, email: claims.email || '', role, initials: initialsOf(name) } : null)
   }
@@ -96,11 +78,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ;(async () => {
       let requestedPath: string | null = null
       try {
-        // Traite un éventuel ?code=&state= de retour Keycloak (voir
-        // keycloakClient.ts) — no-op si absent (accès direct à l'app).
+        // Traite un éventuel retour de Keycloak (?code=&state=).
         requestedPath = await handleRedirectCallback()
       } catch (err) {
-        // Jamais de session fabriquée en cas d'échec de l'échange réel.
         console.error('Échec du traitement du retour de connexion :', err)
         if (!cancelled) setAuthError(err instanceof Error ? err.message : 'Échec de la connexion.')
       }
@@ -115,8 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Déconnexion globale : une session terminée (ici, dans un autre onglet, ou ailleurs) vide
-  // aussitôt l'écran — ProtectedRoute repart alors vers la page de connexion.
+  // Session terminée (ici ou dans un autre onglet) : l'écran est vidé.
   useEffect(() => {
     const offEnded = onSessionEnded(() => {
       setUser(null)
@@ -124,8 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     // Un autre onglet ou une autre fenêtre de ce navigateur vient de se déconnecter.
     const offAnnounced = onLogoutAnnounced(() => endLocalSession('logged_out'))
-    // Session fermée ailleurs (« tous les appareils », expiration, compte désactivé) : vérifiée au
-    // retour sur l'onglet et régulièrement tant qu'il est affiché.
+    // Session fermée ailleurs : vérifiée au retour sur l'onglet et régulièrement.
     const check = () => {
       if (document.visibilityState === 'visible' && hasStoredSession()) void verifySession()
     }
@@ -134,8 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const stopRefresh = startBackgroundRefresh()
     document.addEventListener('visibilitychange', check)
     window.addEventListener('focus', check)
-    // « Précédent » après la déconnexion : une page restaurée depuis le cache du navigateur
-    // n'est jamais montrée sans session (masquée puis rechargée -> page de connexion).
+    // « Précédent » après la déconnexion : une page restaurée depuis le cache est rechargée.
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return
       if (!hasStoredSession()) {
@@ -169,8 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearReturnTo = useCallback(() => setReturnTo(null), [])
 
   const logout = () => {
-    // Invalide la VRAIE session SSO Keycloak — ne se contente jamais de
-    // simuler une déconnexion locale.
+    // Ferme la session Keycloak.
     keycloakLogout()
   }
 

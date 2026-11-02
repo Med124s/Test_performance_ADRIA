@@ -11,19 +11,7 @@ import java.security.cert.X509Certificate;
 import java.util.List;
 import javax.net.ssl.SSLContext;
 
-/**
- * Reglages reseau pour joindre UNE application testee, appliques a chaque client HTTP qui lui parle
- * (moteur de charge, test de validation, Connexion automatique, bouton « Tester », lecture CPU / RAM) :
- *   - le proxy : global (comme avant), aucun, ou propre a l'application ;
- *   - la confiance TLS : magasin global de la JVM (comme avant), ou complete par les autorites de
- *     certification de l'application (voir TlsTrust) - SSLContext propre a ce profil, jamais partage
- *     avec les autres applications. Pas encore de certificat client.
- *
- * Deux points d'entree seulement, pour que chaque appelant reste simple :
- *   - configure(HttpClient.Builder) a la construction du client ;
- *   - applyTo(HttpRequest.Builder, URI, global) sur chaque requete (identifiant du proxy).
- * Immuable, partageable entre threads (un profil par execution, commun a tous ses VU).
- */
+/** Reglages reseau pour joindre une application testee : proxy (global, aucun ou propre a l'application) et confiance TLS. */
 public final class NetworkProfile {
 
     private static final NetworkProfile INHERIT = new NetworkProfile(ProxyMode.INHERIT, null, null, null, null, 0);
@@ -49,10 +37,7 @@ public final class NetworkProfile {
         this.trustedAuthorities = trustedAuthorities;
     }
 
-    /**
-     * Meme profil, avec en plus les autorites de certification du PEM (vide = profil inchange, confiance
-     * de la JVM seule). IllegalArgumentException (message en francais) si le PEM est illisible.
-     */
+    /** Meme profil avec en plus les autorites de certification du PEM ; IllegalArgumentException si le PEM est illisible. */
     public NetworkProfile withTrustedAuthorities(String pem) {
         List<X509Certificate> authorities = TlsTrust.parse(pem);
         if (authorities.isEmpty()) return this;
@@ -71,7 +56,7 @@ public final class NetworkProfile {
         return sslContext != null;
     }
 
-    /** Proxy global du serveur (variables LOADPILOT_HTTPS_PROXY_*) : comportement d'avant, strictement. */
+    /** Proxy global du serveur (variables LOADPILOT_HTTPS_PROXY_*). */
     public static NetworkProfile inherit() {
         return INHERIT;
     }
@@ -86,7 +71,6 @@ public final class NetworkProfile {
         String problem = proxyProblem(host, port, username);
         if (problem != null) throw new IllegalArgumentException(problem);
         String user = username == null || username.isBlank() ? null : username.trim();
-        // Adresse non resolue : la resolution DNS se fait a la connexion (comme pour https.proxyHost).
         InetSocketAddress address = InetSocketAddress.createUnresolved(host.trim(), port);
         ProxySelector selector = ProxySelector.of(address);
         return new NetworkProfile(ProxyMode.CUSTOM, address, user, ProxyAuthorization.of(user, password, () -> selector), null, 0);
@@ -104,17 +88,13 @@ public final class NetworkProfile {
         return proxy.withTrustedAuthorities(application.getTlsCaCertificate());
     }
 
-    /** Lecture CPU / RAM : profil de l'application, ou en direct si « Monitoring sans proxy » (confiance TLS gardee). */
+    /** Profil pour la lecture CPU / RAM : celui de l'application, ou sans proxy si "Monitoring sans proxy" est coche. */
     public static NetworkProfile forMonitoring(Application application) {
         NetworkProfile profile = of(application);
         return application != null && Boolean.TRUE.equals(application.getMonitoringWithoutProxy()) ? profile.withoutProxy() : profile;
     }
 
-    /**
-     * Meme regles que les scripts de demarrage (start.ps1 / start.sh) : hote obligatoire, sans schema
-     * ni espace ; port de 1 a 65535 ; identifiant sans « : » (separateur de l'en-tete Basic).
-     * null si valide.
-     */
+    /** Probleme de saisie du proxy (hote, port de 1 a 65535, identifiant sans ":"), ou null si valide. */
     public static String proxyProblem(String host, Integer port, String username) {
         if (host == null || host.isBlank()) return "Indiquez l'hôte du proxy (ex : proxy.banque.local).";
         String h = host.trim();
@@ -131,10 +111,7 @@ public final class NetworkProfile {
         return mode;
     }
 
-    /**
-     * Proxy de l'application joignable ? null s'il n'y a pas de proxy propre a l'application (proxy du
-     * serveur, aucun) ou s'il accepte la connexion ; sinon le message complet, qui designe le proxy.
-     */
+    /** Message si le proxy propre a l'application est injoignable, sinon null. */
     public String proxyUnreachable() {
         if (mode != ProxyMode.CUSTOM) return null;
         String problem = ProxyReachability.problem(proxyAddress.getHostString(), proxyAddress.getPort());
@@ -146,17 +123,13 @@ public final class NetworkProfile {
         switch (mode) {
             case CUSTOM -> builder.proxy(ProxySelector.of(proxyAddress));
             case NONE -> builder.proxy(HttpClient.Builder.NO_PROXY);
-            case INHERIT -> { } // selecteur par defaut de Java (https.proxyHost...), comme avant
+            case INHERIT -> { }
         }
-        // Sans autorite propre : aucun sslContext fixe, le client garde le contexte par defaut (comme avant).
         if (sslContext != null) builder.sslContext(sslContext);
         return builder;
     }
 
-    /**
-     * Identifiant du proxy sur une requete (en-tete Proxy-Authorization, seulement si elle passe par un
-     * proxy). "global" : identifiant du serveur, utilise en INHERIT (celui de l'appelant, pour les tests).
-     */
+    /** Ajoute l'en-tete Proxy-Authorization si la requete passe par un proxy. "global" : identifiant du serveur, utilise en INHERIT. */
     public HttpRequest.Builder applyTo(HttpRequest.Builder builder, URI uri, ProxyAuthorization global) {
         ProxyAuthorization authorization = proxyAuthorization != null ? proxyAuthorization : global;
         return authorization == null ? builder : authorization.applyTo(builder, uri);

@@ -3,17 +3,7 @@ package com.loadpilot.backend.service.monitoring;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Lecture PURE du format texte d'exposition Prometheus : valeur de chaque metrique, les series
- * d'un meme nom (labels differents) etant additionnees (ex : jvm_memory_used_bytes par zone).
- *
- * Metriques standards du PROCESSUS (prom-client, client Java, node_exporter process...) :
- *   process_cpu_seconds_total      temps CPU cumule (compteur, en secondes) ;
- *   process_resident_memory_bytes  memoire residente (RSS).
- * Replis : process_cpu_user_seconds_total + process_cpu_system_seconds_total ; Micrometer
- * process_cpu_usage (0..1 de la machine) x system_cpu_count ; memoire jvm_memory_used_bytes ou
- * nodejs_heap_size_used_bytes.
- */
+/** Lecture du format texte Prometheus ; les series d'un meme nom sont additionnees. */
 public final class PrometheusMetrics {
 
     private final Map<String, Double> values;

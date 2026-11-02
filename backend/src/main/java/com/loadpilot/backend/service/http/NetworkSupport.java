@@ -8,21 +8,14 @@ import com.loadpilot.backend.exception.BadRequestException;
 import org.mapstruct.Named;
 import org.springframework.stereotype.Component;
 
-/**
- * Reseau d'une Application (proxy) : validation et enregistrement de la saisie, profil effectif
- * (NetworkProfile), vue sans le mot de passe. Meme principe que MonitoringSupport.
- */
+/** Reseau d'une application : validation et enregistrement de la saisie, profil effectif, vue sans le mot de passe. */
 @Component
 public class NetworkSupport {
 
-    /** Mode d'une NOUVELLE application quand la creation n'en precise pas : aucun proxy. */
+    /** Mode d'une nouvelle application quand la creation n'en precise pas. */
     public static final ProxyMode CREATION_DEFAULT_MODE = ProxyMode.NONE;
 
-    /**
-     * Creation : saisie appliquee, ou « Aucun proxy » si la requete n'a pas de section reseau ou pas de
-     * mode. Seules les nouvelles applications sont concernees : une application existante dont le mode
-     * est vide (NULL en base) reste lue comme « Proxy du serveur » (voir toResponse, NetworkProfile.of).
-     */
+    /** Creation : saisie appliquee, ou "Aucun proxy" si la requete ne precise pas de mode. */
     public void applyOnCreate(ApplicationNetworkRequest request, Application application) {
         if (request == null) {
             application.setProxyMode(CREATION_DEFAULT_MODE);
@@ -61,14 +54,10 @@ public class NetworkSupport {
         application.setProxyHost(host);
         application.setProxyPort(request.proxyPort());
         application.setProxyUsername(username);
-        // Sans identifiant, aucun mot de passe n'est garde.
         application.setProxyPassword(username == null ? null : password);
     }
 
-    /**
-     * Profil effectif d'une saisie (« Tester le monitoring » avant enregistrement) ; existing
-     * (optionnel) fournit le mot de passe deja enregistre si le champ est laisse vide.
-     */
+    /** Profil effectif d'une saisie ; existing fournit le mot de passe enregistre si le champ est vide. */
     public NetworkProfile toProfile(ApplicationNetworkRequest request, Application existing) {
         String caProblem = TlsTrust.problem(request.tlsCaCertificate());
         if (caProblem != null) throw new BadRequestException(caProblem);

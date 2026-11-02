@@ -34,12 +34,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Verifie /api/metrics de bout en bout : la generation automatique reelle
- * des Metric apres une Execution (voir ExecutionServiceImpl.execute /
- * MetricGenerationService), les filtres combinables, et la securite en
- * lecture seule.
- */
+/** /api/metrics de bout en bout : valeurs calculees apres une execution, filtres et securite. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -130,10 +125,7 @@ class MetricControllerTest {
         return objectMapper.readTree(response).get("id").asText();
     }
 
-    /** P0-A : POST /api/executions est desormais ASYNCHRONE (202, statut
-     * QUEUED) - on attend reellement l'etat terminal avant de rendre la
-     * main, pour que les tests qui consultent ensuite /api/metrics voient
-     * des donnees reellement generees (voir waitForTerminalStatus). */
+    /** Lance une execution et attend qu'elle soit terminee. */
     private String executeScenarioAndGetId(String scenarioId) throws Exception {
         String body = objectMapper.writeValueAsString(new ExecutionRequest(UUID.fromString(scenarioId)));
         String response = mockMvc.perform(post("/api/executions").with(AS_SUPER_ADMIN)
@@ -166,7 +158,7 @@ class MetricControllerTest {
         return objectMapper.readTree(response);
     }
 
-    /** Application + Scenario + 1 Step reussi (cible reelle /ok), execute. Renvoie l'executionId. */
+    /** Application, scenario et une etape reussie (/ok), executes ; renvoie l'id de l'execution. */
     private String runSuccessfulOneStepScenario(String prefix) throws Exception {
         String appId = createApplicationAndGetId(prefix + "-app");
         String scenarioId = createScenarioAndGetId(appId, prefix + "-scenario");
@@ -203,9 +195,7 @@ class MetricControllerTest {
         mockMvc.perform(get("/api/metrics").with(AS_SUPER_ADMIN)).andExpect(status().isOk());
     }
 
-    // ------------------------------------------------------------
-    // Generation automatique / valeurs reelles
-    // ------------------------------------------------------------
+    // ---- Valeurs calculees apres une execution ----
 
     @Test
     void successfulExecution_generatesOneMetricWithRealStatusCodeAndResponseTime() throws Exception {
@@ -247,7 +237,7 @@ class MetricControllerTest {
 
         JsonNode metrics = getMetricsByExecution(executionId);
 
-        // Un seul Metric : seul le 1er step a reellement ete execute (stop-on-failure).
+        // Une seule metrique : seule la 1re etape a ete executee (arret au premier echec).
         assertThat(metrics.size()).isEqualTo(1);
         // errorRate = 1 echec / 1 step EXECUTE * 100 = 100%, PAS 1/2 (totalSteps) = 50%.
         assertThat(metrics.get(0).get("errorRate").asDouble()).isEqualTo(100.0);

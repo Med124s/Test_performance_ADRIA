@@ -49,20 +49,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
-/**
- * Test de verification detaille d'un scenario (ou d'une seule etape) : 1 utilisateur
- * virtuel, 1 passage, avec la requete envoyee et la reponse recue de chaque etape.
- *
- * Memes regles que HttpClientExecutionEngine : authentification de l'application resolue
- * une seule fois (login LOGIN_TOKEN compris), variable ${authToken}, premiere ligne du CSV,
- * variables capturees transmises aux etapes suivantes, en-tete de l'etape prioritaire sur
- * celui de l'authentification, timeout par etape, politique de redirection par etape,
- * succes = code attendu (ou 2xx-3xx) + assertion "contient", arret au premier echec.
- *
- * Differences assumees (test de verification, pas de charge) : aucune Execution ni Metric
- * persistee, think time ignore, corps de reponse TOUJOURS lu (5 Mo max evalues, 100 Ko
- * renvoyes), delai global borne (60 s par defaut). Aucun contenu n'est journalise.
- */
+/** Test detaille d'un scenario ou d'une etape : 1 utilisateur virtuel, 1 passage, requete envoyee et reponse recue de chaque etape. */
 @Component
 public class StepTestRunner {
 
@@ -71,7 +58,7 @@ public class StepTestRunner {
 
     private static final Pattern ABSOLUTE_URL = Pattern.compile("^(https?)://([^/?#]+)(.*)$", Pattern.CASE_INSENSITIVE);
 
-    /** Progression en direct (flux NDJSON) - toutes les methodes sont optionnelles. */
+    /** Progression en direct (flux NDJSON) ; toutes les methodes sont optionnelles. */
     public interface Listener {
         Listener NONE = new Listener() { };
 
@@ -86,7 +73,7 @@ public class StepTestRunner {
     private final long globalTimeoutSeconds;
     private final ObjectMapper objectMapper;
     private final ApplicationAuthenticator authenticator;
-    /** Identifiant du proxy d'entreprise, ajoute aux requetes qui passent par lui (voir ProxyAuthorization). */
+    /** Identifiant du proxy d'entreprise. */
     private final com.loadpilot.backend.service.http.ProxyAuthorization proxyAuthorization;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -137,14 +124,12 @@ public class StepTestRunner {
                     elapsedMs(authStartedAt));
         }
         listener.authenticated(authResult);
-        // Utilisateur virtuel n°1, premiere iteration : 1re ligne CSV ; variables fournies (test
-        // d'une seule etape) = captures des etapes precedentes.
+        // Premiere iteration : premiere ligne CSV ; variables fournies = captures des etapes precedentes.
         variables.startIteration(plan.csvRow());
         VariableContext context = variables;
         plan.providedVariables().forEach(context::capture);
 
-        // Cookies de session geres automatiquement, comme pour un utilisateur virtuel du moteur
-        // (un pot pour ce test, commun aux deux clients).
+        // Cookies de session, communs aux deux clients.
         VirtualUserCookieJar cookies = new VirtualUserCookieJar();
         HttpClient following = newClient(HttpClient.Redirect.NORMAL, cookies, plan.network());
         HttpClient notFollowing = newClient(HttpClient.Redirect.NEVER, cookies, plan.network());
@@ -187,7 +172,6 @@ public class StepTestRunner {
                 listener.stepFinished(result);
             }
         } finally {
-            // Appels synchrones termines (reponse lue, ou attente abandonnee) : clients fermes tout de suite.
             HttpClients.shutdownQuietly(following);
             HttpClients.shutdownQuietly(notFollowing);
         }
@@ -212,8 +196,7 @@ public class StepTestRunner {
         Set<String> authHeaderNames = lowerCase(auth.headers().keySet());
         Set<String> authParamNames = lowerCase(auth.queryParams().keySet());
 
-        // Meme construction que le moteur (RequestBuilder) : variables de chemin et query
-        // encodees, priorite capture > CSV > scenario > authToken, puis authentification.
+        // Meme construction de la requete que le moteur (RequestBuilder).
         RequestBuilder.BuiltRequest built = RequestBuilder.build(step, plan.applicationBaseUrl(), variables::get, objectMapper);
         List<String> warnings = new ArrayList<>(built.warnings());
         String url = auth.applyToUrl(built.url());
@@ -226,7 +209,6 @@ public class StepTestRunner {
             if (!stepHeaderNames.contains(name.toLowerCase(Locale.ROOT))) sentHeaders.put(name, value);
         });
         boolean followRedirects = !Boolean.FALSE.equals(step.followRedirects());
-        // Arrondi superieur : le delai global exact est applique par future.get(...) plus bas.
         long remainingSeconds = Math.max(1, (long) Math.ceil((deadline - System.nanoTime()) / 1e9));
         long stepTimeout = step.timeoutSeconds() != null ? step.timeoutSeconds() : defaultTimeoutSeconds;
         long effectiveTimeout = Math.min(stepTimeout, remainingSeconds);
@@ -253,7 +235,7 @@ public class StepTestRunner {
                 hasJson ? new JsonCheck(step.assertionJsonPath().trim(), jsonOperator, jsonExpected, null,
                         "Non évaluée : aucune réponse reçue.") : null);
 
-        // Comme le moteur : jamais de requete envoyee avec un ${...} brut (URL, en-tetes ou corps).
+        // Variable introuvable : echec avant l'envoi.
         if (!built.missing().isEmpty()) {
             return failed(index, step, RequestBuilder.missingMessage(built.missing(), stepNumber, plan.captureStepByVariable()),
                     "UNRESOLVED_VARIABLE", sent, notEvaluated, urlWarning, warnings);
@@ -307,13 +289,11 @@ public class StepTestRunner {
 
         boolean statusOk = step.expectedStatus() != null ? status == step.expectedStatus() : status >= 200 && status < 400;
         Boolean assertionOk = hasAssertion ? fullText.contains(step.assertionBodyContains()) : null;
-        // Controles optionnels, evalues comme dans le moteur (StepChecks) et en plus des precedents.
         String jsonProblem = hasJson ? StepChecks.jsonAssertionProblem(objectMapper, fullText, step.assertionJsonPath(),
                 step.assertionJsonOperator(), step.assertionJsonValue()) : null;
         String timeProblem = StepChecks.responseTimeProblem(step.maxResponseTimeMs(), durationMs);
         boolean success = statusOk && !Boolean.FALSE.equals(assertionOk) && jsonProblem == null && timeProblem == null;
 
-        // Capture apres evaluation, quel que soit le resultat de l'assertion (comme le moteur).
         CaptureCheck capture = null;
         if (captureConfigured) {
             boolean fromHeader = step.capturesFromHeader();
@@ -337,7 +317,6 @@ public class StepTestRunner {
                         sensitive ? TestRunMasking.MASK : value, sensitive,
                         "Variable ${" + step.captureVariableName() + "} capturée.");
             } else {
-                // Raison precise (index hors limites, en-tete absent…), jamais le contenu de la reponse.
                 String reason = fromHtml ? htmlMatch.reason()
                         : fromHeader ? ResponseHeaderExtractor.explain(response.headers(), step.captureJsonPath())
                         : JsonPathExtractor.explain(objectMapper, fullText, step.captureJsonPath());
@@ -406,15 +385,11 @@ public class StepTestRunner {
             }
         });
         auth.applyHeaders(builder, stepHeaders.keySet());
-        // Identifiant du proxy (de l'application, ou du serveur), seulement si la requete passe par lui.
         network.applyTo(builder, URI.create(url), proxyAuthorization);
         return builder.build();
     }
 
-    /**
-     * Avertissement quand l'etape appelle une URL absolue dont l'origine (schema, hote, port)
-     * differe de celle de l'application - avec le chemin relatif propose a la place.
-     */
+    /** Avertissement quand l'etape appelle une URL absolue d'une autre origine que l'application, avec le chemin relatif propose. */
     public static UrlWarning urlWarning(String applicationBaseUrl, String stepUrl) {
         if (stepUrl == null || applicationBaseUrl == null) return null;
         Matcher step = ABSOLUTE_URL.matcher(stepUrl.trim());
@@ -450,7 +425,7 @@ public class StepTestRunner {
                 null, checks, urlWarning, List.copyOf(warnings));
     }
 
-    /** Secrets de la configuration d'authentification (aussi utilises par le detail des requetes d'une execution). */
+    /** Secrets de la configuration d'authentification. */
     static List<String> configuredSecrets(ApplicationAuthSpec spec) {
         List<String> secrets = new ArrayList<>();
         ApplicationAuthConfig c = spec.config();
@@ -527,7 +502,7 @@ public class StepTestRunner {
                 try {
                     return Charset.forName(m.group(1));
                 } catch (RuntimeException ignored) {
-                    // charset inconnu : UTF-8 par defaut
+                    // Charset inconnu : UTF-8 par defaut.
                 }
             }
         }
@@ -561,7 +536,7 @@ public class StepTestRunner {
         return HttpResponse.BodySubscribers.fromSubscriber(collector, c -> new BodyData(c.kept.toByteArray(), c.total));
     }
 
-    /** Lit tout le flux (pour la taille reelle) sans jamais garder plus de "limit" octets. */
+    /** Lit tout le corps sans garder plus de "limit" octets. */
     private static final class LimitedCollector implements Flow.Subscriber<List<ByteBuffer>> {
         private final ByteArrayOutputStream kept = new ByteArrayOutputStream();
         private final int limit;
@@ -592,12 +567,12 @@ public class StepTestRunner {
 
         @Override
         public void onError(Throwable throwable) {
-            // l'erreur est propagee par BodySubscribers.fromSubscriber
+            // Erreur propagee par BodySubscribers.fromSubscriber.
         }
 
         @Override
         public void onComplete() {
-            // la valeur finale est construite par le "finisher"
+            // Valeur finale construite par le "finisher".
         }
     }
 }

@@ -16,11 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * /api/metrics construit a partir des resultats (execution_step_result), sans table metric : meme
- * contrat qu'avant (une ligne par requete d'une execution terminee, identifiant = celui du resultat),
- * memes valeurs (debit et taux d'erreurs de l'execution : voir PerformanceAggregates).
- */
+/** Metriques construites a partir des resultats : une ligne par requete d'une execution terminee, avec le debit et le taux d'erreurs de l'execution. */
 @Service
 @RequiredArgsConstructor
 public class MetricServiceImpl implements MetricService {
@@ -30,7 +26,7 @@ public class MetricServiceImpl implements MetricService {
     private final ScenarioRepository scenarioRepository;
     private final StepRepository stepRepository;
     private final ExecutionRepository executionRepository;
-    /** Une ligne par requete executee : des millions pour un long test (voir ResultLoadGuard). */
+    /** Garde-fou memoire des lectures de resultats. */
     private final ResultLoadGuard resultLoadGuard;
 
     @Override
@@ -94,7 +90,7 @@ public class MetricServiceImpl implements MetricService {
         return rows(applicationId, scenarioId, stepId, executionId);
     }
 
-    /** Chargement admis seulement s'il tient dans le budget memoire (COUNT prealable, voir ResultLoadGuard). */
+    /** Lignes demandees, si elles tiennent dans le budget memoire. */
     private List<MetricResponse> rows(UUID applicationId, UUID scenarioId, UUID stepId, UUID executionId) {
         long count = resultRepository.countMetricRows(PerformanceAggregates.ACTIVE, applicationId, scenarioId, stepId, executionId);
         try (ResultLoadGuard.Reservation r = resultLoadGuard.reserve(ResultLoadGuard.Load.METRICS, count)) {
@@ -103,7 +99,7 @@ public class MetricServiceImpl implements MetricService {
         }
     }
 
-    /** Une requete, avec le debit et le taux d'erreurs de son execution (memes formules que l'ancienne metric). */
+    /** Une requete, avec le debit et le taux d'erreurs de son execution. */
     static MetricResponse toResponse(ExecutionStepResult result) {
         Execution execution = result.getExecution();
         int failed = execution.getFailedSteps() == null ? 0 : execution.getFailedSteps();

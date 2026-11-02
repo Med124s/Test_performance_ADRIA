@@ -10,31 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Calcul PUR du tableau « Évolution des étapes pendant le test » : P95 de chaque etape au debut et a
- * la fin du test, evolution et tendance.
- *
- * Temps « actif » : temps depuis le debut du test, pauses retirees (une pause ne compte pas dans les
- * periodes comparees).
- *
- * Phase stable : du debut du test jusqu'au moment ou les utilisateurs virtuels commencent a partir
- * (dernier instant ou le nombre maximal de VU est actif) - la fin, ou il ne reste que quelques VU,
- * fausserait la comparaison. Sans VU connus : jusqu'a la derniere requete.
- *
- * Debut / fin : les premiers et les derniers START_END_SHARE (20 %) de cette phase stable. Comparaison
- * possible seulement si la phase stable dure au moins MIN_STABLE_SECONDS et, pour une etape, avec au
- * moins MIN_WINDOW_REQUESTS requetes dans chacune des deux periodes.
- *
- * Tendance (surtout la hausse en millisecondes ; le pourcentage evite d'alerter sur une etape lente
- * dont le P95 varie un peu) :
- *   - Degradee    : hausse >= DEGRADED_MIN_MS (100 ms) ET >= DEGRADED_MIN_RATIO (30 %) ;
- *   - A surveiller : hausse >= WATCH_MIN_MS (30 ms) ET >= WATCH_MIN_RATIO (15 %) ;
- *   - Stable      : sinon (hausse faible, ou baisse).
- * Une etape rapide qui passe de 20 a 40 ms (+20 ms) reste donc « Stable ».
- *
- * Tri : Degradee, puis A surveiller, puis Stable (chaque groupe par hausse en ms decroissante), puis
- * les etapes sans comparaison possible.
- */
+/** Tableau "Evolution des etapes pendant le test" : P95 de chaque etape au debut et a la fin du test (temps actif). */
 public final class StepEvolutionAnalyzer {
 
     static final double START_END_SHARE = 0.2;
@@ -67,7 +43,7 @@ public final class StepEvolutionAnalyzer {
         double startTo = stableSeconds * START_END_SHARE;
         double endFrom = stableSeconds * (1 - START_END_SHARE);
 
-        // ---- regroupement par etape (ordre de premiere apparition)
+        // ---- Regroupement par etape (ordre de premiere apparition) ----
         Map<String, Acc> steps = new LinkedHashMap<>();
         for (Sample s : sorted) {
             Acc acc = steps.computeIfAbsent(s.stepKey(), k -> new Acc(s));
@@ -105,7 +81,7 @@ public final class StepEvolutionAnalyzer {
                 round1(stableSeconds), rows);
     }
 
-    /** Regle des badges (voir Javadoc de la classe). */
+    /** Tendance d'une etape a partir de ses P95 de debut et de fin. */
     public static String trend(long startP95, long endP95) {
         long delta = endP95 - startP95;
         double ratio = startP95 <= 0 ? (delta > 0 ? Double.MAX_VALUE : 0) : (double) delta / startP95;
@@ -125,7 +101,7 @@ public final class StepEvolutionAnalyzer {
 
     /** Dernier instant ou le nombre maximal d'utilisateurs virtuels est actif (debut de leur depart). */
     static long lastMomentAtMaxUsers(List<Interval> vus) {
-        List<long[]> events = new ArrayList<>(); // {instant, +1 | -1}
+        List<long[]> events = new ArrayList<>();
         for (Interval v : vus) {
             events.add(new long[] {v.startMs(), 1});
             events.add(new long[] {v.endMs(), -1});

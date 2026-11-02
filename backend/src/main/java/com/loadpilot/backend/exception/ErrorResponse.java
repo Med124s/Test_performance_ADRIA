@@ -3,12 +3,7 @@ package com.loadpilot.backend.exception;
 import java.time.Instant;
 import org.springframework.http.HttpStatus;
 
-/**
- * Format JSON unique pour toute erreur renvoyee par l'API - utilise des la
- * Phase 4 par les gestionnaires 401/403 (voir security/), et reutilise tel
- * quel par le futur GlobalExceptionHandler (Phase 6+) pour rester coherent
- * partout : {timestamp, status, error, message, path}.
- */
+/** Format JSON des erreurs de l'API. */
 public record ErrorResponse(
         Instant timestamp,
         int status,

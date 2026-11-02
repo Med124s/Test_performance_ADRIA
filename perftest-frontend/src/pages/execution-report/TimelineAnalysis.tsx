@@ -14,13 +14,7 @@ import './timelineAnalysis.css'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler)
 
-// ============================================================
-// « Analyse dans le temps » du rapport : points clés, graphique global
-// (utilisateurs actifs, débit, P95), évolution des étapes (tableau début /
-// fin ; graphique par étape replié), erreurs par seconde et par type. Données calculées côté serveur
-// (GET /api/executions/{id}/timeline) : jamais toutes les requêtes dans le
-// navigateur. Périodes de pause grisées (courbes interrompues, pas à zéro).
-// ============================================================
+// « Analyse dans le temps » du rapport : points clés, graphique global, évolution des étapes, ressources et erreurs.
 
 const INSIGHT_ICON: Record<BackendExecutionTimeline['insights'][number]['kind'], string> = {
   PLATEAU: 'bi-graph-up-arrow text-warning',
@@ -55,10 +49,7 @@ const pauseShading: Plugin<'line' | 'bar'> = {
   },
 }
 
-/**
- * Repères des requêtes la plus lente (rouge) et la plus rapide (vert) : un point sur la courbe P95, à la
- * seconde (intervalle) de la requête, avec son temps de réponse. Ne change pas l'échelle des axes.
- */
+// Repères des requêtes la plus lente (rouge) et la plus rapide (vert) sur la courbe P95.
 type ExtremeMark = { bucket: number; label: string; color: string }
 const extremeMarkers: Plugin<'line'> = {
   id: 'extremeMarkers',

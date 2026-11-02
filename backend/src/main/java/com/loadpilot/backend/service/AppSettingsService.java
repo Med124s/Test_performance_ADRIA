@@ -10,12 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Reglages de LoadPilot stockes en base (table app_setting), lus tres souvent
- * (chaque enregistrement d'audit) : valeurs gardees en memoire et rafraichies a
- * chaque ecriture. Stockage bas niveau, sans journalisation (voir
- * AuditSettingsService pour les reglages du journal, qui eux sont audites).
- */
+/** Reglages de LoadPilot stockes en base (table app_setting), gardes en cache et rafraichis a chaque ecriture. */
 @Service
 @RequiredArgsConstructor
 public class AppSettingsService {
@@ -31,8 +26,7 @@ public class AppSettingsService {
     public static final String DEFAULT_MAX_ERROR_RATE = "thresholds.default-max-error-rate";
     public static final String DEFAULT_MAX_P95_MS = "thresholds.default-max-p95-ms";
     public static final String REGRESSION_PERCENT = "thresholds.regression-percent";
-    // Valeurs proposees aux NOUVEAUX scenarios (Parametres > Systeme), ecrites explicitement dans le
-    // scenario a sa creation : changer ces valeurs ne modifie jamais un scenario existant.
+    /** Valeurs proposees aux nouveaux scenarios (Parametres > Systeme). */
     public static final String DEFAULT_ERROR_BRAKE_ENABLED = "scenario-defaults.error-brake-enabled";
     public static final String DEFAULT_ERROR_BRAKE_RATE = "scenario-defaults.error-brake-rate-percent";
     public static final String DEFAULT_ERROR_BRAKE_WINDOW = "scenario-defaults.error-brake-window-seconds";
@@ -49,7 +43,7 @@ public class AppSettingsService {
     /** 0 = aucun seuil de P95 propose. */
     public static final long DEFAULT_DEFAULT_MAX_P95_MS = 0;
     public static final double DEFAULT_REGRESSION_PERCENT = 20.0;
-    /** Valeurs initiales = celles codees jusqu'ici (assistant de scenario, ErrorRateBrake, ThrottlePolicy). */
+    /** Valeurs initiales des reglages des nouveaux scenarios. */
     public static final boolean DEFAULT_DEFAULT_ERROR_BRAKE_ENABLED = false;
     public static final double DEFAULT_DEFAULT_ERROR_BRAKE_RATE = 20.0;
     public static final int DEFAULT_DEFAULT_ERROR_BRAKE_WINDOW = 30;
@@ -189,7 +183,7 @@ public class AppSettingsService {
         }).orElse(DEFAULT_DEFAULT_REQUEST_DETAIL_MODE);
     }
 
-    /** Pour les tests : oublie le cache (la base reste la source de verite). */
+    /** Vide le cache (tests). */
     public void clearCache() {
         cache.clear();
     }

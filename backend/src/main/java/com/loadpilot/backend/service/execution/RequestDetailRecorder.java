@@ -8,19 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Politique de conservation du detail des requetes d'UNE execution (partagee par tous les VU,
- * thread-safe). Le volume reste borne quelle que soit la taille du test :
- *
- *   - echecs : jusqu'a FAILURES_PER_TYPE par type d'erreur (code HTTP ou message different) et
- *     au plus FAILURES_PER_STEP par etape - une erreur rare qui arrive tard n'est pas perdue
- *     derriere des centaines d'erreurs identiques ;
- *   - echantillon (mode FAILURES_AND_SAMPLE) : les SAMPLE_ITERATIONS premieres iterations de
- *     chaque etape pour chaque utilisateur virtuel ;
- *   - corps limites a BODY_LIMIT_BYTES (mention « tronque ») ;
- *   - plafond memoire global : une fois atteint, l'echantillon des requetes reussies s'arrete
- *     (signale dans le detail de l'execution) mais les echecs continuent d'etre enregistres.
- */
+/** Choix des requetes dont le detail est conserve (echecs par type d'erreur et echantillon), avec un plafond memoire par execution. */
 public final class RequestDetailRecorder {
 
     public static final int SAMPLE_ITERATIONS = 3;

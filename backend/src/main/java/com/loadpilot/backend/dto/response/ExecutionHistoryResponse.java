@@ -4,21 +4,7 @@ import com.loadpilot.backend.enums.ExecutionStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/**
- * P1-A — vue allegee d'une Execution pour l'ecran Historique (voir
- * GET /api/executions/history) : uniquement des champs REELLEMENT
- * disponibles sur Execution/Scenario/Application (voir prompt P1-A, section
- * 8 - "ne crée que les champs réellement disponibles").
- *
- * P1-C : "triggeredByUsername" est desormais REELLEMENT disponible (voir
- * Execution.triggeredBy, ajoute en P1-B pour les Notifications) - null pour
- * toute Execution anterieure a P1-B (jamais reconstruit retroactivement) ou
- * dont l'origine n'a pu etre associee a aucun utilisateur. "throughput" est
- * calcule avec EXACTEMENT la meme formule que
- * PerformanceStatisticsService/PerformanceAggregates (requetes reellement
- * executees / duree en secondes) - jamais recalcule differemment cote
- * frontend (prompt P1-C, section 4 : colonne "Throughput" de l'Historique).
- */
+/** Ligne de l'historique des executions. */
 public record ExecutionHistoryResponse(
         String id,
         String scenarioId,

@@ -21,21 +21,10 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
-/**
- * Confiance TLS propre a une application : autorite(s) de certification collees au format PEM.
- *
- * Le contexte construit fait confiance aux autorites de la JVM (magasin global : cacerts, ou
- * javax.net.ssl.trustStore s'il est defini) ET a celles de l'application - jamais a la place.
- * Verification standard (PKIX, dates, nom d'hote par HttpClient), aucun « tout accepter ».
- *
- * Isolation : chaque application a son propre SSLContext, utilise seulement par les clients HTTP de
- * cette application ; le contexte par defaut de la JVM (SSLContext.getDefault) n'est jamais modifie.
- * Pas de certificat client propre a l'application dans cette version : le certificat client global du
- * serveur (javax.net.ssl.keyStore), s'il existe, reste presente comme avant.
- */
+/** Confiance TLS propre a une application : autorites de la JVM et autorites collees au format PEM. */
 public final class TlsTrust {
 
-    /** Taille maximale du PEM colle (une chaine de quelques certificats tient en quelques Ko). */
+    /** Taille maximale du PEM colle. */
     public static final int MAX_PEM_LENGTH = 65_536;
     public static final int MAX_CERTIFICATES = 20;
     private static final String BEGIN = "-----BEGIN CERTIFICATE-----";
@@ -65,7 +54,6 @@ public final class TlsTrust {
             throw new IllegalArgumentException("Autorité de certification : le texte ne doit pas dépasser 64 Ko.");
         }
         if (pem.contains("PRIVATE KEY")) {
-            // Garde-fou : une cle privee n'a rien a faire ici (et ne doit jamais etre enregistree).
             throw new IllegalArgumentException("Autorité de certification : ce texte contient une clé privée. "
                     + "Collez uniquement le certificat public de l'autorité (-----BEGIN CERTIFICATE-----).");
         }
@@ -121,8 +109,7 @@ public final class TlsTrust {
             TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             factory.init(store);
             SSLContext context = SSLContext.getInstance("TLS");
-            // Certificat client global du serveur (LOADPILOT_TLS_KEYSTORE_*) conserve : sans cela, un
-            // KeyManager null n'en presenterait aucun pour cette application.
+            // Certificat client global du serveur (LOADPILOT_TLS_KEYSTORE_*) conserve.
             context.init(defaultKeyManagers(), factory.getTrustManagers(), null);
             return context;
         } catch (Exception e) {
@@ -131,11 +118,7 @@ public final class TlsTrust {
         }
     }
 
-    /**
-     * Certificat client de la JVM, lu comme le fait le contexte par defaut (javax.net.ssl.keyStore,
-     * keyStoreType, keyStorePassword - positionnes par start.ps1 / start.sh) ; null s'il n'y en a pas.
-     * Le mot de passe n'apparait jamais dans un message.
-     */
+    /** Certificat client de la JVM (javax.net.ssl.keyStore) ; null s'il n'y en a pas. */
     static KeyManager[] defaultKeyManagers() throws Exception {
         String path = System.getProperty("javax.net.ssl.keyStore");
         if (path == null || path.isBlank() || "NONE".equals(path)) return null;
@@ -151,7 +134,7 @@ public final class TlsTrust {
         return factory.getKeyManagers();
     }
 
-    /** Gestionnaire de confiance par defaut de la JVM (celui qu'utilise un client sans reglage). */
+    /** Gestionnaire de confiance par defaut de la JVM. */
     private static X509TrustManager defaultTrustManager() throws Exception {
         TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         factory.init((KeyStore) null);

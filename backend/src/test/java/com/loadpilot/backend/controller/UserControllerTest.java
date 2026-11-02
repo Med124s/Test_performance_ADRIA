@@ -40,14 +40,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Verifie /api/users (Phase 25) : reserve a SUPER_ADMIN uniquement (voir
- * UserController), jamais VIEWER ni PERFORMANCE_ENGINEER (contrairement a
- * l'audit) - l'administration des comptes/roles est l'operation la plus
- * sensible du systeme. KeycloakAdminClient est mocke : aucun Keycloak reel
- * n'est necessaire pour ce test (verifie separement par curl contre un
- * Keycloak local reel, voir rapport Phase 25).
- */
+/** /api/users : reserve au Super administrateur. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -100,8 +93,7 @@ class UserControllerTest {
 
     @Test
     void list_asEngineer_returns403() throws Exception {
-        // Contrairement a l'audit : aucune justification metier a donner a
-        // PERFORMANCE_ENGINEER un acces a l'administration des comptes.
+        // L'Ingenieur performance n'a pas acces a l'administration des comptes.
         mockMvc.perform(get("/api/users").with(AS_ENGINEER)).andExpect(status().isForbidden());
     }
 
@@ -153,10 +145,7 @@ class UserControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"role\":\"PERFORMANCE_ENGINEER\"}"))
                 .andExpect(status().isOk())
-                // Le contrat BackendAppRole cote frontend attend le nom brut de
-                // l'enum ("PERFORMANCE_ENGINEER"), jamais le nom Keycloak prefixe
-                // ("ROLE_PERFORMANCE_ENGINEER") - garde-fou pour la regression
-                // detectee et corrigee en Phase 25 (voir UserServiceImpl).
+                // Le role est renvoye avec le nom de l'enum ("PERFORMANCE_ENGINEER"), sans le prefixe Keycloak.
                 .andExpect(jsonPath("$.role").value("PERFORMANCE_ENGINEER"));
 
         verify(keycloakAdminClient).replaceUserAppRole(USER_ID, AppRole.PERFORMANCE_ENGINEER);
@@ -290,9 +279,7 @@ class UserControllerTest {
         verify(keycloakAdminClient).sendActionsEmail(USER_ID, List.of("UPDATE_PASSWORD"));
     }
 
-    // ------------------------------------------------------------
-    // Mot de passe defini par l'administrateur : jamais renvoye, journalise ni audite
-    // ------------------------------------------------------------
+    // ---- Mot de passe defini par l'administrateur : jamais renvoye ni journalise ----
 
     private static final String SECRET = "Zq7-Secret-Value-9";
 

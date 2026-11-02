@@ -1,6 +1,6 @@
 import './formTabs.css'
 
-/** Icône « i » avec une explication courte, au survol et au clavier (remplace un paragraphe d'aide). */
+/** Icône « i » avec une explication courte, au survol et au clavier. */
 export default function InfoTip({ text }: { text: string }) {
   return (
     <span className="ft-info" tabIndex={0} role="img" aria-label={text} title={text}>

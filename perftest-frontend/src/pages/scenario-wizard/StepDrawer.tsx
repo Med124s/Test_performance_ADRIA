@@ -27,11 +27,7 @@ interface StepDrawerProps {
   onSaved: (message: string) => void
 }
 
-/**
- * Panneau latéral « Ajouter une étape » / « Modifier l'étape » (page Scénarios) : même éditeur
- * que l'assistant (StepEditor), « Tester cette étape » sur la version affichée (les étapes
- * précédentes sont jouées pour leurs captures, rien n'est enregistré), puis enregistrement.
- */
+/** Panneau latéral « Ajouter une étape » / « Modifier l'étape » (page Scénarios), avec l'éditeur de l'assistant. */
 function StepDrawer({ scenario, application, steps, editing, onClose, onSaved }: StepDrawerProps) {
   const [step, setStep] = useState<DraftStep>(() => (editing ? stepFromBackend(editing) : newStep()))
   const [attempted, setAttempted] = useState(false)

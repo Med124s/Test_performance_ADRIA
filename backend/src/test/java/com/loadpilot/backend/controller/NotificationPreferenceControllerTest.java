@@ -35,12 +35,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * P1-D — verifie GET/PATCH /api/notification-preferences (modele
- * "opt-out" reel) ET que desactiver un type SUPPRIME reellement la
- * generation de la Notification correspondante (voir
- * NotificationServiceImpl.create), pas seulement l'affichage.
- */
+/** Preferences de notification : lecture, modification, et effet sur la generation des notifications. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -135,20 +130,12 @@ class NotificationPreferenceControllerTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         JsonNode contentB = objectMapper.readTree(responseB);
         for (JsonNode entry : contentB) {
-            // userB n'a jamais rien desactive - tout doit rester actif,
-            // jamais affecte par le changement de userA.
+            // userB n'a rien desactive : tout reste actif.
             assertThat(entry.get("enabled").asBoolean()).isTrue();
         }
     }
 
-    /**
-     * P1-D — verifie que la preference est REELLEMENT respectee par
-     * NotificationServiceImpl : un utilisateur ayant coupe EXECUTION_SUCCESS
-     * ne recoit AUCUNE notification de ce type apres une execution reelle
-     * SUCCESS, alors qu'une notification aurait normalement ete generee
-     * (voir NotificationControllerTest de P1-B pour ce comportement par
-     * defaut).
-     */
+    /** Un type desactive n'est jamais genere apres une execution. */
     @Test
     void disabledNotificationType_isNeverGenerated_forARealExecution() throws Exception {
         RequestPostProcessor user = asUser("notif-pref-suppress-" + UUID.randomUUID());

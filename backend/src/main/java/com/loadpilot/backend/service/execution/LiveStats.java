@@ -6,22 +6,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
-/**
- * Compteurs EN MEMOIRE d'une execution en cours (suivi en direct, voir GET
- * /api/executions/{id}/status) : alimentes par les utilisateurs virtuels du moteur sans aucune
- * ecriture en base, lus a chaque interrogation du statut. LongAdder / AtomicInteger : aucun
- * verrou sur le chemin des requetes, sauf la fenetre de debit (synchronisation tres courte).
- */
+/** Compteurs en memoire d'une execution en cours, pour le suivi en direct et le frein automatique. */
 public final class LiveStats {
 
-    /** Fenetre glissante du debit "en temps reel" (secondes). */
+    /** Fenetre glissante du debit en temps reel (secondes). */
     private static final int WINDOW_SECONDS = 5;
-    /** Plus longue fenetre glissante disponible (frein automatique, voir ErrorRateBrake) : taille des compteurs par seconde. */
+    /** Plus longue fenetre glissante disponible (secondes). */
     public static final int MAX_WINDOW_SECONDS = 300;
 
     private final long startedNanos = System.nanoTime();
 
-    /** System.nanoTime() du demarrage des compteurs (base du temps de travail, voir RunningExecutionHandle). */
+    /** System.nanoTime() du demarrage des compteurs. */
     public long startedNanos() {
         return startedNanos;
     }
@@ -34,7 +29,7 @@ public final class LiveStats {
     private final LongAdder failures = new LongAdder();
     private final LongAdder responseTimeTotal = new LongAdder();
     private final List<StepCounters> steps = new ArrayList<>();
-    // Compteurs par seconde (anneau) : requetes et echecs. Meme verrou court qu'avant ; un entier de plus par requete.
+    // Compteurs par seconde (anneau) : requetes et echecs.
     private final long[] bucketSecond = new long[MAX_WINDOW_SECONDS + 1];
     private final long[] bucketCount = new long[MAX_WINDOW_SECONDS + 1];
     private final long[] bucketFailures = new long[MAX_WINDOW_SECONDS + 1];
@@ -78,10 +73,7 @@ public final class LiveStats {
         completedIterations.increment();
     }
 
-    /**
-     * Requetes enregistrees depuis le debut = resultats gardes en memoire jusqu'a la finalisation
-     * (chaque resultat passe une fois par record). Lecture sans verrou (voir ResultsMemoryGuard).
-     */
+    /** Requetes enregistrees depuis le debut. */
     public long totalRequests() {
         return requests.sum();
     }
@@ -91,10 +83,7 @@ public final class LiveStats {
         record(stepIndex, outcome, false);
     }
 
-    /**
-     * "throttled" : 429 respecte (ralentissement actif, voir ThrottlePolicy) - compte partout comme
-     * un echec (requete non servie) et dans le debit, mais hors de la fenetre du frein automatique.
-     */
+    /** "throttled" : 429 respecte, compte comme un echec mais hors de la fenetre du frein automatique. */
     public void record(int stepIndex, StepOutcome outcome, boolean throttled) {
         requests.increment();
         (outcome.success() ? successes : failures).increment();
@@ -123,17 +112,14 @@ public final class LiveStats {
         }
     }
 
-    /**
-     * Requetes jugees par le frein et leurs echecs, sur les {@code seconds} dernieres secondes
-     * (seconde en cours comprise) ; "throttled" : 429 respectes, exclus des deux (ni erreur, ni total).
-     */
+    /** Requetes et echecs sur les {@code seconds} dernieres secondes ; "throttled" : 429 respectes, exclus des deux. */
     public record Window(long requests, long failures, long throttled) {
         public Window(long requests, long failures) {
             this(requests, failures, 0);
         }
     }
 
-    /** Fenetre glissante des dernieres secondes, bornee a [1, MAX_WINDOW_SECONDS] (frein automatique). */
+    /** Fenetre glissante des dernieres secondes, bornee a [1, MAX_WINDOW_SECONDS]. */
     public Window recentWindow(int seconds) {
         int span = Math.max(1, Math.min(MAX_WINDOW_SECONDS, seconds));
         long nowSecond = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startedNanos);
@@ -163,7 +149,7 @@ public final class LiveStats {
                 }
             }
         }
-        // Debut d'execution : fenetre ramenee au temps reellement ecoule (jamais une division par 5 s fictives).
+        // Au debut, fenetre ramenee au temps ecoule.
         double windowSeconds = Math.min(WINDOW_SECONDS, Math.max(1.0, elapsedNanos / 1e9));
         long total = requests.sum();
         List<StepSnapshot> stepSnapshots = steps.stream().map(s -> {

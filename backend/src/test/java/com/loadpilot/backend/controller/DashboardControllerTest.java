@@ -31,12 +31,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/**
- * Verifie /api/dashboard de bout en bout : donnees REELLES issues d'une
- * vraie Execution HTTP (serveur JDK embarque, jamais banking-test-api ni
- * local-monitoring-server), securite en lecture seule, et le cas
- * Application inexistante (404, jamais un dashboard vide).
- */
+/** /api/dashboard de bout en bout, avec une execution sur un serveur HTTP embarque. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -116,11 +111,7 @@ class DashboardControllerTest {
                 .andExpect(status().isCreated());
     }
 
-    /**
-     * Lance une execution et attend qu'elle atteigne un statut terminal avant de rendre
-     * la main : /api/executions est desormais asynchrone (202/QUEUED), donc le dashboard
-     * ne doit etre interroge qu'une fois l'execution reellement terminee.
-     */
+    /** Lance une execution et attend qu'elle soit terminee. */
     private void executeScenario(String scenarioId) throws Exception {
         String body = objectMapper.writeValueAsString(new ExecutionRequest(UUID.fromString(scenarioId)));
         String response = mockMvc.perform(post("/api/executions").with(AS_SUPER_ADMIN)
@@ -175,9 +166,7 @@ class DashboardControllerTest {
         mockMvc.perform(get("/api/dashboard/applications/" + appId).with(AS_VIEWER)).andExpect(status().isOk());
     }
 
-    // ------------------------------------------------------------
-    // Dashboard global - sanite (base partagee entre tests, pas de compte exact)
-    // ------------------------------------------------------------
+    // ---- Dashboard global (base partagee entre tests : pas de compte exact) ----
 
     @Test
     void globalDashboard_reflectsAtLeastTheDataJustCreated() throws Exception {
@@ -188,9 +177,7 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.applications.totalApplications").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
     }
 
-    // ------------------------------------------------------------
-    // Dashboard par Application - valeurs reelles
-    // ------------------------------------------------------------
+    // ---- Dashboard par application ----
 
     @Test
     void applicationDashboard_successfulExecution_reflectsRealCounts() throws Exception {
@@ -236,9 +223,7 @@ class DashboardControllerTest {
         createStep(scenarioId, "step", 1, "/ok", 200);
         executeScenario(scenarioId);
 
-        // Metric generee automatiquement (Phase 10) apres l'Execution reelle
-        // ci-dessus : averageResponseTime doit exister (jamais invente),
-        // averageErrorRate doit refleter 0% (le seul step a reussi).
+        // Moyennes calculees sur l'execution ci-dessus : 0 % d'erreurs.
         mockMvc.perform(get("/api/dashboard/applications/" + appId).with(AS_VIEWER))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.performance.averageResponseTime").exists())

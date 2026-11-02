@@ -8,16 +8,7 @@ import jakarta.validation.constraints.Size;
 import com.loadpilot.backend.enums.CsvDistribution;
 import java.util.UUID;
 
-/**
- * Utilise a la fois pour la creation (POST) et la mise a jour (PUT).
- *
- * Champs de charge (P0-A) tous OPTIONNELS (nullable) : un client qui ne les
- * envoie pas obtient le comportement historique a une seule passe (voir
- * ScenarioServiceImpl, qui applique les valeurs par defaut reelles -
- * jamais MapStruct/le champ Java brut, pour ne jamais persister un null
- * dans une colonne NOT NULL). Valides UNIQUEMENT quand presents (@Min sur
- * un Integer null ne declenche jamais de violation).
- */
+/** Creation (POST) et mise a jour (PUT) d'un scenario ; champs de charge optionnels. */
 public record ScenarioRequest(
 
         @NotNull(message = "L'identifiant de l'application est obligatoire.")
@@ -30,11 +21,6 @@ public record ScenarioRequest(
         @Size(max = 1000, message = "La description ne doit pas depasser 1000 caracteres.")
         String description,
 
-        // P0-B : ce plafond n'est plus la limite operationnelle reelle (voir
-        // app.execution.max-virtual-users-per-execution, configurable par
-        // environnement et appliquee dans ScenarioServiceImpl) - seulement
-        // un garde-fou absolu de bon sens (valeur totalement deraisonnable,
-        // quel que soit le deploiement), jamais retire.
         @Min(value = 1, message = "Le nombre d’utilisateurs doit être au moins 1.")
         @Max(value = 10000, message = "Le nombre d’utilisateurs ne doit pas dépasser 10000.")
         Integer virtualUsers,
@@ -51,20 +37,11 @@ public record ScenarioRequest(
         @Min(value = 0, message = "Le think time doit être au moins 0.")
         Integer thinkTimeMs,
 
-        // P1-Q Etape B - donnees CSV optionnelles (premiere ligne = noms de
-        // colonnes/variables) : null/absent = comportement historique
-        // inchange, aucune variable de donnees (voir Scenario.csvData).
-        // Limite de taille volontairement genereuse mais bornee : evite
-        // qu'un champ TEXTE illimite cote client ne devienne un vecteur de
-        // charge utile non maitrisee sur cette colonne.
-        // Format et contenu verifies par CsvDataSource.validate (meme regle que le frontend).
+        /** Donnees CSV optionnelles ; la premiere ligne donne les noms des variables. */
         @Size(max = 1_000_000, message = "Les données CSV ne doivent pas dépasser 1 000 000 caractères.")
         String csvData,
 
-        // Master prompt final (Lot A) - debit cible optionnel (requetes/s).
-        // null = aucun pacing (comportement historique inchange, voir
-        // Scenario.targetRps). Rejette explicitement 0 et les valeurs
-        // negatives (sens invalide pour un debit cible).
+        /** Debit cible optionnel (requetes/s) ; null = aucun pacing. */
         @Min(value = 1, message = "Le débit cible doit être au moins 1.")
         Integer targetRps,
 
@@ -129,7 +106,6 @@ public record ScenarioRequest(
         @Max(value = 100, message = "La variation du think time ne doit pas dépasser 100 %.")
         Integer thinkTimeVariationPercent
 ) {
-    /** Compatibilite : requete sans variation du think time (inchange). */
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
@@ -141,7 +117,6 @@ public record ScenarioRequest(
                 errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries, null);
     }
 
-    /** Compatibilite : requete sans reglage du ralentissement sur 429 (inchange). */
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
@@ -152,7 +127,6 @@ public record ScenarioRequest(
                 errorBrakeRatePercent, errorBrakeWindowSeconds, null, null, null, null);
     }
 
-    /** Compatibilite : requete sans frein automatique (inchange). */
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
@@ -171,7 +145,6 @@ public record ScenarioRequest(
                 thinkTimeMs, csvData, targetRps, draft, wizardStep, draftState, variables, csvDistribution, requestDetailMode, null, null);
     }
 
-    /** Compatibilite : requete sans reglage du detail des requetes (inchange / defaut). */
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
@@ -180,13 +153,10 @@ public record ScenarioRequest(
                 thinkTimeMs, csvData, targetRps, draft, wizardStep, draftState, variables, csvDistribution, null, null, null);
     }
 
-    /** Compatibilite : construit une requete sans parametre de charge
-     * explicite (comportement historique a une seule passe). */
     public ScenarioRequest(UUID applicationId, String name, String description) {
         this(applicationId, name, description, null, null, null, null, null, null, null);
     }
 
-    /** Compatibilite : requete sans champ de brouillon (scenario ACTIVE). */
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps) {
@@ -194,7 +164,6 @@ public record ScenarioRequest(
                 thinkTimeMs, csvData, targetRps, null, null, null);
     }
 
-    /** Compatibilite : requete sans variables du scenario ni distribution CSV explicite. */
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState) {

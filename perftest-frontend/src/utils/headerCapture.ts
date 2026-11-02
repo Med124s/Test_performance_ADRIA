@@ -1,8 +1,4 @@
-// ============================================================
-// Lecture d'une valeur dans un EN-TÊTE de réponse (capture d'une étape, jeton de la Connexion
-// automatique) : le « chemin » est le nom de l'en-tête (ex. X-CSRF-Token), ou « Set-Cookie:NOM »
-// pour la valeur du cookie NOM. Mêmes règles que StepRules.headerCaptureProblem (backend).
-// ============================================================
+// Capture dans un en-tête de réponse : nom de l'en-tête (ex. X-CSRF-Token), ou « Set-Cookie:NOM » pour un cookie.
 
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 
@@ -22,7 +18,7 @@ export function joinHeaderCapture(header: string, cookie: string): string {
 /** Problème en minuscule et sans point final (préfixé par l'appelant), ou null. */
 export function headerCaptureProblem(spec: string): string | null {
   const { header, cookie } = splitHeaderCapture(spec.trim())
-  // Messages identiques au backend (apostrophes droites).
+  // Messages identiques au backend.
   if (!HEADER_NAME.test(header.trim())) return "nom d'en-tête invalide (pas d'espace ni de caractère spécial, ex. X-CSRF-Token)"
   if (spec.includes(':')) {
     if (!isSetCookie(header)) return "un nom de cookie ne s'indique que pour Set-Cookie (ex. Set-Cookie:SESSIONID)"

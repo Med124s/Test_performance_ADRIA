@@ -6,12 +6,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
-/**
- * Textes et nombres du rapport PDF, en francais. Les polices standard du PDF (Helvetica) couvrent
- * le jeu Windows-1252 : accents, guillemets francais, apostrophe typographique, tirets... Les rares
- * caracteres hors de ce jeu (espace fine insecable, fleches, inegalites) sont remplaces par un
- * equivalent lisible, jamais par un carre vide.
- */
+/** Textes et nombres du rapport PDF, en francais, limites au jeu de caracteres Windows-1252. */
 public final class PdfText {
 
     private PdfText() {

@@ -9,11 +9,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
 
-/**
- * Corps limite a "limit" octets (debut du corps, decode en UTF-8) + taille totale reelle recue.
- * Le reste du corps est lu puis ignore au fil de l'eau : jamais plus de "limit" octets gardes en
- * memoire, quelle que soit la taille de la reponse.
- */
+/** Debut du corps d'une reponse (au plus "limit" octets) et sa taille totale ; le reste est lu sans etre garde. */
 public record CappedBody(String text, long totalBytes, boolean truncated) {
 
     public static CappedBody of(String full, int limit) {

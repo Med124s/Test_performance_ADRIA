@@ -193,10 +193,9 @@ describe('Système', () => {
     await waitFor(() => expect(field(/Durée maximale d’un test/).value).toBe('3600'))
     expect(within(card).getByText('Maximum 3 600 (plafond du serveur).')).toBeTruthy()
     expect(field(/Utilisateurs virtuels par test/).closest('.st-field')!.textContent).toContain('Maximum 200 (plafond du serveur).')
-    // Valeurs cohérentes : plus d'estimation « réellement applicable ».
     expect(card.textContent).not.toMatch(/réellement applicable/)
     expect(within(card).getAllByRole('textbox')).toHaveLength(6)
-    // Délais : lecture seule, unités lisibles ; plus de « Vérification des planifications ».
+    // Délais : lecture seule, unités lisibles.
     expect(within(card).getByText('30 s')).toBeTruthy()
     expect(within(card).getByText('5 s')).toBeTruthy()
     expect(container.textContent).not.toMatch(/Vérification des planifications|variable d.environnement/)
@@ -225,7 +224,7 @@ describe('Système', () => {
     const save = within(card).getByRole('button', { name: 'Enregistrer' }) as HTMLButtonElement
     const fieldOf = (input: HTMLInputElement) => input.closest('.st-field') as HTMLElement
 
-    // Total baissé seul sous « par test » : refusé aussi (plus d'ajustement automatique).
+    // Total baissé sous « par test » : refusé.
     fireEvent.change(total, { target: { value: '150' } })
     const messages = within(card).getAllByText('Le total doit être supérieur ou égal au maximum par test.')
     expect(messages).toHaveLength(2)
@@ -309,7 +308,7 @@ describe('Système', () => {
   it('nouveaux scénarios : frein, 429 et détail des requêtes, valeurs initiales, validation et enregistrement', async () => {
     renderSystem()
     const card = (await screen.findByRole('heading', { name: 'Seuils par défaut' })).closest('section')!
-    // Serveur sans ces champs (réponse à 3 valeurs) : valeurs initiales, celles codées jusqu'ici.
+    // Serveur sans ces champs : valeurs initiales.
     const brake = within(card).getByRole('switch', { name: /Arrêter le test si trop d’erreurs/ }) as HTMLInputElement
     const throttle = within(card).getByRole('switch', { name: /Ralentir quand l’application demande d’attendre/ }) as HTMLInputElement
     expect(brake.checked).toBe(false)

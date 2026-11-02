@@ -1,13 +1,7 @@
 import { KeyboardEvent, ReactNode, useId, useRef } from 'react'
 import './formTabs.css'
 
-// ============================================================
-// Onglets d'un formulaire (modale) : état géré par le parent, jamais
-// dans l'URL (voir PageTabs pour les onglets de page). Accessibles :
-// tablist / tab / tabpanel, flèches gauche / droite, Début / Fin.
-// Tous les panneaux restent montés (inactifs masqués) : une saisie ou
-// un résultat de test d'un onglet est conservé en changeant d'onglet.
-// ============================================================
+// Onglets d'un formulaire (modale), accessibles au clavier ; état géré par le parent.
 
 export interface FormTab {
   id: string

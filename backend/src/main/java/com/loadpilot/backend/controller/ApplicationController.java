@@ -35,29 +35,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * /api/applications - lecture ouverte a tout utilisateur authentifie (voir
- * SecurityConfig : anyRequest().authenticated() couvre deja les GET, aucune
- * annotation supplementaire necessaire ici pour eviter de dupliquer la
- * regle) ; ecriture restreinte via @PreAuthorize selon la matrice Phase 6 :
- * SUPER_ADMIN et PERFORMANCE_ENGINEER peuvent creer/modifier/tester,
- * seul SUPER_ADMIN peut supprimer.
- */
+/** API des applications testees. */
 @RestController
 @RequestMapping("/api/applications")
 @RequiredArgsConstructor
-@Tag(name = "Applications", description = "Applications cibles testees par LoadPilot (URL, statut de disponibilite reel)")
+@Tag(name = "Applications", description = "Applications testees par LoadPilot (URL, authentification, statut de connectivite)")
 public class ApplicationController {
 
     private final ApplicationService applicationService;
     private final DeletionServiceImpl deletionService;
     private final ApplicationBulkService bulkService;
 
-    /**
-     * Sans "page" : liste complete (format historique, utilise par les autres
-     * ecrans). Avec "page" : reponse paginee {content, page, size,
-     * totalElements, totalPages}, filtree et triee cote serveur.
-     */
+    /** Sans "page" : liste complete. Avec "page" : reponse paginee, filtree et triee. */
     @GetMapping
     @Operation(summary = "Lister les applications",
             description = "Sans le parametre page : liste complete des applications non archivees (ou archivees si archived=true). "
@@ -182,7 +171,7 @@ public class ApplicationController {
 
     @PostMapping("/{id}/test")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','PERFORMANCE_ENGINEER')")
-    @Operation(summary = "Tester la disponibilite reelle de l'application", description = "Envoie une vraie requete HTTP vers l'URL de l'application et met a jour son statut (CONNECTED/FAILED/ERROR).")
+    @Operation(summary = "Tester la connectivite de l'application", description = "Envoie une requete HTTP vers l'URL de l'application et met a jour son statut (CONNECTED/FAILED/ERROR).")
     public ApplicationTestResponse testAvailability(@PathVariable UUID id) {
         return applicationService.testAvailability(id);
     }

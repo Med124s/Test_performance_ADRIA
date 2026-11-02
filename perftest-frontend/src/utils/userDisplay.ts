@@ -1,8 +1,7 @@
 import { inUserZone } from './userTimezone'
 // Affichage des personnes : initiales et couleur d'avatar, dates relatives.
 
-/** Initiales du nom AFFICHÉ (« Admin Test » -> « AT », « viewer-test » -> « VT », « lina » -> « LI »,
- * « stagiaire.2025 » -> « ST » : les morceaux qui ne commencent pas par une lettre sont ignorés). */
+/** Initiales du nom affiché (« Admin Test » -> « AT », « viewer-test » -> « VT »). */
 export function initialsOf(name: string | null | undefined): string {
   const parts = (name ?? '').trim().split(/[\s._-]+/).filter(Boolean)
   const words = parts.filter((w) => /^\p{L}/u.test(w))

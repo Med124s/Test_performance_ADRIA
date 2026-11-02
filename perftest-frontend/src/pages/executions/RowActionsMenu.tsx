@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-// Menu « ⋯ » d'une ligne : Relancer, Annuler (exécution active), Supprimer (en rouge).
-// Positionné en coordonnées fixes (jamais coupé par le défilement horizontal du tableau) ;
-// fermé par un clic à l'extérieur, Échap ou un défilement.
+// Menu « ⋯ » d'une ligne (Relancer, Annuler, Supprimer), positionné en coordonnées fixes.
 
 export interface RowAction {
   label: string

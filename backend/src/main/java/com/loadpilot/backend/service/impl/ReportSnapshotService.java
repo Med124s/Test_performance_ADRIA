@@ -26,20 +26,13 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-/**
- * Rapport fige : calcule une fois, a la fin de l'execution, EXACTEMENT ce que montrent le rapport,
- * l'analyse dans le temps et les cartes Minimum / Maximum (memes services), puis l'enregistre dans
- * execution_report_snapshot. Il remplace ces calculs une fois le detail des requetes purge.
- *
- * Rattrapage : au demarrage (executions terminees sans rapport fige, en arriere-plan) et juste
- * avant chaque purge (jamais de purge sans rapport fige).
- */
+/** Rapport fige : calcule a la fin de l'execution (rapport, analyse dans le temps, cartes Minimum / Maximum), conserve apres la purge du detail. */
 @Service
 @RequiredArgsConstructor
 public class ReportSnapshotService {
 
     private static final Logger log = LoggerFactory.getLogger(ReportSnapshotService.class);
-    /** Taille maximale enregistree (colonne VARCHAR(1000000)). */
+    /** Taille maximale enregistree. */
     static final int MAX_LENGTH = 1_000_000;
 
     private final ExecutionRepository executionRepository;
@@ -57,10 +50,7 @@ public class ReportSnapshotService {
     @Value("${app.results.snapshot-backfill.enabled:true}")
     private boolean backfillEnabled;
 
-    /**
-     * Calcule et enregistre (ou remplace) le rapport fige d'une execution terminee dont le detail
-     * est encore present. Renvoie false si l'execution est en cours, absente ou deja purgee.
-     */
+    /** Calcule et enregistre le rapport fige d'une execution terminee ; false si elle est en cours, absente ou deja purgee. */
     public boolean capture(UUID executionId) {
         Execution execution = executionRepository.findById(executionId).orElse(null);
         if (execution == null || execution.getStatus() == null || execution.getStatus().isActive()
@@ -75,7 +65,7 @@ public class ReportSnapshotService {
         List<ReportErrorEntry> errors = report.errors() == null ? List.of() : report.errors();
         int totalErrors = errors.size();
         String json = serialize(report, errors, totalErrors, ReportSnapshot.MAX_ERRORS, timeline, fastest, slowest);
-        // Trop volumineux (tres longue execution) : moins d'erreurs, puis sans l'analyse dans le temps.
+        // Trop volumineux : moins d'erreurs, puis sans l'analyse dans le temps.
         if (json != null && json.length() > MAX_LENGTH) json = serialize(report, errors, totalErrors, 50, timeline, fastest, slowest);
         if (json != null && json.length() > MAX_LENGTH) json = serialize(report, errors, totalErrors, 50, null, fastest, slowest);
         if (json == null || json.length() > MAX_LENGTH) {
@@ -99,23 +89,18 @@ public class ReportSnapshotService {
         }
     }
 
-    /** Rapport fige present, ou calcule maintenant ; false si impossible (la purge est alors reportee). */
+    /** Rapport fige present ou calcule maintenant ; false si impossible. */
     public boolean ensure(UUID executionId) {
         if (reportSnapshots.exists(executionId)) return true;
         try {
             return capture(executionId);
         } catch (Throwable e) {
-            // Throwable : un manque de memoire (purge de nuit, rattrapage) est journalise, jamais propage.
             ExecutionServiceImpl.logBackgroundFailure("Rapport fige", executionId, e);
             return false;
         }
     }
 
-    /**
-     * Executions terminees sans rapport fige (detail encore present) : calcule une fois. Une
-     * execution trop volumineuse pour la memoire de ce serveur est sautee (journal et audit) : sans
-     * cela, son chargement serait retente - et refuse ou en manque de memoire - a chaque redemarrage.
-     */
+    /** Calcule le rapport fige des executions terminees qui n'en ont pas ; une execution trop volumineuse est sautee. */
     public int backfill() {
         int done = 0;
         for (UUID id : executionRepository.findFinishedIdsWithoutSnapshot()) {
@@ -152,7 +137,6 @@ public class ReportSnapshotService {
             try {
                 backfill();
             } catch (Throwable e) {
-                // Throwable : un manque de memoire de ce thread est journalise au lieu de disparaitre.
                 log.error("Rattrapage des rapports figes interrompu : {}", e.getClass().getSimpleName());
             }
         }, "report-snapshot-backfill");

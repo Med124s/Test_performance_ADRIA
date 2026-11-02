@@ -57,23 +57,7 @@ import {
 } from './wizardModel'
 import './scenarioWizard.css'
 
-// ============================================================
-// Assistant "Nouveau scénario" (route /scenarios/new, reprise d'un brouillon :
-// /scenarios/new?draft=<id>) — 4 étapes : Informations → Étapes → Tester →
-// Charge & résumé.
-//
-// « Suivant » n'est actif que si l'étape courante est complète (mêmes règles
-// que le backend) ; la liste de ce qui manque est affichée sous le bouton.
-//
-// Tout scénario enregistré par l'assistant est un BROUILLON (DRAFT) jusqu'à
-// « Enregistrer » (POST /publish, validation complète côté backend). Quitter
-// avec du travail non enregistré (menu, bouton retour, fermeture d'onglet)
-// demande confirmation : brouillon, abandon (le scénario créé automatiquement
-// par « Tester » est alors supprimé) ou reprise de l'édition.
-//
-// Le test de validation est un test détaillé (POST /api/scenarios/{id}/test-run :
-// 1 utilisateur virtuel, 1 passage, aucune Execution dans l'historique).
-// ============================================================
+// Assistant « Nouveau scénario » (/scenarios/new, reprise d'un brouillon : ?draft=<id>) et page de modification (/scenarios/:id/edit) : Informations, Étapes, Tester, Charge & résumé.
 
 const WIZARD_STEPS = [
   { title: 'Informations', subtitle: 'Application et nom', icon: 'bi-info-circle' },
@@ -89,8 +73,7 @@ function sectionSnapshots(info: ScenarioInfo, steps: DraftStep[], load: LoadConf
     JSON.stringify([info.applicationId, info.name.trim(), info.description.trim()]),
     JSON.stringify([steps.map(({ uid, backendId, ...rest }) => rest), info.csvData, info.csvDistribution, info.variables]),
     '',
-    // Étape « Charge & résumé » : charge, mais aussi détail des requêtes et seuils de réussite (sinon un seuil
-    // modifié ne compterait pas comme modification et « Enregistrer » resterait désactivé).
+    // Charge, détail des requêtes et seuils de réussite.
     JSON.stringify([loadValues, info.requestDetailMode ?? null, info.maxErrorRatePercent ?? null, info.maxP95Ms ?? null,
       info.errorBrakeRatePercent ?? null, info.errorBrakeRatePercent ? info.errorBrakeWindowSeconds ?? null : null,
       info.throttleOn429 ?? null, info.throttleDefaultDelaySeconds ?? null, info.throttleMaxRetries ?? null,
@@ -147,8 +130,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
   const [sectionBaseline, setSectionBaseline] = useState<string[] | null>(null)
 
   const mountedRef = useRef(true)
-  // Remis à true à chaque montage : StrictMode (dev) monte/démonte/remonte
-  // le composant, et un ref resté à false stopperait le suivi du test.
+  // Remis à true à chaque montage (StrictMode monte le composant deux fois en développement).
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
@@ -201,10 +183,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
 
   // ------------------------------------------------------------ seuils proposés (nouveau scénario)
 
-  // Nouveau scénario : seuils de réussite, frein automatique, ralentissement sur 429 et détail des
-  // requêtes pré-remplis avec les valeurs de Paramètres > Système, bloc par bloc tant que l'utilisateur
-  // ne les a pas modifiés (voir applySuggestions). Jamais pour un brouillon ni une modification : un
-  // scénario existant garde ses propres valeurs.
+  // Nouveau scénario : seuils, frein, 429 et détail des requêtes pré-remplis avec Paramètres > Système, bloc par bloc tant qu'ils ne sont pas modifiés.
   useEffect(() => {
     if (isEdit || draftId) return
     let cancelled = false
@@ -223,8 +202,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
 
   // ------------------------------------------------------------ limites du serveur
 
-  // Limites d'un test (utilisateurs, durée, itérations, débit cible) : plages et validation de
-  // l'étape « Charge & résumé », tous modes. Un nouveau scénario part du profil « Smoke ».
+  // Limites d'un test : plages et validation de « Charge & résumé ».
   useEffect(() => {
     let cancelled = false
     loadLoadLimits().then((limits) => {
@@ -363,7 +341,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     if (stepValid[current]) goTo(current + 1)
   }
 
-  // ------------------------------------------------------------ steps list
+  // ---- Liste des étapes ----
 
   const addStep = () => {
     const step = newStep()
@@ -407,10 +385,9 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     })
   }
 
-  // ------------------------------------------------------------ persistence
+  // ---- Enregistrement ----
 
-  /** Crée (en BROUILLON) ou met à jour le Scénario puis synchronise ses Steps
-   * (ordre = position dans la liste). Renvoie l'id du scénario et la correspondance uid → id. */
+  /** Crée (en brouillon) ou met à jour le scénario puis ses étapes ; renvoie l'id du scénario et la correspondance uid -> id. */
   const persist = async (loadPart: typeof TEST_RUN_LOAD) => {
     const payload: BackendScenarioRequest = {
       applicationId: info.applicationId,
@@ -458,8 +435,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
         }
       }
     } finally {
-      // Même en cas d'échec partiel, les étapes déjà créées gardent leur id
-      // (jamais recréées en double au prochain enregistrement).
+      // Les étapes déjà créées gardent leur id, même en cas d'échec partiel.
       setSteps((prev) => prev.map((s) => (idByUid[s.uid] && !s.backendId ? { ...s, backendId: idByUid[s.uid] } : s)))
     }
     return { scenarioId: id, idByUid }
@@ -543,8 +519,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     leaveNow()
   }
 
-  /** Test détaillé de tout le scénario (POST /api/scenarios/{id}/test-run, flux en direct) :
-   * 1 utilisateur virtuel, 1 passage, aucune exécution dans l'historique. */
+  /** Test détaillé de tout le scénario (1 utilisateur virtuel, 1 passage), suivi en direct. */
   const runTest = async () => {
     if (!stepValid[0] || !stepValid[1]) {
       showToast('Complétez les informations et les étapes avant de tester.', 'warning')
@@ -609,8 +584,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     }
   }
 
-  /** « Exécuter » une seule étape (POST /api/steps/{id}/test-run), avec les variables
-   * capturées lors du dernier test (ex. transferId). */
+  /** Exécute une seule étape avec les variables capturées lors du dernier test. */
   const runSingleStep = async (uid: string) => {
     if (!stepValid[0] || !stepValid[1]) {
       showToast('Complétez les informations et les étapes avant de tester.', 'warning')
@@ -696,10 +670,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     }
   }
 
-  /**
-   * Page de modification : PUT /api/scenarios/{id}/full (informations + étapes en une transaction),
-   * puis lancement éventuel. Le test n'est pas exigé pour enregistrer.
-   */
+  /** Page de modification : enregistrement complet (informations et étapes) puis lancement éventuel. */
   const saveEdits = async (launch: boolean, thenLeave = false) => {
     if (!scenarioId) return
     const firstInvalid = [0, 1, 3].find((i) => !stepValid[i])
@@ -740,7 +711,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     }
   }
 
-  // ------------------------------------------------------------ render
+  // ---- Affichage ----
 
   if (!canWrite) {
     return (

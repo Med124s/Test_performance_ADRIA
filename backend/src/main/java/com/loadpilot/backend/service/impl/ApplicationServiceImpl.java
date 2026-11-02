@@ -42,15 +42,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Audit (Phase 12) : chaque methode d'ecriture appelle
- * auditLogService.record(...) comme DERNIERE instruction avant de retourner
- * (le flush/delete a deja ete envoye a la DB a ce stade - aucune operation
- * susceptible d'echouer ne suit), ou dans le bloc catch en cas d'echec.
- * record() n'est jamais transactionnel lui-meme et absorbe deja toute
- * exception (voir AuditLogServiceImpl) : cet appel ne peut donc jamais
- * transformer une operation metier reussie en echec, ni l'inverse.
- */
+/** Gestion des applications testees et de leur test de connectivite. */
 @Service
 @RequiredArgsConstructor
 public class ApplicationServiceImpl implements ApplicationService {
@@ -82,13 +74,8 @@ public class ApplicationServiceImpl implements ApplicationService {
             monitoringSupport.apply(request.monitoring(), application);
             // Reseau non precise : « Aucun proxy » pour une nouvelle application (voir NetworkSupport.applyOnCreate).
             networkSupport.applyOnCreate(request.network(), application);
-            // Aucun test n'a encore ete lance pour cette application : pas de
-            // statut invente (voir ApplicationStatus).
 
-            // saveAndFlush (pas save) : @CreationTimestamp/@UpdateTimestamp ne
-            // sont renseignes par Hibernate qu'au moment du flush reel (INSERT
-            // execute) - sans flush immediat, la reponse construite juste apres
-            // renverrait un createdAt/updatedAt encore nul.
+            // saveAndFlush : createdAt / updatedAt sont renseignes au flush.
             Application saved = applicationRepository.saveAndFlush(application);
             auditLogService.record(AuditEvent.of(AuditAction.CREATE, AuditModule.APPLICATION)
                     .target(AuditTargetType.APPLICATION, saved.getId(), saved.getName())
@@ -116,7 +103,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         return applicationMapper.toResponseList(applications);
     }
 
-    /** Champs de tri autorises (jamais un champ arbitraire venu de l'URL). */
+    /** Champs de tri autorises. */
     private static final java.util.Set<String> SORTABLE = java.util.Set.of("name", "url", "status", "createdAt", "updatedAt");
 
     @Override
@@ -140,7 +127,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                     "Tri non autorisé : " + field + " (champs possibles : name, url, status, createdAt, updatedAt).");
         }
         Sort.Direction direction = parts.length > 1 && parts[1].trim().equalsIgnoreCase("desc") ? Sort.Direction.DESC : Sort.Direction.ASC;
-        // Tri secondaire stable : l'ordre des lignes ne change pas d'une page a l'autre.
+        // Tri secondaire stable d'une page a l'autre.
         return Sort.by(direction, field).and(Sort.by(Sort.Direction.ASC, "id"));
     }
 
@@ -167,8 +154,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             authSupport.apply(request.auth(), application, false);
             monitoringSupport.apply(request.monitoring(), application);
             networkSupport.apply(request.network(), application);
-            // Toute modification (URL, authentification...) invalide le
-            // resultat du dernier test : il sera remplace par le prochain.
+            // Toute modification invalide le resultat du dernier test.
             application.setStatus(null);
             application.setStatusMessage(null);
             application.setStatusCheckedAt(null);
@@ -176,7 +162,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             AuditEvent audit = AuditEvent.of(AuditAction.UPDATE, AuditModule.APPLICATION)
                     .target(AuditTargetType.APPLICATION, saved.getId(), saved.getName())
                     .diff(before, AuditSnapshots.of(saved));
-            // Jamais les identifiants eux-memes : seulement le fait qu'ils ont change.
+            // Seulement le fait que les identifiants ont change, jamais leur valeur.
             if (!java.util.Objects.equals(authBefore, saved.getAuthConfig())) {
                 audit.change("Identifiants d’authentification", "anciens", "modifiés");
             }
@@ -193,10 +179,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Override
     @Transactional
     public void delete(UUID id) {
-        // Suppression DEFINITIVE explicitement demandee (SUPER_ADMIN) : cascade
-        // complete dans une seule transaction, refusee si une execution est en
-        // cours - voir DeletionServiceImpl (audit inclus). L'archivage est
-        // l'alternative par defaut proposee par l'interface.
+        // Suppression definitive (Super administrateur), refusee si une execution est en cours.
         deletionService.deleteApplicationPermanently(id);
     }
 
@@ -205,8 +188,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     public com.loadpilot.backend.dto.response.MonitoringTestResponse testMonitoring(
             com.loadpilot.backend.dto.request.MonitoringTestRequest request) {
         Application existing = request.applicationId() == null ? null : findOrThrow(request.applicationId());
-        // Proxy : saisie du formulaire (mot de passe conserve si vide), sinon celui de l'application
-        // enregistree, sinon le proxy global ; « Monitoring sans proxy » coche : en direct.
+        // Proxy : saisie du formulaire, sinon celui de l'application, sinon le proxy global ; "Monitoring sans proxy" : en direct.
         com.loadpilot.backend.service.http.NetworkProfile network = request.network() != null
                 ? networkSupport.toProfile(request.network(), existing)
                 : com.loadpilot.backend.service.http.NetworkProfile.of(existing);
@@ -222,18 +204,10 @@ public class ApplicationServiceImpl implements ApplicationService {
         try {
             Application application = findOrThrow(id);
 
-            // Un test par mode d'authentification, toujours contre
-            // l'application cible reelle (jamais CONNECTED avec des
-            // identifiants faux) :
-            //   NONE             -> GET sur l'URL de l'application
-            //   LOGIN_TOKEN      -> POST reel sur l'endpoint de connexion
-            //   BEARER / API_KEY / BASIC -> 2 GET sur l'endpoint de verification
-            // Aucun message ne contient de secret (voir NetworkErrors,
-            // ApplicationAuthenticator).
+            // Test selon le mode d'authentification : GET sur l'URL (aucune), POST de connexion (LOGIN_TOKEN), ou verification des identifiants (Bearer, cle API, Basic).
             ApplicationAuthSpec spec = authSupport.toSpec(application);
             Duration timeout = Duration.ofSeconds(timeoutSeconds);
-            // Proxy propre a l'application : verifie d'abord lui-meme (connexion directe sur son hote et
-            // son port), pour qu'un echec designe le proxy et non l'application.
+            // Proxy propre a l'application verifie d'abord.
             String proxyUnreachable = com.loadpilot.backend.service.http.NetworkProfile.of(application).proxyUnreachable();
             if (proxyUnreachable != null) {
                 return finishTest(application, new CheckOutcome(ApplicationStatus.ERROR, proxyUnreachable, noResponse(proxyUnreachable)));
@@ -260,7 +234,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         return new HttpAvailabilityResult(false, null, 0, error);
     }
 
-    /** Aucune : GET sur l'URL de l'application -> 2xx/3xx CONNECTED. */
+    /** Aucune authentification : GET sur l'URL de l'application, 2xx/3xx = CONNECTED. */
     private CheckOutcome checkPublicUrl(Application application, Duration timeout) {
         HttpAvailabilityResult result = availabilityChecker.check(application.getUrl(), timeout,
                 com.loadpilot.backend.service.http.NetworkProfile.of(application));
@@ -278,11 +252,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         return new CheckOutcome(ApplicationStatus.FAILED, "L'application a répondu avec une erreur (HTTP " + code + ").", result);
     }
 
-    /**
-     * Connexion auto : POST reel sur l'endpoint de connexion avec les
-     * identifiants fournis -> 2xx et jeton trouve : CONNECTED ; 401/403 :
-     * "Identifiants refuses" ; jeton absent : "Token introuvable a <chemin>".
-     */
+    /** Connexion automatique : POST sur l'endpoint de connexion ; 2xx et jeton trouve = CONNECTED. */
     private CheckOutcome verifyLogin(Application application) {
         long startedAt = System.nanoTime();
         try {
@@ -299,8 +269,6 @@ public class ApplicationServiceImpl implements ApplicationService {
                         ? new CheckOutcome(ApplicationStatus.FAILED, "Identifiants refusés (" + code + ").", result)
                         : new CheckOutcome(ApplicationStatus.FAILED,
                                 "L'endpoint de connexion a répondu avec une erreur (HTTP " + code + ") : vérifiez le chemin.", result);
-                // Message du moteur (« token introuvable à <chemin>[ : raison] » ou, jeton lu dans un
-                // en-tete, « token introuvable : en-tête « X » absent de la réponse »), avec une majuscule.
                 case TOKEN_NOT_FOUND -> new CheckOutcome(ApplicationStatus.FAILED,
                         "T" + e.getMessage().substring(1) + ".", result);
                 case INVALID_RESPONSE -> new CheckOutcome(ApplicationStatus.FAILED,
@@ -321,15 +289,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         };
     }
 
-    /**
-     * Bearer, cle API et Basic : verification reelle des identifiants, en
-     * deux GET sur l'endpoint de verification :
-     *   a. sans identifiants -> doit repondre 401/403 (sinon l'endpoint ne
-     *      prouve rien : FAILED "Endpoint non protege") ;
-     *   b. avec identifiants -> 2xx CONNECTED "Identifiants valides",
-     *      401/403 FAILED (message propre au type), autre code FAILED,
-     *      reseau/timeout ERROR.
-     */
+    /** Bearer, cle API et Basic : deux GET sur l'endpoint de verification, sans identifiants (401/403 attendu) puis avec (2xx attendu). */
     private CheckOutcome verifyCredentials(Application application, ApplicationAuthSpec spec, Duration timeout) {
         String path = spec.config().verificationPath();
         if (path == null || path.isBlank()) {
@@ -373,9 +333,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 "L'endpoint de vérification a répondu avec une erreur (HTTP " + code + ").", authenticated);
     }
 
-    /** Enregistre le resultat (status, message, date), trace l'audit et
-     * construit la reponse. L'audit SUCCESS reflete que l'OPERATION de test
-     * a ete executee, pas que l'application est joignable (voir Phase 12). */
+    /** Enregistre le resultat du test (statut, message, date), l'audit et construit la reponse. */
     private ApplicationTestResponse finishTest(Application application, CheckOutcome outcome) {
         String message = outcome.message();
         application.setStatus(outcome.status());
@@ -398,7 +356,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Application introuvable : " + id));
     }
 
-    /** Nom de l'application pour le journal, sans jamais lever d'exception. */
+    /** Nom de l'application pour le journal ; ne leve jamais d'exception. */
     private String applicationName(UUID id) {
         try {
             return applicationRepository.findById(id).map(Application::getName).orElse("Application introuvable");

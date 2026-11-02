@@ -26,15 +26,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-/**
- * Preuve concrete que le moteur envoie de VRAIES requetes HTTP (serveur JDK
- * embarque, aucune dependance ajoutee, aucun mock du client HTTP lui-meme),
- * et (P0-A) qu'il produit une VRAIE charge concurrente : plusieurs
- * utilisateurs virtuels reellement paralleles, un ramp-up reellement
- * etale dans le temps, une duree/un nombre d'iterations reellement
- * respectes, et une annulation qui interrompt reellement des requetes en
- * vol - jamais simules.
- */
+/** Le moteur envoie de vraies requetes HTTP (serveur JDK embarque) avec la charge demandee. */
 class HttpClientExecutionEngineTest {
 
     private static final ExecutorService TEST_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
@@ -44,17 +36,7 @@ class HttpClientExecutionEngineTest {
 
     private HttpServer server;
 
-    /**
-     * Rechauffe une seule fois, de maniere synchrone et bloquante, les
-     * ressources internes couteuses de java.net.http.HttpClient (voir
-     * HttpClientExecutionEngine.warmUpHttpClient - meme mecanisme qu'en
-     * production via @PostConstruct, mais declenche ici manuellement car ce
-     * test construit l'engine directement sans passer par Spring). Sans
-     * cela, le tout premier test de la classe a utiliser HttpClient sur une
-     * JVM froide (constat REEL, voir rapport P0-A) peut voir son ramp-up
-     * artificiellement compresse par ce cout d'initialisation JDK, non
-     * represantatif du comportement reel une fois le backend demarre.
-     */
+    /** Initialise HttpClient une fois avant les tests, comme au demarrage de l'application. */
     @BeforeAll
     static void warmUpJvmHttpClient() {
         new HttpClientExecutionEngine(2, new ObjectMapper(), TEST_EXECUTOR).warmUpHttpClient();
@@ -75,8 +57,7 @@ class HttpClientExecutionEngineTest {
     private HttpServer startServer(com.sun.net.httpserver.HttpHandler handler) throws IOException {
         HttpServer s = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         s.createContext("/", handler);
-        // Executeur demon : evite qu'un handler lent (test de timeout) ne
-        // retienne un thread non-demon apres la fin des tests.
+        // Executeur demon : un handler lent ne retient pas de thread apres la fin des tests.
         s.setExecutor(Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
             t.setDaemon(true);
@@ -96,9 +77,7 @@ class HttpClientExecutionEngineTest {
                 null, null, null, null, null, null);
     }
 
-    /** P1-Q Etape B — variante avec les options par etape (think time/
-     * timeout/follow-redirects/assertion), jamais les 4 premiers tests
-     * historiques ci-dessus qui doivent rester inchanges avec null partout. */
+    /** Etape avec options (think time, timeout, redirections, assertion). */
     private StepExecutionSpec stepWithOptions(String name, HttpMethod method, String url, String headers, String body,
             Integer expectedStatus, Integer thinkTimeMs, Integer timeoutSeconds, Boolean followRedirects,
             String assertionBodyContains) {
@@ -106,23 +85,19 @@ class HttpClientExecutionEngineTest {
                 thinkTimeMs, timeoutSeconds, followRedirects, assertionBodyContains, null, null);
     }
 
-    /** Master prompt final (Lot B) — variante avec capture de variable
-     * dynamique depuis la reponse de cette etape. */
+    /** Etape avec capture d'une variable dans la reponse. */
     private StepExecutionSpec stepWithCapture(String name, HttpMethod method, String url, String headers, String body,
             Integer expectedStatus, String captureVariableName, String captureJsonPath) {
         return new StepExecutionSpec(UUID.randomUUID(), name, method, url, headers, body, expectedStatus,
                 null, null, null, null, captureVariableName, captureJsonPath);
     }
 
-    /** Reproduit exactement le comportement historique a une seule passe
-     * (voir LoadTestSpec.singlePass) avec une poignee jamais annulee. */
+    /** Une seule passe, avec une execution jamais annulee. */
     private ScenarioExecutionOutcome executeSinglePass(HttpClientExecutionEngine e, List<StepExecutionSpec> steps, String baseUrl) {
         return e.execute(steps, baseUrl, LoadTestSpec.singlePass(), new RunningExecutionHandle(), List.of());
     }
 
-    // ------------------------------------------------------------
-    // Comportement historique (une seule passe) - inchange
-    // ------------------------------------------------------------
+    // ---- Une seule passe ----
 
     @Test
     void get_success_returnsSuccessOutcome() throws IOException {
@@ -239,7 +214,7 @@ class HttpClientExecutionEngineTest {
         });
         String absoluteUrl = baseUrl(s) + "/direct";
 
-        // Base URL deliberement injoignable pour prouver qu'elle est bien ignoree.
+        // URL de base injoignable : elle doit etre ignoree.
         ScenarioExecutionOutcome outcome = executeSinglePass(engine,
                 List.of(step("abs", HttpMethod.GET, absoluteUrl, null, null, null)), "http://localhost:1");
 
@@ -378,9 +353,7 @@ class HttpClientExecutionEngineTest {
         assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.FAILED);
     }
 
-    // ------------------------------------------------------------
-    // P0-A : charge reelle - virtualUsers / concurrency
-    // ------------------------------------------------------------
+    // ---- Utilisateurs virtuels simultanes ----
 
     @Test
     void virtualUsers_5_reallyProducesFiveConcurrentUsers() throws IOException {
@@ -392,7 +365,7 @@ class HttpClientExecutionEngineTest {
             int current = concurrentNow.incrementAndGet();
             maxConcurrent.updateAndGet(prev -> Math.max(prev, current));
             try {
-                Thread.sleep(150); // assez long pour que le chevauchement soit mesurable
+                Thread.sleep(150); // assez long pour que les requetes se chevauchent
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
@@ -405,9 +378,7 @@ class HttpClientExecutionEngineTest {
         ScenarioExecutionOutcome outcome = engine.execute(
                 List.of(step("vu-step", HttpMethod.GET, "/x", null, null, null)), baseUrl(s), spec, new RunningExecutionHandle(), List.of());
 
-        // Preuve REELLE de concurrence : plusieurs requetes se sont
-        // effectivement chevauchees dans le temps (jamais sequentiel), sur
-        // des threads reellement distincts (un par utilisateur virtuel).
+        // Plusieurs requetes se sont chevauchees, sur des threads distincts.
         assertThat(maxConcurrent.get()).isGreaterThan(1);
         assertThat(distinctThreads.size()).isGreaterThan(1);
         assertThat(outcome.stepOutcomes()).hasSize(5);
@@ -427,24 +398,12 @@ class HttpClientExecutionEngineTest {
         ScenarioExecutionOutcome outcome = engine.execute(
                 List.of(step("s1", HttpMethod.GET, "/x", null, null, null)), baseUrl(s), spec, new RunningExecutionHandle(), List.of());
 
-        // Sans rampUp, les 10 VUs ouvrent leur connexion quasi simultanement :
-        // sur cette machine de developpement partagee (Windows, sans lien avec
-        // le moteur - aucun pinning de thread virtuel constate, voir rapport
-        // P0-A), une minorite de ces connexions locales peut occasionnellement
-        // essuyer un timeout cote client (2s) du a une latence externe reelle
-        // mais imprevisible (deja constate ailleurs sur cette machine, voir
-        // le warm-up HttpClient). Un seuil tolerant reste neanmoins pleinement
-        // discriminant pour ce que ce test verifie reellement : une boucle
-        // "exactement une iteration par VU" en boguerait beaucoup plus haut
-        // (boucle infinie), et une absence de concurrence reelle resterait
-        // bien plus bas (proche de 1) - jamais entre 8 et 10.
+        // Sans ramp-up, les 10 utilisateurs virtuels se connectent presque en meme temps : tolerance pour une machine chargee.
         assertThat(callCount.get()).isGreaterThanOrEqualTo(8);
         assertThat(outcome.stepOutcomes()).hasSize(10);
     }
 
-    // ------------------------------------------------------------
-    // P0-A : ramp-up reel
-    // ------------------------------------------------------------
+    // ---- Montee en charge (ramp-up) ----
 
     @Test
     void rampUp_reallyStaggersVirtualUserStarts_neverAllAtOnce() throws IOException {
@@ -456,24 +415,19 @@ class HttpClientExecutionEngineTest {
             exchange.close();
         });
 
-        // rampUpSeconds n'accepte qu'un entier de secondes ; on verifie ici le
-        // principe avec 1s pour rester robuste aux imprecisions de planification
-        // des threads sur une machine partagee (CI), pas des ecarts en millisecondes.
+        // ramp-up de 1 s, en secondes entieres.
         LoadTestSpec rampSpec = new LoadTestSpec(4, 1, null, null, 0, null);
 
         engine.execute(List.of(step("ramp", HttpMethod.GET, "/x", null, null, null)), baseUrl(s), rampSpec, new RunningExecutionHandle(), List.of());
 
         assertThat(arrivalTimesMs).hasSize(4);
         List<Long> sorted = arrivalTimesMs.stream().sorted().toList();
-        // Preuve REELLE d'etalement : le dernier VU demarre nettement apres le
-        // premier (jamais 0ms d'ecart, ce qui prouverait un lancement instantane).
+        // Le dernier utilisateur virtuel demarre nettement apres le premier.
         long spread = sorted.get(sorted.size() - 1) - sorted.get(0);
         assertThat(spread).isGreaterThanOrEqualTo(500); // sur 1000ms de ramp-up pour 4 VUs (~250ms d'ecart chacun)
     }
 
-    // ------------------------------------------------------------
-    // P0-A : duration reelle
-    // ------------------------------------------------------------
+    // ---- Duree ----
 
     @Test
     void duration_reallyBoundsExecutionToApproximatelyThatDuration() throws IOException {
@@ -483,36 +437,20 @@ class HttpClientExecutionEngineTest {
         });
 
         long start = System.nanoTime();
-        // 3 secondes de charge (marge large et deliberee : le premier appel
-        // HTTP d'un utilisateur virtuel fraichement demarre a un cout
-        // d'etablissement mesurable - 1s ne laisserait pas de marge fiable
-        // pour observer plusieurs iterations reelles sur une machine
-        // partagee/CI, voir constat empirique).
+        // 3 secondes de charge.
         LoadTestSpec spec = new LoadTestSpec(2, 0, 3, null, 0, null);
         ScenarioExecutionOutcome outcome = engine.execute(
                 List.of(step("dur", HttpMethod.GET, "/x", null, null, null)), baseUrl(s), spec, new RunningExecutionHandle(), List.of());
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
-        // Doit durer environ 3s (pas instantane comme 1 seule passe), sans
-        // pour autant tourner indefiniment (la duree est reellement
-        // respectee, pas juste une limite haute vague). Borne haute large
-        // et deliberee (constat empirique sur cette machine partagee : une
-        // requete isolee peut occasionnellement subir une latence externe
-        // reelle et imprevisible - jusqu'a ~10s vu une fois - sans lien avec
-        // le moteur ; voir le warm-up HttpClient pour un phenomene similaire
-        // deja documente). La propriete testee reste demontree tant que la
-        // duree observee est nettement bornee (jamais une execution qui ne
-        // se termine jamais), pas qu'elle tienne dans une fenetre etroite.
+        // Environ 3 s, avec une borne haute large pour une machine partagee.
         assertThat(elapsedMs).isGreaterThanOrEqualTo(2900);
         assertThat(elapsedMs).isLessThan(15000);
-        // Preuve REELLE que la duree pilote plusieurs iterations (jamais une
-        // seule passe) : au moins une iteration complete par VU au minimum.
+        // La duree pilote plusieurs iterations.
         assertThat(outcome.stepOutcomes().size()).isGreaterThanOrEqualTo(2);
     }
 
-    // ------------------------------------------------------------
-    // P0-A : iterations reelles
-    // ------------------------------------------------------------
+    // ---- Iterations ----
 
     @Test
     void iterations_3_eachVirtualUserRunsExactlyThatManyTimes() throws IOException {
@@ -547,9 +485,7 @@ class HttpClientExecutionEngineTest {
         assertThat(elapsedMs).isGreaterThanOrEqualTo(380);
     }
 
-    // ------------------------------------------------------------
-    // P0-A : annulation reelle
-    // ------------------------------------------------------------
+    // ---- Annulation ----
 
     @Test
     void cancellation_reallyStopsExecution_beforeDurationElapses() throws IOException, InterruptedException {
@@ -571,13 +507,13 @@ class HttpClientExecutionEngineTest {
         long start = System.nanoTime();
         runner.start();
         started.await(2, TimeUnit.SECONDS);
-        Thread.sleep(150); // laisse reellement demarrer quelques requetes
+        Thread.sleep(150); // laisse demarrer quelques requetes
         handle.requestCancellation();
         runner.join(4000);
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
         assertThat(runner.isAlive()).isFalse();
-        // Preuve REELLE d'annulation : arret bien avant les 5 secondes prevues.
+        // Arret bien avant les 5 secondes prevues.
         assertThat(elapsedMs).isLessThan(4000);
         assertThat(resultRef.get()).isNotNull();
     }
@@ -599,9 +535,7 @@ class HttpClientExecutionEngineTest {
         assertThat(outcome.stepOutcomes()).isEmpty();
     }
 
-    // ------------------------------------------------------------
-    // P0-A : isolation entre executions concurrentes (thread-safety)
-    // ------------------------------------------------------------
+    // ---- Isolation entre executions simultanees ----
 
     @Test
     void twoConcurrentExecutions_neverMixResults() throws IOException, InterruptedException {
@@ -630,15 +564,12 @@ class HttpClientExecutionEngineTest {
         tA.join(5000);
         tB.join(5000);
 
-        // Chaque execution garde EXACTEMENT le nombre de resultats attendu -
-        // aucun melange d'etat partage entre les deux executions concurrentes.
+        // Chaque execution garde exactement son nombre de resultats.
         assertThat(outcomeA.get().stepOutcomes()).hasSize(5);
         assertThat(outcomeB.get().stepOutcomes()).hasSize(7);
     }
 
-    // ------------------------------------------------------------
-    // P1-Q Etape B : variables / CSV data source
-    // ------------------------------------------------------------
+    // ---- Variables et donnees CSV ----
 
     @Test
     void variables_areSubstitutedFromCsvRow_intoUrlHeadersAndBody() throws IOException {
@@ -675,7 +606,7 @@ class HttpClientExecutionEngineTest {
             exchange.close();
         });
 
-        // 2 lignes pour 4 VUs : distribution cyclique attendue (jamais un echec).
+        // 2 lignes pour 4 utilisateurs virtuels : distribution cyclique.
         List<java.util.Map<String, String>> rows = CsvDataSource.parse("username\nuser1\nuser2");
         StepExecutionSpec spec = stepWithOptions("s", HttpMethod.GET, "/x", "{\"X-User\":\"${username}\"}", null,
                 null, null, null, null, null);
@@ -718,7 +649,7 @@ class HttpClientExecutionEngineTest {
             exchange.close();
         });
 
-        // Comportement historique inchange : liste de lignes vide (CsvDataSource.parse(null)).
+        // Sans CSV : liste de lignes vide.
         ScenarioExecutionOutcome outcome = engine.execute(
                 List.of(step("s", HttpMethod.GET, "/x", null, null, null)), baseUrl(s), LoadTestSpec.singlePass(),
                 new RunningExecutionHandle(), CsvDataSource.parse(null));
@@ -727,9 +658,7 @@ class HttpClientExecutionEngineTest {
         assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.SUCCESS);
     }
 
-    // ------------------------------------------------------------
-    // P1-Q Etape B : assertion de contenu (response contains)
-    // ------------------------------------------------------------
+    // ---- Assertion de contenu ----
 
     @Test
     void assertionBodyContains_matching_isSuccess() throws IOException {
@@ -785,9 +714,7 @@ class HttpClientExecutionEngineTest {
         assertThat(outcome.stepOutcomes().get(0).success()).isTrue();
     }
 
-    // ------------------------------------------------------------
-    // P1-Q Etape B : timeout par etape
-    // ------------------------------------------------------------
+    // ---- Timeout par etape ----
 
     @Test
     void perStepTimeout_overridesGlobalTimeout_causesEarlierFailure() throws IOException {
@@ -807,8 +734,7 @@ class HttpClientExecutionEngineTest {
                 new RunningExecutionHandle(), List.of());
 
         StepOutcome result = outcome.stepOutcomes().get(0);
-        // Avec le seul timeout global (2s), cette requete de 1.5s aurait reussi -
-        // preuve que le timeout PAR ETAPE (1s) a bien ete applique a la place.
+        // Avec le timeout global (2 s), cette requete de 1,5 s aurait reussi : le timeout de l'etape (1 s) s'applique.
         assertThat(result.success()).isFalse();
         assertThat(result.error()).contains("1s");
     }
@@ -826,9 +752,7 @@ class HttpClientExecutionEngineTest {
         assertThat(outcome.stepOutcomes().get(0).success()).isTrue();
     }
 
-    // ------------------------------------------------------------
-    // P1-Q Etape B : think time par etape
-    // ------------------------------------------------------------
+    // ---- Think time par etape ----
 
     @Test
     void perStepThinkTime_reallyDelaysBeforeTheNextStep() throws IOException {
@@ -844,14 +768,11 @@ class HttpClientExecutionEngineTest {
         engine.execute(List.of(first, second), baseUrl(s), LoadTestSpec.singlePass(), new RunningExecutionHandle(), List.of());
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
-        // La pause de 300ms configuree sur "first" doit reellement s'ecouler
-        // avant "second" - jamais applique si non configure (voir test ci-dessus).
+        // La pause de 300 ms de "first" s'ecoule avant "second".
         assertThat(elapsedMs).isGreaterThanOrEqualTo(280);
     }
 
-    // ------------------------------------------------------------
-    // P1-Q Etape B : follow redirects par etape
-    // ------------------------------------------------------------
+    // ---- Redirections par etape ----
 
     @Test
     void followRedirects_defaultNull_followsRedirect_likeHistoricalGlobalBehavior() throws IOException {
@@ -896,9 +817,7 @@ class HttpClientExecutionEngineTest {
         assertThat(result.success()).isTrue(); // expectedStatus=302 correspond exactement
     }
 
-    // ------------------------------------------------------------
-    // Master prompt final (Lot A) : pacing (debit cible)
-    // ------------------------------------------------------------
+    // ---- Pacing (debit cible) ----
 
     @Test
     void pacing_absent_behavesLikeHistorical_noArtificialDelay() throws IOException {
@@ -908,7 +827,7 @@ class HttpClientExecutionEngineTest {
         });
 
         long start = System.nanoTime();
-        // targetRps=null (LoadTestSpec.singlePass()) : aucune pause de pacing.
+        // targetRps = null : aucune pause de pacing.
         ScenarioExecutionOutcome outcome = executeSinglePass(engine,
                 List.of(step("no-pacing", HttpMethod.GET, "/x", null, null, null)), baseUrl(s));
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
@@ -924,10 +843,7 @@ class HttpClientExecutionEngineTest {
             exchange.close();
         });
 
-        // 5 VUs x 2 iterations = 10 requetes au total, cadencees a ~5 req/s
-        // PARTAGE entre tous les VUs -> ~2s attendues (jamais ~0s comme sans
-        // pacing, jamais un multiple de 5 VUs x 2s comme si chaque VU avait
-        // son propre gate independant).
+        // 5 VU x 2 iterations = 10 requetes a ~5 req/s partages entre tous les VU : ~2 s.
         LoadTestSpec spec = new LoadTestSpec(5, 0, null, 2, 0, 5);
         long start = System.nanoTime();
         ScenarioExecutionOutcome outcome = engine.execute(
@@ -936,10 +852,7 @@ class HttpClientExecutionEngineTest {
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
         assertThat(outcome.stepOutcomes()).hasSize(10);
-        // Preuve REELLE de regulation du debit : nettement plus lent qu'une
-        // execution instantanee (10 requetes locales prendraient normalement
-        // quelques dizaines de ms sans pacing), mais borne (jamais un blocage
-        // indefini). Marge large et deliberee (machine partagee/CI).
+        // Debit regule : plus lent qu'une execution sans pacing, mais borne.
         assertThat(elapsedMs).isGreaterThanOrEqualTo(1500);
         assertThat(elapsedMs).isLessThan(8000);
     }
@@ -951,12 +864,7 @@ class HttpClientExecutionEngineTest {
             exchange.close();
         });
 
-        // 1 VU x 4 iterations vs 4 VUs x 1 iteration : MEME nombre total de
-        // requetes (4) au MEME targetRps (4) -> temps attendu similaire
-        // (~1s) dans les deux cas SI le debit est bien global. S'il etait
-        // (a tort) applique par VU, le cas "4 VUs" serait quasi instantane
-        // (chaque VU respecterait 4 req/s pour lui seul, soit 1 requete
-        // chacun).
+        // Meme nombre de requetes (4) au meme targetRps (4), avec 1 ou 4 VU : duree similaire si le debit est global.
         LoadTestSpec singleVuSpec = new LoadTestSpec(1, 0, null, 4, 0, 4);
         long start1 = System.nanoTime();
         engine.execute(List.of(step("s1", HttpMethod.GET, "/x", null, null, null)), baseUrl(s), singleVuSpec,
@@ -970,9 +878,7 @@ class HttpClientExecutionEngineTest {
         long elapsed2Ms = Duration.ofNanos(System.nanoTime() - start2).toMillis();
 
         assertThat(elapsed1Ms).isGreaterThanOrEqualTo(600);
-        // Preuve cle : le cas multi-VU n'est PAS drastiquement plus rapide
-        // (ce qui prouverait un gate par-VU, jamais global) - marge large
-        // pour une machine partagee/CI.
+        // Le cas a plusieurs VU n'est pas beaucoup plus rapide : le debit est bien global.
         assertThat(elapsed2Ms).isGreaterThanOrEqualTo(600);
     }
 
@@ -1005,9 +911,7 @@ class HttpClientExecutionEngineTest {
         assertThat(elapsedMs).isLessThan(3000); // arret bien avant les ~50s prevues sans annulation
     }
 
-    // ------------------------------------------------------------
-    // Master prompt final (Lot B) : variables dynamiques capturees
-    // ------------------------------------------------------------
+    // ---- Variables capturees ----
 
     @Test
     void dynamicVariable_capturedFromJsonResponse_isSubstitutedInNextStep() throws IOException {
@@ -1077,8 +981,7 @@ class HttpClientExecutionEngineTest {
 
         StepExecutionSpec login = stepWithCapture("login", HttpMethod.POST, "/login", null, null, null,
                 "token", "token");
-        // Variable introuvable (capture manquee) : l'etape echoue AVANT l'envoi, avec un message
-        // clair - jamais de requete envoyee avec un ${...} brut, meme dans le corps.
+        // Variable introuvable : l'etape echoue avant l'envoi, avec un message clair.
         StepExecutionSpec next = step("next", HttpMethod.POST, "/x", null, "{\"token\":\"${token}\"}", null);
 
         ScenarioExecutionOutcome outcome = engine.execute(List.of(login, next), baseUrl(s), LoadTestSpec.singlePass(),
@@ -1093,8 +996,7 @@ class HttpClientExecutionEngineTest {
 
     @Test
     void dynamicVariable_missingPath_inUrl_failsCleanlyBeforeSending_neverSentLiterally() throws IOException {
-        // Un "${token}" non resolu dans l'URL (capture manquee) ne part jamais sur le reseau :
-        // l'etape echoue avant l'envoi avec un message qui designe l'etape de capture.
+        // "${token}" non resolu dans l'URL : l'etape echoue avant l'envoi, avec un message qui designe l'etape de capture.
         HttpServer s = startServer(exchange -> {
             byte[] body = "{\"other\":\"value\"}".getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
@@ -1157,15 +1059,12 @@ class HttpClientExecutionEngineTest {
         StepExecutionSpec next = stepWithOptions("next", HttpMethod.GET, "/x", "{\"X-Token\":\"${token}\"}", null,
                 null, null, null, null, null);
 
-        // 5 VUs concurrents : chacun doit reutiliser EXACTEMENT le token que
-        // LUI-MEME a recu au login, jamais celui d'un autre VU.
+        // 5 VU simultanes : chacun reutilise le jeton qu'il a lui-meme recu.
         ScenarioExecutionOutcome outcome = engine.execute(List.of(login, next), baseUrl(s),
                 new LoadTestSpec(5, 0, null, null, 0, null), new RunningExecutionHandle(), List.of());
 
         assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.SUCCESS);
-        // 5 VUs, 5 tokens distincts emis, et EXACTEMENT ces 5 tokens (jamais
-        // moins par collision, jamais un token invente) retrouves cote
-        // "next" - preuve d'isolation stricte par VU.
+        // 5 jetons distincts emis, et exactement ces 5 recus par "next".
         assertThat(tokensReceivedInSecondStep).hasSize(5);
         for (String token : tokensReceivedInSecondStep) {
             assertThat(token).matches("tok-[1-5]");
@@ -1194,8 +1093,7 @@ class HttpClientExecutionEngineTest {
         StepExecutionSpec next = stepWithOptions("next", HttpMethod.GET, "/x", "{\"X-Token\":\"${token}\"}", null,
                 null, null, null, null, null);
 
-        // 1 VU, 3 iterations : le login re-capture un NOUVEAU token a chaque
-        // iteration (jamais fige sur la toute premiere valeur).
+        // 1 VU, 3 iterations : un nouveau jeton capture a chaque iteration.
         engine.execute(List.of(login, next), baseUrl(s), new LoadTestSpec(1, 0, null, 3, 0, null),
                 new RunningExecutionHandle(), List.of());
 

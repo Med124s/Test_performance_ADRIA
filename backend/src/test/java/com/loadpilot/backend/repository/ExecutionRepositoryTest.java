@@ -22,12 +22,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
 
-/**
- * Verifie ExecutionRepository avec H2 reel - en particulier
- * findByIdWithScenarioAndApplication (JOIN FETCH, Phase 9) et les
- * agregations par Application via jointure imbriquee
- * (e.scenario.application.id, Phase 11), jamais testees isolement jusqu'ici.
- */
+/** ExecutionRepository sur H2 : chargement avec JOIN FETCH et agregations par application. */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")
@@ -101,8 +96,7 @@ class ExecutionRepositoryTest {
 
         Execution reloaded = executionRepository.findByIdWithScenarioAndApplication(saved.getId()).orElseThrow();
 
-        // Acces direct sans exception (JOIN FETCH deja initialise, pas de
-        // proxy Hibernate qui declencherait une requete/LazyInitializationException).
+        // Scenario deja charge (JOIN FETCH).
         assertThat(reloaded.getScenario().getName()).isEqualTo(scenario.getName());
         assertThat(reloaded.getScenario().getApplication().getUrl()).isEqualTo(application.getUrl());
     }
@@ -114,12 +108,7 @@ class ExecutionRepositoryTest {
 
     @Test
     void findByScenarioId_ordersByStartedAtDescending() {
-        // Instants explicitement distincts (jamais Instant.now() appele deux
-        // fois de suite) : sur certains systemes (Windows notamment), deux
-        // appels rapproches a Instant.now() peuvent renvoyer la MEME valeur
-        // (granularite de l'horloge systeme), ce qui rendrait ce test flaky
-        // s'il dependait de l'ordre de creation reel plutot que de valeurs
-        // controlees.
+        // Instants explicitement distincts : deux appels rapproches a Instant.now() peuvent renvoyer la meme valeur.
         Instant base = Instant.now();
         Execution first = save(scenario, ExecutionStatus.SUCCESS, base);
         Execution second = save(scenario, ExecutionStatus.SUCCESS, base.plusSeconds(10));
@@ -172,16 +161,14 @@ class ExecutionRepositoryTest {
         assertThat(executionRepository.countByApplicationId(freshScenario.getApplication().getId())).isZero();
     }
 
-    // ------------------------------------------------------------
-    // P1-C - Dashboard enrichi (plage temporelle, widget "Top scenarios")
-    // ------------------------------------------------------------
+    // ---- Tableau de bord sur une periode ----
 
     @Test
     void countByStartedAtBetween_and_countByStatusAndStartedAtBetween_respectTheRange() {
         Instant now = Instant.now();
         save(scenario, ExecutionStatus.SUCCESS, now);
         save(scenario, ExecutionStatus.FAILED, now);
-        // En dehors de la fenetre testee - ne doit jamais etre compte.
+        // Hors de la fenetre testee.
         save(scenario, ExecutionStatus.SUCCESS, now.minus(10, ChronoUnit.DAYS));
 
         Instant from = now.minusSeconds(60);
@@ -190,10 +177,7 @@ class ExecutionRepositoryTest {
         assertThat(executionRepository.countByStartedAtBetween(from, to)).isGreaterThanOrEqualTo(2L);
         assertThat(executionRepository.countByStatusAndStartedAtBetween(ExecutionStatus.SUCCESS, from, to)).isGreaterThanOrEqualTo(1L);
 
-        // Une fenetre entierement dans le futur ne peut structurellement
-        // contenir aucune Execution reelle (aucun test ne cree jamais de
-        // startedAt futur) - assertion deterministe, jamais affectee par
-        // les donnees d'autres classes de test partageant la meme base H2.
+        // Une fenetre entierement future ne contient aucune execution.
         Instant future = now.plus(365, ChronoUnit.DAYS);
         assertThat(executionRepository.countByStartedAtBetween(future, future.plusSeconds(60))).isZero();
     }
@@ -204,17 +188,13 @@ class ExecutionRepositoryTest {
         save(scenario, ExecutionStatus.SUCCESS, now);
         save(scenario, ExecutionStatus.SUCCESS, now);
         save(scenario, ExecutionStatus.FAILED, now);
-        // Hors de la fenetre testee - ne doit jamais etre compte dans le groupe.
+        // Hors de la fenetre testee.
         save(scenario, ExecutionStatus.SUCCESS, now.minus(10, ChronoUnit.DAYS));
 
         Instant from = now.minusSeconds(60);
         Instant to = now.plusSeconds(60);
 
-        // Limite large (jamais TOP_SCENARIOS_LIMIT=5 du service) : immunise
-        // ce test contre d'autres scenarios crees par d'autres classes dans
-        // la meme fenetre temporelle (base H2 partagee) - on cherche
-        // explicitement NOTRE scenario dans la liste complete, jamais
-        // suppose qu'il soit dans un "top 5" partage.
+        // Limite large : d'autres scenarios peuvent exister dans la meme fenetre (base partagee).
         List<ScenarioExecutionCountProjection> all = executionRepository.findTopScenariosByExecutionCount(
                 from, to, ExecutionStatus.SUCCESS, PageRequest.of(0, 1000));
 

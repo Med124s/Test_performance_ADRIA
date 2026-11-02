@@ -6,21 +6,12 @@ import com.loadpilot.backend.security.CurrentUser;
 
 public interface ProfileService {
 
-    /**
-     * Construit le profil de l'utilisateur authentifie (identite + roles
-     * issus du Jwt), et synchronise au passage sa projection locale
-     * (AppUser) - voir l'implementation pour le detail de cette
-     * synchronisation.
-     */
+    /** Profil de l'utilisateur authentifie ; met aussi a jour sa copie locale (AppUser). */
     ProfileResponse getProfile(CurrentUser currentUser);
 
-    /**
-     * P1-D — met a jour la SEULE preference reellement possedee par
-     * l'utilisateur (timezone, voir ProfileUpdateRequest).
-     * @throws com.loadpilot.backend.exception.InvalidProfileException si le fuseau horaire n'est pas un identifiant IANA valide.
-     */
+    /** Met a jour les preferences du profil (fuseau horaire, apparence). */
     ProfileResponse updateProfile(CurrentUser currentUser, ProfileUpdateRequest request);
 
-    /** Prenom, nom et e-mail du compte connecte : Super administrateur seulement (403 sinon), journalise avant -> apres. */
+    /** Prenom, nom et e-mail du compte connecte (Super administrateur seulement). */
     ProfileResponse updateIdentity(CurrentUser currentUser, com.loadpilot.backend.dto.request.ProfileIdentityRequest request);
 }

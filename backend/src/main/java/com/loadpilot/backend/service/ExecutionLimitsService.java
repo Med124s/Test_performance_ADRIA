@@ -16,14 +16,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-/**
- * Limites de charge sur deux niveaux :
- *   - plafond technique : variables du serveur (LOADPILOT_MAX_*), jamais modifiables depuis l'interface ;
- *   - limite applicative : reglee dans Parametres > Systeme > Limites par le Super administrateur,
- *     toujours <= plafond (par defaut = plafond).
- * Lues a chaque enregistrement, lancement et declenchement de planification : effet immediat, sans
- * effet sur les executions deja en cours. Chaque changement est journalise (avant -> apres).
- */
+/** Limites de charge : plafond du serveur (LOADPILOT_MAX_*) et limite applicative reglee dans Parametres > Systeme, toujours <= plafond. */
 @Service
 public class ExecutionLimitsService {
 
@@ -66,8 +59,7 @@ public class ExecutionLimitsService {
                                   @Value("${app.availability.timeout-seconds}") int availabilityTimeoutSeconds) {
         this.settings = settings;
         this.auditLogService = auditLogService;
-        // Plafonds incoherents (variables d'environnement d'avant, ex. 500 par test / 200 au total) : le
-        // plafond par test est ramene au plafond global - jamais affiche ni applique au-dessus.
+        // Plafond par test ramene au plafond global s'il le depasse.
         if (maxVirtualUsersPerExecution > maxGlobalVirtualUsers) {
             org.slf4j.LoggerFactory.getLogger(ExecutionLimitsService.class).warn(
                     "LOADPILOT_MAX_VUS_PER_EXECUTION ({}) superieur a LOADPILOT_MAX_GLOBAL_VUS ({}) : plafond par test ramene a {}.",
@@ -87,11 +79,7 @@ public class ExecutionLimitsService {
         return ceilings.get(limit);
     }
 
-    /**
-     * Limite applicative en vigueur : reglee dans Parametres, jamais au-dessus du plafond (defaut = plafond).
-     * « Par test » n'est jamais au-dessus de « au total » : une ancienne valeur enregistree plus haute (ou un
-     * plafond du serveur baisse depuis) ne cree donc jamais de configuration incoherente.
-     */
+    /** Limite applicative en vigueur : jamais au-dessus du plafond ; "par test" jamais au-dessus de "au total". */
     public int value(Limit limit) {
         if (limit == Limit.VIRTUAL_USERS_PER_TEST) {
             return Math.min(storedValue(limit), value(Limit.VIRTUAL_USERS_TOTAL));
@@ -116,7 +104,7 @@ public class ExecutionLimitsService {
                 targetRpsAdvisedAboveVirtualUsers);
     }
 
-    /** Au-dela, un debit cible est fortement conseille (avertissement, voir LoadRules.warnings) ; 0 = desactive. */
+    /** Nombre d'utilisateurs virtuels au-dela duquel un debit cible est conseille ; 0 = desactive. */
     @Value("${app.execution.target-rps-advised-above-virtual-users:" + LoadLimits.DEFAULT_TARGET_RPS_ADVISED_ABOVE_VIRTUAL_USERS + "}")
     private int targetRpsAdvisedAboveVirtualUsers;
 
@@ -131,11 +119,7 @@ public class ExecutionLimitsService {
     /** Message de refus : « au total » en dessous de « par test » (meme texte que l'interface). */
     public static final String TOTAL_BELOW_PER_TEST = "Le total doit être supérieur ou égal au maximum par test.";
 
-    /**
-     * Enregistre les limites. « Au total » strictement inferieur a « par test » : toujours refuse (400),
-     * rien n'est enregistre - que l'administrateur ait baisse le total ou monte « par test ». Il corrige
-     * lui-meme l'un des deux (aucun ajustement automatique).
-     */
+    /** Enregistre les limites ; "au total" inferieur a "par test" est refuse (400). */
     public ExecutionLimitsResponse update(ExecutionLimitsRequest request, String updatedBy) {
         Map<Limit, Integer> requested = new LinkedHashMap<>();
         requested.put(Limit.VIRTUAL_USERS_PER_TEST, request.virtualUsersPerTest());
@@ -150,10 +134,8 @@ public class ExecutionLimitsService {
             if (problem != null) errors.add(problem);
         });
         if (!errors.isEmpty()) throw new BadRequestException(String.join(" ", errors));
-        // Un seul test ne doit jamais pouvoir depasser le plafond de tous les tests reunis.
         if (request.virtualUsersTotal() < request.virtualUsersPerTest()) throw new BadRequestException(TOTAL_BELOW_PER_TEST);
 
-        // Avant : valeurs enregistrees (une ancienne incoherence apparait telle quelle au journal).
         Map<Limit, Integer> before = new LinkedHashMap<>();
         for (Limit l : Limit.values()) before.put(l, storedValue(l));
 
@@ -168,7 +150,7 @@ public class ExecutionLimitsService {
         return get();
     }
 
-    /** Message identique a l'interface (null si correct). */
+    /** Message d'erreur d'une limite ; null si la valeur est correcte. */
     public static String problem(Limit limit, Integer value, int ceiling) {
         if (value == null) return limit.label + " : valeur obligatoire.";
         if (value < 1) return limit.label + " : au moins 1.";

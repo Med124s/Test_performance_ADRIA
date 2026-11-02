@@ -1,16 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 
-/**
- * Envoie directement l'utilisateur non connecté vers la page de connexion
- * LoadPilot (thème Keycloak « loadpilot », flux Authorization Code + PKCE) :
- * aucun formulaire ni mot de passe dans React. `returnTo` est la page à
- * rouvrir après la connexion.
- *
- * Si le retour de Keycloak vient d'échouer (`authError`), la redirection
- * automatique est suspendue — sinon un échec répété (client mal configuré,
- * Keycloak injoignable pour l'échange du code…) bouclerait sans fin.
- */
+/** Redirige l'utilisateur non connecté vers la page de connexion ; `returnTo` : page à rouvrir après la connexion. */
 function LoginRedirect({ returnTo }: { returnTo?: string }) {
   const { loginWithKeycloak, authError } = useAuth()
   const started = useRef(false)

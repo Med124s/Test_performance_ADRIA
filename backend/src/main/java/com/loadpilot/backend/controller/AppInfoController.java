@@ -7,11 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Nom et version de l'application, affiches en bas de la barre laterale. La version est definie a
- * UN seul endroit : <version> du pom.xml, recopiee au build dans app.version (application.yml).
- * Lisible par tout utilisateur connecte.
- */
+/** Nom et version de l'application, affiches dans la barre laterale. */
 @RestController
 @Tag(name = "Application", description = "Nom et version de LoadPilot")
 public class AppInfoController {

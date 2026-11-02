@@ -8,12 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/**
- * Variables du scenario (type environnement Postman) : objet JSON {"nom": "valeur"} stocke dans
- * scenario.variables. Memes regles que le frontend (pages/scenario-wizard/variablesModel.ts) :
- * noms en lettres, chiffres et _ (sans commencer par un chiffre), 100 variables au maximum,
- * valeurs texte de 2000 caracteres au maximum.
- */
+/** Variables du scenario : objet JSON {"nom": "valeur"}, noms en lettres, chiffres et _. */
 public final class ScenarioVariables {
 
     public static final Pattern NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");

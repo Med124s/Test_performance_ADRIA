@@ -20,27 +20,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Isole la SEULE portion transactionnelle courte et verrouillee de
- * ScheduledExecutionPoller/ScheduledExecutionServiceImpl#runNow - meme
- * principe exactement que ExecutionTransactionHelper (bean separe :
- * @Transactional est ignore sur un appel this.methode() depuis la meme
- * classe, voir sa Javadoc).
- *
- * PROTECTION ANTI DOUBLE-DECLENCHEMENT (P1-B) : verrou pessimiste
- * (SELECT ... FOR UPDATE, voir ScheduledExecutionRepository#findByIdForUpdate)
- * sur la ligne ScheduledExecution, ET reprogrammation immediate de
- * "nextRunAt" AVANT meme que l'Execution reelle ne soit creee/lancee. Une
- * deuxieme tentative de declenchement (poll tick suivant tres rapproche, ou
- * un "run now" simultane) trouve alors "nextRunAt" deja avance et se voit
- * refusee (TriggerClaim.skipped()). Jamais un simple booleen en memoire.
- *
- * LANCEMENTS MANQUES : si l'heure prevue est depassee de plus de
- * "missedGrace" (LoadPilot arrete a ce moment-la), rien n'est lance en
- * rattrapage : chaque occurrence manquee (au plus MAX_MISSED_EVENTS) est
- * enregistree comme MISSED, puis la prochaine occurrence est calculee
- * normalement a partir de maintenant.
- */
+/** Transactions courtes et verrouillees du declenchement d'une planification. */
 @Service
 @RequiredArgsConstructor
 public class ScheduledExecutionTransactionHelper {
@@ -51,10 +31,7 @@ public class ScheduledExecutionTransactionHelper {
     private final ScheduledExecutionRepository scheduledExecutionRepository;
     private final ScheduledRunEventRepository runEventRepository;
 
-    /**
-     * Revalide integralement l'etat SOUS verrou (la liste retournee par findDueScheduleIds a pu
-     * changer entre-temps) avant de reclamer le declenchement.
-     */
+    /** Reverifie l'etat sous verrou puis reserve le declenchement. */
     @Transactional
     public TriggerClaim claimForAutomaticTrigger(UUID scheduleId, Instant now, Duration missedGrace) {
         return scheduledExecutionRepository.findByIdForUpdate(scheduleId)
@@ -80,8 +57,7 @@ public class ScheduledExecutionTransactionHelper {
         Instant planned = schedule.getNextRunAt();
         Scenario scenario = schedule.getScenario();
         if (scenario.getStatus() != ScenarioStatus.ACTIVE || scenario.isArchived() || scenario.getApplication().isArchived()) {
-            // Suspendue (scenario indisponible) : jamais lancee ni rattrapee ; une recurrente repart de la
-            // prochaine occurrence, une unique est enregistree comme non lancee.
+            // Scenario indisponible : pas de lancement ; une recurrente passe a la prochaine occurrence, une unique est enregistree comme non lancee.
             if (schedule.getScheduleType() == ScheduleType.ONE_TIME) {
                 record(schedule.getId(), planned, now, ScheduledRunOutcome.FAILED,
                         "Non lancée : le scénario n'était pas disponible (désactivé ou archivé) à l'heure prévue.");

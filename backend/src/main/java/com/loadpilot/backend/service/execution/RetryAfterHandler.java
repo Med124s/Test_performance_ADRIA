@@ -3,15 +3,7 @@ package com.loadpilot.backend.service.execution;
 import java.net.http.HttpHeaders;
 import java.time.Instant;
 
-/**
- * Gestion du 429 Too Many Requests pour UN utilisateur virtuel (jamais partagee entre VU) : memorise
- * l'en-tete Retry-After de la derniere reponse 429, et decide si l'etape doit etre rejouee et apres
- * quel delai, dans la limite de ThrottlePolicy.maxRetries() rejeux consecutifs pour une meme etape.
- *
- * Utilisee par VirtualUserLoop (decision de rejeu) et par HttpClientExecutionEngine (lecture de
- * l'en-tete, seul endroit ou les en-tetes de la reponse sont disponibles). Les regles elles-memes
- * (429 concerne, delai par defaut, plafond) restent dans ThrottlePolicy.
- */
+/** Gestion du 429 Too Many Requests pour un utilisateur virtuel : delai de rejeu (Retry-After ou defaut) et nombre de rejeux. */
 final class RetryAfterHandler {
 
     private final ThrottlePolicy policy;
@@ -29,22 +21,19 @@ final class RetryAfterHandler {
         retryAfter = statusCode == ThrottlePolicy.TOO_MANY_REQUESTS ? headers.firstValue("Retry-After").orElse(null) : null;
     }
 
-    /** Resultat ralenti par la cible (429 respecte) : categorie a part dans le suivi en direct. */
+    /** true si le resultat est un 429 respecte. */
     boolean throttled(StepOutcome outcome) {
         return policy.applies(outcome);
     }
 
-    /**
-     * Delai (ms) avant de rejouer l'etape - Retry-After, ou delai par defaut - si elle est ralentie
-     * et qu'il reste des rejeux ; -1 sinon. Un rejeu accorde est compte.
-     */
+    /** Delai (ms) avant de rejouer l'etape s'il reste des rejeux, sinon -1. */
     long replayDelayMs(StepOutcome outcome, Instant now) {
         if (!policy.applies(outcome) || retries >= policy.maxRetries()) return -1;
         retries++;
         return policy.delayMs(retryAfter, now);
     }
 
-    /** Etape terminee sans rejeu, ou nouvelle iteration : le compteur de rejeux repart de zero. */
+    /** Remet le compteur de rejeux a zero. */
     void reset() {
         retries = 0;
     }

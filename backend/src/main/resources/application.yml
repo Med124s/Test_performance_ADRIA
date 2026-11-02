@@ -10,16 +10,11 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      # Liquibase est l'unique source de verite du schema : Hibernate ne doit
-      # jamais creer/modifier de tables, seulement valider que les entites
-      # correspondent au schema deja migre.
+      # Schema gere par Liquibase : Hibernate verifie seulement que les entites lui correspondent.
       ddl-auto: validate
     properties:
       hibernate:
-        # Insertions regroupees en lots JDBC (fin d'execution : des milliers de resultats ecrits en une
-        # transaction, voir ExecutionTransactionHelper.finalizeExecution). Identifiants UUID generes en
-        # Java : aucun aller-retour par ligne. order_inserts : les insertions alternees resultat / detail
-        # sont regroupees par table (sinon chaque changement de table couperait le lot).
+        # Insertions regroupees en lots JDBC, triees par table (order_inserts).
         jdbc:
           batch_size: 50
         order_inserts: true
@@ -31,19 +26,11 @@ management:
   endpoints:
     web:
       exposure:
-        # Phase 13 : uniquement "health" est expose - aucune information de
-        # build/environnement n'est configuree (pas de plugin git-commit-id/
-        # build-info), donc /actuator/info ne renverrait qu'un corps vide :
-        # mieux vaut ne pas l'exposer du tout que d'exposer un endpoint
-        # inutile. env/beans/configprops/mappings/heapdump/threaddump/
-        # loggers restent tous desactives (jamais dans cette liste).
+        # Seul l'endpoint health est expose.
         include: health
   endpoint:
     health:
-      # Jamais "always"/"when-authorized" ici : aucun detail interne
-      # (composants DB/disque/etc.) n'est expose, seul le statut global
-      # {"status":"UP"} - voir SecurityConfig (permitAll) et
-      # ActuatorSecurityTest.
+      # Statut global seulement ({"status":"UP"}), sans le detail des composants.
       show-details: never
 
 springdoc:
@@ -56,32 +43,17 @@ app:
   # Version de l'application, recopiee au build depuis <version> du pom.xml (ne pas l'ecrire ici).
   version: '@project.version@'
   secrets:
-    # Cle AES-256 (32 octets en Base64) qui chiffre en base les secrets des applications testees.
-    # OBLIGATOIRE : sans elle, LoadPilot refuse de demarrer. Jamais de valeur ici ni dans Git.
-    # Voir docs/SECRETS.md (generation, configuration, rotation).
+    # Cle AES-256 (32 octets en Base64) qui chiffre en base les secrets des applications testees ;
+    # obligatoire au demarrage (voir docs/SECRETS.md).
     encryption-key: ${LOADPILOT_SECRETS_KEY:}
   availability:
-    # Timeout (secondes) du test de disponibilite reel d'une Application
-    # (voir service.http.HttpAvailabilityChecker) - configurable par
-    # environnement via la variable AVAILABILITY_TIMEOUT_SECONDS.
+    # Timeout (secondes) du test de connectivite d'une application.
     timeout-seconds: ${AVAILABILITY_TIMEOUT_SECONDS:5}
   execution:
-    # Timeout (secondes) par requete HTTP reelle lors de l'execution d'un
-    # Scenario (voir service.execution.HttpClientExecutionEngine) -
-    # configurable via EXECUTION_TIMEOUT_SECONDS.
+    # Timeout (secondes) d'une requete HTTP pendant une execution.
     timeout-seconds: ${EXECUTION_TIMEOUT_SECONDS:10}
-    # P0-B - limites de capacite reelles, configurables par environnement
-    # (jamais codees en dur) - voir RunningExecutionRegistry/
-    # ScenarioServiceImpl et le rapport P0-B pour la justification des
-    # valeurs par defaut (issues du benchmark reel de cette phase, a ajuster
-    # via ces variables selon le materiel de production reel).
-    #
-    # Limite PAR EXECUTION (nombre d'utilisateurs virtuels d'un seul Scenario) et limite GLOBALE
-    # (somme des utilisateurs virtuels de TOUTES les executions actives simultanement sur ce
-    # processus backend). Toujours par test <= au total (refus sinon, voir ExecutionLimitsService).
-    # 200 par test : la valeur reellement appliquee jusqu'ici (l'ancien 500 etait borne par le total
-    # de 200). 500 au total : plusieurs tests en parallele (un test au plus 40 % du budget) ;
-    # mesure : 500 VU avec 1 s de reflexion ~ 105 Mo de tas, 40 % de CPU sur 12 coeurs.
+    # Plafonds du serveur : utilisateurs virtuels d'une execution et de toutes les executions actives
+    # (toujours par test <= au total).
     max-virtual-users-per-execution: ${LOADPILOT_MAX_VUS_PER_EXECUTION:200}
     max-global-virtual-users: ${LOADPILOT_MAX_GLOBAL_VUS:500}
     # Plafonds des nouvelles limites de charge (limites applicatives reglables en dessous, dans Parametres).
@@ -109,12 +81,7 @@ app:
     cpu-warning-percent: ${LOADPILOT_INJECTOR_CPU_WARNING_PERCENT:85}
   keycloak:
     admin:
-      # Phase 25 - compte de service DEDIE a l'administration des
-      # utilisateurs/roles (voir service.keycloak.HttpKeycloakAdminClient) -
-      # JAMAIS le compte admin Keycloak lui-meme. client-secret n'a
-      # volontairement aucune valeur par defaut (meme politique que
-      # DB_PASSWORD, voir application-dev.yml) : sans lui, /api/users
-      # repond 502 (KeycloakAdminException), jamais un succes simule.
+      # Compte de service Keycloak qui administre les utilisateurs et les roles.
       server-url: ${KEYCLOAK_ADMIN_SERVER_URL:http://localhost:8081}
       realm: ${KEYCLOAK_ADMIN_REALM:loadpilot}
       client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:loadpilot-backend-admin}
@@ -141,9 +108,7 @@ app:
       enabled: ${LOADPILOT_AUDIT_SECURITY_EVENTS_ENABLED:true}
       poll-ms: ${LOADPILOT_AUDIT_SECURITY_EVENTS_POLL_MS:60000}
   mail:
-    # Serveur e-mail de LoadPilot (notifications par e-mail, e-mail de test de Parametres > Integrations).
-    # Developpement : Mailpit (http://localhost:8025, rien n'est reellement delivre). Production :
-    # renseigner le vrai serveur SMTP. Le mot de passe n'est jamais affiche ni journalise.
+    # Serveur e-mail de LoadPilot (notifications, e-mail de test) ; Mailpit en developpement (http://localhost:8025).
     enabled: ${LOADPILOT_MAIL_ENABLED:true}
     host: ${LOADPILOT_MAIL_HOST:localhost}
     port: ${LOADPILOT_MAIL_PORT:1025}
@@ -167,10 +132,5 @@ app:
       # Au demarrage : rapport fige des executions terminees qui n'en ont pas encore.
       enabled: ${LOADPILOT_RESULTS_SNAPSHOT_BACKFILL:true}
   scheduler:
-    # P1-B - intervalle (ms) du poller reel de ScheduledExecution (voir
-    # service.impl.ScheduledExecutionPoller pour la comparaison argumentee
-    # face a Quartz/TaskScheduler). 5s par defaut : suffisant pour qu'un
-    # declenchement planifie a la minute pres reste percu comme ponctuel,
-    # sans solliciter excessivement la base (une seule requete legere par
-    # tick, voir ScheduledExecutionRepository#findDueScheduleIds).
+    # Intervalle (ms) de recherche des planifications a declencher.
     poll-interval-ms: ${LOADPILOT_SCHEDULER_POLL_INTERVAL_MS:5000}

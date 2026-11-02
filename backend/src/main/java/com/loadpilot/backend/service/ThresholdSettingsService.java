@@ -10,11 +10,7 @@ import com.loadpilot.backend.service.impl.DashboardRules;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/**
- * Seuils par defaut (Parametres > Systeme) ; lus par la creation des scenarios et par toutes les
- * comparaisons de P95 (Dashboard, listes, planification, notifications). Chaque modification est
- * journalisee (avant -> apres).
- */
+/** Seuils par defaut (Parametres > Systeme) ; chaque modification est journalisee. */
 @Service
 @RequiredArgsConstructor
 public class ThresholdSettingsService {

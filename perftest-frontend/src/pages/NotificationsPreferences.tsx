@@ -4,19 +4,7 @@ import { notificationPreferencesBackendApi } from '../services/api/notificationP
 import { BackendNotificationPreferenceResponse, BackendNotificationType } from '../types/backendContracts'
 import { ApiError } from '../services/api/httpClient'
 
-// ============================================================
-// P1-D — page RÉELLE (remplace l'ancienne version 100% fictive : canaux
-// Slack/Teams/Webhooks/SMS non implémentés, règles d'alerte sur seuils
-// CPU/RAM inexistants depuis la Phase 30, silence windows jamais
-// fonctionnelles, tout persisté en localStorage — voir le rapport P1-D,
-// section "Notification preferences" pour l'analyse complète).
-//
-// Seul le canal in-app RÉEL (voir P1-B) est supporté aujourd'hui — cette
-// page ne prétend JAMAIS qu'Email/Slack/Teams/SMS fonctionnent. Chaque
-// toggle ci-dessous appelle réellement PATCH /api/notification-preferences/
-// {type} et est réellement respecté par NotificationServiceImpl côté
-// backend (une notification désactivée n'est simplement jamais générée).
-// ============================================================
+// Préférences de notification : chaque type, dans l'application et par e-mail.
 
 const typeLabel: Record<BackendNotificationType, string> = {
   EXECUTION_SUCCESS: 'Exécution réussie',

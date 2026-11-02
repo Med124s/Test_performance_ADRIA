@@ -22,19 +22,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Purge quotidienne du detail des executions (durees reglables dans Parametres > Systeme) :
- *  - resultats (une ligne par requete, et les metriques qui en sont tirees) des executions
- *    terminees depuis plus de N jours (90 par defaut), avec leurs en-tetes et corps ;
- *  - en-tetes et corps des requetes conservees, apres M jours (30 par defaut).
- * En local, LOADPILOT_RESULTS_RETENTION_OVERRIDE / LOADPILOT_REQUEST_DETAILS_RETENTION_OVERRIDE
- * remplacent ces durees pour tester la purge (voir RetentionOverrides).
- * Jamais purgees : executions en cours (ou dont l'enregistrement n'est pas fini) et executions
- * « Conserver ». Le rapport fige est calcule avant toute suppression (sinon l'execution est
- * laissee intacte). Par lots : quelques executions a la fois, une transaction par execution
- * (ligne verrouillee : l'option « Conserver » ne peut pas changer pendant la purge), lignes
- * supprimees par paquets. Une entree « Système » au journal d'audit si quelque chose a ete supprime.
- */
+/** Purge quotidienne du detail des executions : resultats au-dela de N jours (90 par defaut), en-tetes et corps au-dela de M jours (30 par defaut) ; le rapport fige est conserve. */
 @Service
 @RequiredArgsConstructor
 public class ResultsRetentionJob {
@@ -64,15 +52,12 @@ public class ResultsRetentionJob {
         try {
             purge(Instant.now());
         } catch (Throwable e) {
-            // Throwable : un manque de memoire (rapport fige d'une grosse execution calcule avant sa purge)
-            // est journalise en erreur ; la purge reprend a son prochain passage.
             if (e instanceof Error) log.error("Purge des resultats detailles interrompue : {}", e.getClass().getSimpleName());
             else log.warn("Purge des resultats detailles interrompue : {}", e.getClass().getSimpleName());
         }
     }
 
     public Outcome purge(Instant now) {
-        // Durees de Parametres, ou durees de test LOADPILOT_*_RETENTION_OVERRIDE (local uniquement).
         RetentionOverrides.Retention resultsRetention = overrides.results(settings.resultsRetentionDays());
         RetentionOverrides.Retention detailsRetention = overrides.requestDetails(settings.requestDetailsRetentionDays());
         int resultExecutions = 0;
@@ -122,7 +107,7 @@ public class ResultsRetentionJob {
         }
 
         Outcome outcome = new Outcome(resultExecutions, results, detailExecutions, details, skipped);
-        // Bilan de ce passage (Parametres > Systeme : derniere purge), meme si rien n'a ete supprime.
+        // Bilan du passage, meme si rien n'a ete supprime.
         settings.set(AppSettingsService.RESULTS_LAST_PURGE, "{\"at\":\"" + now + "\",\"executions\":" + resultExecutions
                 + ",\"results\":" + results + ",\"detailExecutions\":" + detailExecutions + ",\"requestDetails\":" + details + "}", "system");
         if (outcome.deletedSomething()) {
@@ -136,12 +121,12 @@ public class ResultsRetentionJob {
         return outcome;
     }
 
-    /** Lot suivant, sans les executions deja essayees pendant cette purge (laissees intactes). */
+    /** Lot suivant, sans les executions deja essayees. */
     private static List<UUID> next(List<UUID> candidates, java.util.Set<UUID> tried) {
         return candidates.stream().filter(tried::add).toList();
     }
 
-    /** resultsAge / detailsAge : « 90 jours », ou la duree de test (« 10 minutes (durée de test …) »). */
+    /** Bilan lisible ; resultsAge / detailsAge, ex. "90 jours". */
     static String describe(Outcome o, String resultsAge, String detailsAge) {
         StringBuilder text = new StringBuilder();
         if (o.resultExecutions() > 0) {
@@ -162,7 +147,7 @@ public class ResultsRetentionJob {
         return String.format(java.util.Locale.FRANCE, "%,d", n).replace(' ', ' ').replace(' ', ' ') + " " + (n > 1 ? many : one);
     }
 
-    /** {resultats, en-tetes/corps} supprimes, ou null si l'execution ne doit plus etre purgee. */
+    /** Nombre de resultats et d'en-tetes / corps supprimes, ou null si l'execution ne doit plus etre purgee. */
     long[] purgeResults(UUID id, Instant now) {
         return transactions.execute(status -> {
             if (!lockedAndPurgeable(id, false)) return null;

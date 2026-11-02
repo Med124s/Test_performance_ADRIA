@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Parametres > Integrations - reserve a SUPER_ADMIN, aucun secret renvoye. */
+/** Parametres > Integrations, reserve au Super administrateur. */
 @RestController
 @RequestMapping("/api/settings/integrations")
 @RequiredArgsConstructor
@@ -27,7 +27,7 @@ public class IntegrationsController {
     private final IntegrationsService integrationsService;
 
     @GetMapping
-    @Operation(summary = "Etat des integrations", description = "Serveur e-mail (connexion reelle), serveur e-mail du systeme d'authentification, monitoring de chaque application.")
+    @Operation(summary = "Etat des integrations", description = "Serveur e-mail de LoadPilot (test de connexion SMTP), serveur e-mail du systeme d'authentification, monitoring de chaque application.")
     public IntegrationsResponse integrations() {
         return integrationsService.integrations();
     }

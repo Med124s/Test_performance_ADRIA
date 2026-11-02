@@ -1,8 +1,4 @@
-// ============================================================
-// Format des nombres en français : virgule pour les décimales, espace
-// pour les milliers, au plus une décimale par défaut (ex. 68,7 ; 8 673).
-// « — » pour une valeur absente (jamais 0 inventé).
-// ============================================================
+// Format des nombres en français : virgule décimale, espace des milliers, « — » pour une valeur absente.
 
 const formatters = new Map<number, Intl.NumberFormat>()
 

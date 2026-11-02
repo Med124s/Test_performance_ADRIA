@@ -9,12 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 
-/**
- * Ecrit une reponse d'erreur JSON coherente avec le format global attendu
- * (voir exception.ErrorResponse) - partage par RestAuthenticationEntryPoint
- * (401) et RestAccessDeniedHandler (403) pour ne pas dupliquer la
- * serialisation.
- */
+/** Ecrit une reponse d'erreur JSON (401 et 403). */
 @Component
 @RequiredArgsConstructor
 class SecurityErrorResponseWriter {

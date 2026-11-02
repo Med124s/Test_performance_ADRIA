@@ -8,12 +8,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/**
- * Regles de validation d'une etape au-dela des annotations de StepRequest - IDENTIQUES a
- * validateStep() du frontend (pages/scenario-wizard/wizardModel.ts) : URL relative ou
- * http(s)://hote, en-tetes en objet JSON avec des noms valides, corps JSON valide quand il
- * commence par { ou [ (les ${variables} etant neutralisees), capture complete.
- */
+/** Regles de validation d'une etape, identiques a validateStep() du frontend. */
 public final class StepRules {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -35,10 +30,7 @@ public final class StepRules {
                         request.assertionJsonOperator(), request.assertionJsonValue());
     }
 
-    /**
-     * Variables de chemin : objet JSON {"nom": "valeur"} (noms de variable valides, valeurs texte).
-     * Parametres de requete : tableau JSON [{"key": "...", "value": "...", "enabled": true}], 50 au maximum.
-     */
+    /** Variables de chemin : objet JSON {"nom": "valeur"}. Parametres de requete : tableau JSON [{"key", "value", "enabled"}], 50 au maximum. */
     public static String validateParams(String pathParams, String queryParams) {
         if (pathParams != null && !pathParams.isBlank()) {
             JsonNode node;
@@ -140,18 +132,13 @@ public final class StepRules {
             if (problem != null) return "Capture : " + problem + ".";
         }
         if (fromHtml && hasPath) {
-            // Selecteur CSS verifie par le meme analyseur que l'execution (jsoup).
             String problem = com.loadpilot.backend.service.execution.HtmlExtractor.specProblem(capturePath);
             if (problem != null) return "Capture : " + problem + ".";
         }
         return null;
     }
 
-    /**
-     * Lecture dans un en-tete de reponse : nom d'en-tete valide (ex. X-CSRF-Token), ou "Set-Cookie:NOM"
-     * pour la valeur d'un cookie. Probleme en minuscule et sans point final (prefixe par l'appelant),
-     * ou null. Meme regle que le frontend (headerCaptureProblem, wizardModel.ts).
-     */
+    /** Probleme d'un nom d'en-tete de capture (ex. X-CSRF-Token, ou "Set-Cookie:NOM"), ou null. */
     public static String headerCaptureProblem(String spec) {
         String trimmed = spec.trim();
         int colon = trimmed.indexOf(':');

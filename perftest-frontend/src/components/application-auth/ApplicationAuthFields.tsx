@@ -9,12 +9,7 @@ import { headerCaptureProblem, isSetCookie, joinHeaderCapture, splitHeaderCaptur
 import InfoTip from '../InfoTip'
 import './applicationAuth.css'
 
-// ============================================================
-// Authentification de l'Application cible — formulaire, validation et
-// conversion vers BackendApplicationAuthRequest. Les secrets ne sont jamais
-// renvoyés par le backend : en modification, un champ secret laissé vide
-// conserve la valeur enregistrée (indiqué dans le placeholder).
-// ============================================================
+// Authentification de l'application testée : formulaire, validation et conversion en requête.
 
 export interface AuthForm {
   type: BackendApplicationAuthType
@@ -76,7 +71,7 @@ const QUERY_NAME = /^[^\s&=?#]+$/
 const JSON_PATH = /^(\$\.?)?(?:[A-Za-z0-9_-]+|\[\d{1,9}])(?:\[\d{1,9}])*(\.[A-Za-z0-9_-]+(?:\[\d{1,9}])*)*$/
 const LINE_BREAK = /[\r\n\u0000]/
 
-/** Longueurs maximales = @Size de ApplicationAuthRequest (messages identiques). */
+// Longueurs maximales de ApplicationAuthRequest.
 const MAX_LENGTH: Partial<Record<keyof AuthForm, [number, string]>> = {
   token: [4000, 'Le jeton ne doit pas depasser 4000 caracteres.'],
   apiKeyName: [255, 'Le nom de la cle API ne doit pas depasser 255 caracteres.'],
@@ -91,8 +86,7 @@ const MAX_LENGTH: Partial<Record<keyof AuthForm, [number, string]>> = {
   verificationPath: [1000, "L'endpoint de verification ne doit pas depasser 1000 caracteres."],
 }
 
-/** Types dont le test de connectivité vérifie les identifiants sur un
- * endpoint protégé (même liste que ApplicationServiceImpl). */
+/** Types dont le test de connectivité vérifie les identifiants sur un endpoint protégé. */
 export const CREDENTIAL_CHECK_TYPES: BackendApplicationAuthType[] = ['BEARER_TOKEN', 'API_KEY', 'BASIC']
 
 /** Champs réellement envoyés pour chaque type (voir authFormToRequest). */
@@ -104,7 +98,7 @@ const FIELDS_BY_TYPE: Record<BackendApplicationAuthType, (keyof AuthForm)[]> = {
   LOGIN_TOKEN: ['loginPath', 'loginBody', 'tokenJsonPath', 'tokenHeaderName', 'tokenPrefix'],
 }
 
-/** Secret déjà enregistré pour CE type (champ vide = conservé). */
+/** Secret déjà enregistré pour ce type (champ vide = conservé). */
 function storedSecret(existing: BackendApplicationAuthResponse | null | undefined, form: AuthForm, field: 'token' | 'apiKeyValue' | 'password' | 'loginBody'): boolean {
   if (!existing || existing.type !== form.type) return false
   return {
@@ -115,11 +109,7 @@ function storedSecret(existing: BackendApplicationAuthResponse | null | undefine
   }[field]
 }
 
-/**
- * Règles et messages IDENTIQUES à ApplicationAuthSupport#apply (backend) —
- * toute modification doit être faite des deux côtés (verrouillé par
- * ApplicationAuthFields.test.ts et ApplicationAuthSupportTest).
- */
+/** Validation du formulaire : mêmes règles et messages que ApplicationAuthSupport (backend). */
 export function validateAuthForm(form: AuthForm, existing?: BackendApplicationAuthResponse | null): Partial<Record<keyof AuthForm, string>> {
   const errors: Partial<Record<keyof AuthForm, string>> = {}
   const missing = (field: 'token' | 'apiKeyValue' | 'password' | 'loginBody') =>
@@ -201,7 +191,6 @@ export function authFormToRequest(form: AuthForm): BackendApplicationAuthRequest
         loginPath: opt(form.loginPath),
         loginBody: form.loginBody.trim() ? form.loginBody : null,
         tokenJsonPath: opt(form.tokenJsonPath),
-        // Absent = JSON (comportement historique).
         ...(form.tokenSource === 'HEADER' ? { tokenSource: 'HEADER' as const } : {}),
         tokenHeaderName: opt(form.tokenHeaderName),
         // Préfixe envoyé tel quel (y compris vide = jeton brut).
@@ -235,8 +224,7 @@ interface ApplicationAuthFieldsProps {
   baseUrl?: string
 }
 
-/** Même résolution que UrlResolver (backend) : URL absolue gardée telle quelle,
- * sinon ajoutée à l'URL de l'application. */
+/** URL absolue gardée telle quelle, sinon ajoutée à l'URL de l'application. */
 function resolveLoginUrl(baseUrl: string, path: string): string {
   if (/^https?:\/\//i.test(path)) return path
   return baseUrl.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`)

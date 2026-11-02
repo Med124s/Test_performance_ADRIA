@@ -12,24 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Cookies d'UN utilisateur virtuel, geres automatiquement comme un navigateur : chaque Set-Cookie
- * recu est garde, puis renvoye dans l'en-tete Cookie des requetes suivantes vers le meme site
- * (domaine, chemin, expiration et attribut Secure respectes par java.net.CookieManager). Jamais
- * partage entre utilisateurs virtuels : un pot par VU, attache a ses deux clients HTTP.
- *
- *   - Politique ACCEPT_ORIGINAL_SERVER (celle d'un navigateur) : un cookie n'est accepte que
- *     pour le site qui l'a envoye (ou son domaine parent declare), jamais pour un site tiers.
- *   - Duree de vie : une ITERATION (voir {@link #clear()}, appele au debut de chaque iteration
- *     par le moteur), comme les captures de variables (VariableContext#startIteration) : chaque
- *     iteration rejoue le parcours avec une session vierge.
- *   - En-tete Cookie ecrit dans une etape : il est conserve, et les cookies automatiques sont
- *     AJOUTES a cote. Pour un meme nom de cookie, la valeur ecrite dans l'etape l'emporte (le
- *     cookie automatique de meme nom n'est pas envoye, sinon le serveur recevrait deux valeurs).
- *
- * Utilise par un seul thread (celui du VU) ; les methodes de CookieManager sont de toute facon
- * synchronisees.
- */
+/** Cookies d'un utilisateur virtuel, geres comme un navigateur (domaine, chemin, expiration, Secure). */
 final class VirtualUserCookieJar extends CookieHandler {
 
     private final CookieManager manager = new CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER);
@@ -55,7 +38,7 @@ final class VirtualUserCookieJar extends CookieHandler {
         manager.put(uri, responseHeaders);
     }
 
-    /** Debut d'iteration : session vierge (tous les cookies oublies). */
+    /** Oublie tous les cookies (debut d'iteration). */
     void clear() {
         manager.getCookieStore().removeAll();
     }
@@ -65,7 +48,7 @@ final class VirtualUserCookieJar extends CookieHandler {
         return manager.getCookieStore().getCookies().size();
     }
 
-    /** Noms des cookies ecrits dans l'en-tete Cookie de l'etape ("a=1; b=2" -> a, b). */
+    /** Noms des cookies deja ecrits dans l'en-tete Cookie de l'etape ("a=1; b=2" -> a, b). */
     private static Set<String> explicitCookieNames(Map<String, List<String>> requestHeaders) {
         Set<String> names = new HashSet<>();
         if (requestHeaders == null) return names;

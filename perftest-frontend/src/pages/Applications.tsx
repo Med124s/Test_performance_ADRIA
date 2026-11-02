@@ -32,37 +32,7 @@ import {
   EMPTY_MONITORING_FORM, MONITORING_TYPE_LABELS, MonitoringForm, monitoringFormFromResponse, monitoringFormToRequest, validateMonitoringForm,
 } from '../components/application-monitoring/monitoringModel'
 
-// ============================================================
-// Phase 17 — ce module (et lui seul) parle désormais au vrai backend Spring
-// Boot (voir services/api/applicationsBackend.ts), plus à JSON Server.
-//
-// Champs volontairement ABSENTS du formulaire par rapport à l'ancienne
-// version (type/authMethod/token/username/password/clientId/clientSecret/
-// icon/color) : aucun n'existe dans le contrat réel du backend
-// (ApplicationRequest/ApplicationResponse, voir types/backendContracts.ts)
-// — les garder aurait signifié les saisir sans jamais les persister nulle
-// part, ce qui aurait été trompeur. `description` est en revanche un champ
-// réel du backend, ajouté ici.
-//
-// P1-I — "Scénarios"/"Dernière exécution" utilisent désormais les VRAIS
-// Scénarios/Exécutions Spring Boot (scenariosBackendApi/executionsBackendApi,
-// déjà réels et déjà utilisés par Scenarios.tsx), plus JSON Server.
-//
-// Endpoint dashboard PAR APPLICATION déjà existant côté backend
-// (GET /api/dashboard/applications/{id} -> ApplicationDashboardResponse,
-// déjà câblé côté frontend : dashboardBackendApi.getByApplication)
-// délibérément NON utilisé ici, pour deux raisons prouvées (voir rapport
-// P1-I) : (1) son DTO ne contient AUCUN champ date — seulement des
-// COMPTEURS agrégés (ScenariosSummaryResponse/ExecutionsSummaryResponse),
-// impossible d'en dériver "la dernière exécution" ; (2) l'appeler une fois
-// par ligne affichée créerait un vrai N+1 (aucun endpoint de liste groupée
-// n'existe : GET /api/dashboard ne couvre que la plateforme entière).
-//
-// Solution retenue : scenariosBackendApi.getAll()/executionsBackendApi.getAll()
-// (un seul appel chacun, quel que soit le nombre d'Applications affichées),
-// jointes côté client par scenario.applicationId puis execution.scenarioId
-// — même principe que Scenarios.tsx (stepsByScenario/latestExecByScenario).
-// ============================================================
+// Page Applications : liste paginée, création, modification, test de connectivité, archivage et suppression.
 
 const emptyForm = {
   name: '',
@@ -101,10 +71,7 @@ function statusKey(status: BackendApplicationStatus | null): StatusKey {
   return status ?? 'UNTESTED'
 }
 
-/** Traduit une erreur RÉELLE (jamais masquée, voir Phase 17 section 17) en
- * message utilisateur. Le code HTTP prime toujours ; 409/400 réutilisent le
- * message backend tel quel (déjà explicite, ex: "des scenarios sont encore
- * rattaches"). */
+/** Message utilisateur pour une erreur d'API (message du backend repris pour 400 et 409). */
 function describeApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     switch (err.status) {
@@ -132,17 +99,11 @@ function Applications() {
   const { authProvider, rawRoles } = useAuth()
   const { showToast } = useToast()
 
-  // Le backend Spring Boot exige un JWT réel (voir SecurityConfig) : sans
-  // session Keycloak active, aucun token n'existe donc aucune action
-  // d'écriture n'est proposée - la liste elle-même échouera en 401 (voir
-  // appsError ci-dessous), affiché tel quel, jamais masqué.
   const isKeycloak = authProvider === 'keycloak'
   const canWrite = isKeycloak && (rawRoles.includes('ROLE_SUPER_ADMIN') || rawRoles.includes('ROLE_PERFORMANCE_ENGINEER'))
   const canDelete = isKeycloak && rawRoles.includes('ROLE_SUPER_ADMIN')
 
-  // ---------------------------------------------------------------- pagination serveur
-  // Page, taille, tri, recherche, filtre de status et vue "archivées" vivent
-  // dans l'URL : l'état survit au rechargement et se partage par lien.
+  // ---- Pagination serveur : page, taille, tri, recherche, filtre et vue « archivées » gardés dans l'URL ----
   const [searchParams, setSearchParams] = useSearchParams()
   const urlPage = Math.max(1, Number(searchParams.get('page')) || 1)
   const urlSize = PAGE_SIZES.includes(Number(searchParams.get('size'))) ? Number(searchParams.get('size')) : 10
@@ -308,8 +269,7 @@ function Applications() {
   const [showModal, setShowModal] = useState(false)
   const [editingApp, setEditingApp] = useState<BackendApplicationResponse | null>(null)
   const [form, setForm] = useState(emptyForm)
-  // Flux "enregistrer puis tester" de la modale (Tester et ajouter /
-  // Enregistrer et tester) : phase courante, étapes affichées, résultat.
+  // Flux « enregistrer puis tester » de la modale : phase, étapes affichées, résultat.
   const [flow, setFlow] = useState<{
     running: boolean
     phase: TestPhase | null
@@ -342,8 +302,7 @@ function Applications() {
   const networkErrors = validateNetworkForm(networkForm)
   const isFormValid = !nameError && !urlError && !descriptionError && Object.keys(authErrors).length === 0
     && Object.keys(monitoringErrors).length === 0 && Object.keys(networkErrors).length === 0
-  // Onglets : point d'erreur (après une tentative d'enregistrement, ou champ déjà touché pour « Général »),
-  // sinon point « configuré » si le réglage n'est pas la valeur par défaut — visible sans ouvrir l'onglet.
+  // Onglets : point d'erreur, sinon point « configuré » si le réglage n'est pas celui par défaut.
   const tabErrors: Record<AppTab, boolean> = {
     general: (showAuthErrors || !!touched.name || !!touched.url) && (!!nameError || !!urlError || !!descriptionError),
     auth: showAuthErrors && Object.keys(authErrors).length > 0,
@@ -367,10 +326,7 @@ function Applications() {
   const endIndex = Math.min(urlPage * urlSize, totalItems)
   const hasFilters = !!(urlQuery || urlStatus)
 
-  // P1-I — Dernière exécution + nombre de scénarios RÉELS (Spring Boot) par
-  // application. Execution n'a pas de colonne applicationId directe (voir
-  // entity.Execution : uniquement une FK vers Scenario) — la résolution
-  // passe donc par scenario.applicationId, exactement comme Scenarios.tsx.
+  // Dernière exécution et nombre de scénarios par application (via les scénarios).
   const scenarioAppById = useMemo(() => {
     const map = new Map<string, string>()
     for (const s of scenarios) map.set(s.id, s.applicationId)
@@ -393,8 +349,7 @@ function Applications() {
   const scenarioCountByApp = (applicationId: string) =>
     scenarios.filter((s) => s.applicationId === applicationId).length
 
-  /** Durée minimale d'affichage du chargement (visible même si la réponse
-   * est instantanée) — n'allonge jamais une réponse plus lente. */
+  // Durée minimale d'affichage du chargement.
   const MIN_LOADING_MS = 1300
   const waitMinimum = async (startedAt: number) => {
     const remaining = MIN_LOADING_MS - (Date.now() - startedAt)
@@ -421,10 +376,7 @@ function Applications() {
     window.setTimeout(() => setFlashId((current) => (current === id ? null : current)), 1300)
   }
 
-  /** Test réel (POST /{id}/test). Étapes affichées selon le type (voir
-   * testPhasesFor) : pour la connexion auto, le backend effectue d'abord le
-   * login ; pour Bearer / clé API / Basic, il vérifie les identifiants sur
-   * l'endpoint protégé. */
+  /** Test de connectivité (POST /{id}/test) ; étapes affichées selon le type d'authentification. */
   const runConnectivityTest = async (app: BackendApplicationResponse, onPhase: (phase: TestPhase) => void) => {
     const phases = testPhasesFor(app.auth?.type)
     onPhase(phases[0])
@@ -474,7 +426,7 @@ function Applications() {
     setShowModal(true)
   }
 
-  /** Mode "Consulter" : lecture seule pure, jamais un formulaire. */
+  /** Mode « Consulter » : lecture seule. */
   const openView = (app: BackendApplicationResponse) => {
     clearCloseTimer()
     setEditingApp(app)
@@ -485,7 +437,7 @@ function Applications() {
   }
 
   const closeModal = () => {
-    // Jamais pendant un enregistrement/test en cours.
+    // Pas pendant un enregistrement ou un test.
     if (flow.running) return
     clearCloseTimer()
     setShowModal(false)
@@ -513,11 +465,7 @@ function Applications() {
     network: networkFormToRequest(networkForm),
   })
 
-  // "Tester et ajouter" (création) ou "Enregistrer et tester" (modification) :
-  // POST/PUT puis test réel. Après un premier enregistrement, la modale
-  // passe en modification : un nouvel essai fait un PUT (jamais de doublon).
-  // Succès -> fermeture après une courte confirmation ; échec -> la modale
-  // reste ouverte pour corriger directement.
+  /** « Tester et ajouter » (création) ou « Enregistrer et tester » (modification) : enregistrement puis test. */
   const handleSaveAndTest = async () => {
     if (!canWrite || flow.running) return
     setTouched({ name: true, url: true })
@@ -918,7 +866,7 @@ function Applications() {
             )}
 
             {isViewOnly && editingApp ? (
-              // Mode Consulter : contenu d'information pur, jamais un formulaire.
+              // Mode Consulter : lecture seule.
               <div className="row g-3">
                 <div className="col-12">
                   <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)' }}>Nom de l'application</div>
