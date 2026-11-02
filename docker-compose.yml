@@ -1,8 +1,9 @@
 # Stack LoadPilot complète : PostgreSQL, Keycloak, Mailpit, backend et frontend.
 #
-# Utilisation :
-#   cp .env.example .env   # puis renseigner de vrais mots de passe locaux
-#   docker compose up -d --build
+# Utilisation (procedure complete : GUIDE_INSTALLATION.md, partie A) :
+#   1. .env a partir de .env.example (4 valeurs obligatoires a generer)
+#   2. docker compose up -d --build
+#   3. creer le premier compte Super administrateur dans Keycloak
 #
 # Les valeurs sensibles viennent du fichier .env (voir .env.example).
 
@@ -29,8 +30,8 @@ services:
     restart: unless-stopped
     command: start-dev --http-port=8080 --import-realm
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD doit etre defini (voir .env.example)}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD doit etre defini (voir .env.example)}
       # Serveur d'e-mails du realm (mot de passe oublie, etc.), lu par
       # realm-export.json a l'import (placeholders ${KC_SMTP_...}).
       # Par defaut : Mailpit ci-dessous (aucun e-mail ne sort de la machine).
@@ -44,13 +45,19 @@ services:
       KC_SMTP_AUTH: ${KC_SMTP_AUTH:-false}
       KC_SMTP_USER: ${KC_SMTP_USER:-}
       KC_SMTP_PASSWORD: ${KC_SMTP_PASSWORD:-}
+      # Secret du client loadpilot-backend-admin, lu par realm-export.json a l'import (placeholder
+      # ${KEYCLOAK_ADMIN_CLIENT_SECRET}) : le meme que celui du backend, rien a recopier a la main.
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:?KEYCLOAK_ADMIN_CLIENT_SECRET doit etre defini (voir .env.example)}
     depends_on:
       mailpit:
         condition: service_started
     ports:
       - "8081:8080"
     volumes:
-      # Realm loadpilot (roles, clients) importe au demarrage.
+      # Donnees de Keycloak (base H2 du mode start-dev : utilisateurs, sessions, reglages) : conservees
+      # quand le conteneur est recree. Supprimees seulement par "docker compose down -v".
+      - loadpilot_keycloak_data:/opt/keycloak/data
+      # Realm loadpilot (roles, clients) importe au premier demarrage ; ignore ensuite (realm existant).
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
       # Theme de connexion LoadPilot (FreeMarker, herite de keycloak.v2).
       - ./keycloak/themes/loadpilot:/opt/keycloak/themes/loadpilot:ro
@@ -82,13 +89,17 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-loadpilot}
       DB_USERNAME: ${DB_USERNAME:-loadpilot}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD doit etre defini (voir .env.example)}
-      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/loadpilot
+      # Emetteur attendu dans les jetons : l'adresse de Keycloak VUE PAR LE NAVIGATEUR (le frontend
+      # obtient ses jetons sur http://localhost:8081). Les cles de signature sont lues sur le reseau
+      # Docker : avec jwk-set-uri, Spring ne contacte pas l'emetteur et verifie seulement le champ iss.
+      KEYCLOAK_ISSUER_URI: http://localhost:8081/realms/loadpilot
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI: http://keycloak:8080/realms/loadpilot/protocol/openid-connect/certs
       KEYCLOAK_ADMIN_SERVER_URL: http://keycloak:8080
       # Serveur e-mail de LoadPilot (notifications par e-mail) : Mailpit en developpement.
       LOADPILOT_MAIL_HOST: ${LOADPILOT_MAIL_HOST:-mailpit}
       LOADPILOT_MAIL_PORT: ${LOADPILOT_MAIL_PORT:-1025}
-      # Secret du client loadpilot-backend-admin, genere par Keycloak a l'import (voir keycloak/README.md).
-      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:?KEYCLOAK_ADMIN_CLIENT_SECRET doit etre recupere dans la Console Admin Keycloak apres import (voir keycloak/README.md)}
+      # Secret du client loadpilot-backend-admin : le meme que celui donne a Keycloak ci-dessus.
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:?KEYCLOAK_ADMIN_CLIENT_SECRET doit etre defini (voir .env.example)}
       # Cle de chiffrement des secrets des applications testees (voir docs/SECRETS.md).
       LOADPILOT_SECRETS_KEY: ${LOADPILOT_SECRETS_KEY:?LOADPILOT_SECRETS_KEY doit etre definie (cle AES-256 en Base64, voir docs/SECRETS.md)}
       # Origine du frontend vue par le navigateur.
@@ -170,3 +181,4 @@ services:
 
 volumes:
   loadpilot_postgres_data:
+  loadpilot_keycloak_data:

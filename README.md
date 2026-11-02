@@ -150,14 +150,17 @@ Aucune valeur ci-dessous n'est une valeur réelle — uniquement les noms et rô
 | `VITE_KEYCLOAK_CLIENT_ID` | Oui | Client public (`loadpilot-frontend`) |
 | `VITE_SPRING_API_URL` | Oui | URL du backend résolue par le navigateur |
 
-**Docker Compose** (`.env` à la racine, voir `.env.example`) : obligatoires `DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET` (connu seulement après le premier import du réalm, voir `keycloak/README.md`) et `LOADPILOT_SECRETS_KEY` ; `DB_USERNAME` et `DB_NAME` valent `loadpilot` par défaut. Les variables optionnelles du backend (tableau ci-dessus, e-mails, certificats, proxy) sont transmises au conteneur : non renseignées, elles gardent la valeur par défaut de `application.yml`.
+**Docker Compose** (`.env` à la racine, voir `.env.example`) : obligatoires `DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET` (choisi dans `.env` et transmis à Keycloak au premier import du réalm, voir `GUIDE_INSTALLATION.md`) et `LOADPILOT_SECRETS_KEY` ; `DB_USERNAME` et `DB_NAME` valent `loadpilot` par défaut. Les variables optionnelles du backend (tableau ci-dessus, e-mails, certificats, proxy) sont transmises au conteneur : non renseignées, elles gardent la valeur par défaut de `application.yml`.
 
 ## 10. Démarrage
 
-**Configuration Docker (présente dans le dépôt mais non validée en exécution réelle — voir section 12) :**
+> **Procédure complète, pas à pas, pour une nouvelle machine : [`GUIDE_INSTALLATION.md`](GUIDE_INSTALLATION.md).** Elle couvre Docker Compose et le lancement sans Docker, la configuration de Keycloak (secret du backend, premier compte), les vérifications et les erreurs courantes. Le résumé ci-dessous ne suffit pas pour une première installation.
+
+**Docker Compose (validé le 2 novembre 2026, voir le guide) :**
 ```
-cp .env.example .env   # puis renseigner de vraies valeurs locales
+# 1. .env : générer DB_PASSWORD, KEYCLOAK_ADMIN_PASSWORD, KEYCLOAK_ADMIN_CLIENT_SECRET et LOADPILOT_SECRETS_KEY (guide, étape A.2)
 docker compose up -d --build
+# 2. Créer le premier Super Admin dans Keycloak (guide, étape A.4)
 ```
 
 **Procédure manuelle (validée) :**
@@ -243,7 +246,7 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
 3. Se connecter sur le frontend avec le compte Super Admin créé à l'étape précédente.
 4. Créer une Application, un Scénario avec au moins une Étape, lancer une Exécution, consulter le Rapport.
 
-**Docker** : `docker-compose.yml`, `backend/Dockerfile`, `perftest-frontend/Dockerfile` et `nginx.conf` sont présents et statiquement cohérents (services, ports, dépendances, variables). **Configuration Docker présente dans le repository mais non validée en exécution réelle** dans l'environnement de développement de ce projet (`docker`/`docker compose` n'y sont pas installés). À valider par le client avant de retenir cette voie d'installation.
+**Docker** : la stack complète (`docker-compose.yml`, `backend/Dockerfile`, `perftest-frontend/Dockerfile`, `nginx.conf`) a été construite et démarrée le 2 novembre 2026 sur une base et un Keycloak neufs. Résultats : realm importé, tables créées par Liquibase, API accessible avec un jeton Keycloak (200), et refusée sans jeton, avec un jeton altéré ou avec un jeton d'un autre émetteur (401). Ce test a fait corriger la vérification des jetons dans `docker-compose.yml` : émetteur `http://localhost:8081/...` (l'adresse vue par le navigateur), clés lues sur `http://keycloak:8080` (voir `GUIDE_INSTALLATION.md`). La connexion dans le navigateur sur `http://localhost:3000`, avec cette stack, reste à confirmer à la première installation.
 
 ## 13. Sécurité
 
@@ -274,7 +277,7 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
 | Symptôme | Cause probable | Action |
 |---|---|---|
 | Le backend ne démarre pas / erreur `.well-known/openid-configuration` | Keycloak n'est pas joignable à l'URL configurée (`KEYCLOAK_ISSUER_URI`) | Vérifier que Keycloak est démarré et accessible avant le backend |
-| 502 sur `/api/users` | `KEYCLOAK_ADMIN_CLIENT_SECRET` manquant/incorrect | Vérifier le secret du compte de service dans la Console Admin Keycloak |
+| 502 sur `/api/users` | `KEYCLOAK_ADMIN_CLIENT_SECRET` différent du secret du client `loadpilot-backend-admin` dans Keycloak (variable absente au premier import, ou modifiée ensuite) | Aligner les deux valeurs : `GUIDE_INSTALLATION.md`, « Aligner le secret » (A.7 ou B.5) |
 | `FATAL: password authentication failed` (PostgreSQL) | `DB_PASSWORD` incorrect ou non défini | Redéfinir la variable d'environnement |
 | `FATAL: database "loadpilot" does not exist` | La base n'a pas été créée | Voir `postgresql/README.md`, étape de création du rôle/base |
 | "Port already in use" | Un service tourne déjà sur ce port | Arrêter le service en conflit avant de relancer |

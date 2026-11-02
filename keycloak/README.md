@@ -2,11 +2,13 @@
 
 Ce dossier contient l'export réel et validé du réalm Keycloak utilisé par LoadPilot, pour permettre à une nouvelle machine de reproduire l'authentification sans reconfiguration manuelle complexe.
 
-`realm-export.json` a été généré par `POST /admin/realms/loadpilot/partial-export?exportClients=true&exportGroupsAndRoles=true` sur une instance Keycloak 26.7.3 réellement démarrée et validée (P1-M) — ce n'est pas un fichier écrit à la main. Il contient le réalm `loadpilot`, ses 3 rôles réels (`ROLE_SUPER_ADMIN`, `ROLE_PERFORMANCE_ENGINEER`, `ROLE_VIEWER`) et ses 2 clients (`loadpilot-frontend`, `loadpilot-backend-admin`). **Il ne contient aucun utilisateur métier, aucun mot de passe, aucun secret réel** (le secret du client confidentiel est masqué par Keycloak lui-même à l'export — `"secret":"**********"` — et sera régénéré à l'import).
+`realm-export.json` a été généré par `POST /admin/realms/loadpilot/partial-export?exportClients=true&exportGroupsAndRoles=true` sur une instance Keycloak 26.7.3 réellement démarrée et validée (P1-M) — ce n'est pas un fichier écrit à la main. Il contient le réalm `loadpilot`, ses 3 rôles réels (`ROLE_SUPER_ADMIN`, `ROLE_PERFORMANCE_ENGINEER`, `ROLE_VIEWER`) et ses 2 clients (`loadpilot-frontend`, `loadpilot-backend-admin`). **Il ne contient aucun utilisateur métier, aucun mot de passe, aucun secret réel** (le secret du client confidentiel, masqué par Keycloak à l'export, a été remplacé par l'emplacement `"secret":"${KEYCLOAK_ADMIN_CLIENT_SECRET}"`). À l'import, Keycloak le remplace par la valeur de la variable d'environnement `KEYCLOAK_ADMIN_CLIENT_SECRET`, la même que celle du backend : rien à recopier depuis la console.
 
-## Pourquoi pas Docker
+> **Installation pas à pas sur une nouvelle machine** (avec ou sans Docker) : voir [`GUIDE_INSTALLATION.md`](../GUIDE_INSTALLATION.md) à la racine du dépôt. Avec Docker, `docker-compose.yml` démarre Keycloak et importe ce realm automatiquement.
 
-Aucun `docker-compose` n'est fourni pour Keycloak dans ce dépôt car **Docker n'est pas disponible dans l'environnement où cette phase a été réalisée** (vérifié : `docker` introuvable). L'alternative retenue — une distribution Keycloak standalone (Quarkus, aucune dépendance à Docker) — est celle réellement utilisée et validée pour ce projet depuis ses premières phases. Si Docker est disponible dans votre environnement, `realm-export.json` reste directement réutilisable dans un conteneur Keycloak officiel (`quay.io/keycloak/keycloak:26.7.3`) via son mécanisme d'import de réalm standard.
+## Sans Docker (distribution zip)
+
+La suite de ce document décrit l'installation de Keycloak à partir de la distribution zip (Quarkus, sans Docker).
 
 ## Prérequis
 
@@ -22,8 +24,8 @@ unzip keycloak-26.7.3.zip
 cd keycloak-26.7.3
 
 # 2. Créer un compte admin local (une seule fois)
-export KEYCLOAK_ADMIN=admin
-export KEYCLOAK_ADMIN_PASSWORD=<choisissez un mot de passe local>
+export KC_BOOTSTRAP_ADMIN_USERNAME=admin
+export KC_BOOTSTRAP_ADMIN_PASSWORD=<choisissez un mot de passe local>
 
 # 3. Démarrer en mode développement, sur le port attendu par le backend/frontend LoadPilot
 bin/kc.sh start-dev --http-port=8081
@@ -37,31 +39,32 @@ curl http://localhost:8081/realms/master/.well-known/openid-configuration
 
 ## Importer le réalm LoadPilot
 
-Keycloak doit être démarré (étape précédente) avant l'import.
+`realm-export.json` contient des emplacements remplacés par des variables d'environnement (`${KEYCLOAK_ADMIN_CLIENT_SECRET}`, `${KC_SMTP_HOST:mailpit}`…). **Seul l'import au démarrage de Keycloak (`--import-realm`) les remplace.** L'import par l'Admin Console (Realm settings → Import) ou par l'API (`POST /admin/realms`) les laisse tels quels, et échoue : `400 Invalid sender address '${KC_SMTP_FROM:no-reply@loadpilot.local}'` (vérifié sur Keycloak 26.7.3).
 
-**Option A — via l'Admin Console** (http://localhost:8081/admin, se connecter avec le compte admin créé ci-dessus) : Realm settings → **Import** → sélectionner `keycloak/realm-export.json` de ce dépôt.
+Procédure (Keycloak arrêté) :
 
-**Option B — via l'API Admin** (scriptable) :
-```bash
-ADMIN_TOKEN=$(curl -s -X POST "http://localhost:8081/realms/master/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=password&client_id=admin-cli&username=$KEYCLOAK_ADMIN&password=$KEYCLOAK_ADMIN_PASSWORD" \
-  | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
-
-curl -X POST "http://localhost:8081/admin/realms" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  --data-binary @keycloak/realm-export.json
+```powershell
+# Windows PowerShell, depuis le dossier de Keycloak
+New-Item -ItemType Directory -Force data\import | Out-Null
+Copy-Item <chemin-du-depot>\keycloak\realm-export.json data\import\
+$env:KEYCLOAK_ADMIN_CLIENT_SECRET = '<le meme secret que le backend>'
+$env:KC_SMTP_HOST = 'localhost'      # Mailpit hors Docker
+bin\kc.bat start-dev --http-port=8081 --import-realm
 ```
+
+Détail pas à pas : `GUIDE_INSTALLATION.md`, étapes B.4 et B.5. Avec Docker, `docker-compose.yml` fait tout cela automatiquement.
 
 Vérifier l'import :
 ```bash
 curl http://localhost:8081/realms/loadpilot/.well-known/openid-configuration
 ```
-Cette commande doit retourner un JSON valide (code 200) — **c'est le critère de réussite de cette phase, réellement testé** (voir rapport P1-M).
+Cette commande doit retourner un JSON valide (code 200).
 
 ## Après l'import — ce qui reste à faire manuellement
 
-1. **Secret du client `loadpilot-backend-admin`** (confidentiel, requis pour `KEYCLOAK_ADMIN_CLIENT_SECRET` côté backend) : régénéré automatiquement par Keycloak à l'import (l'ancien secret n'est jamais exporté). Le récupérer dans l'Admin Console : Clients → `loadpilot-backend-admin` → onglet Credentials → Regenerate/Copy. **Ne jamais commiter cette valeur** — la placer uniquement dans la variable d'environnement du backend, jamais dans `perftest-frontend/`.
+1. **Secret du client `loadpilot-backend-admin`** (confidentiel, requis pour `KEYCLOAK_ADMIN_CLIENT_SECRET` côté backend) : **rien à faire si la variable `KEYCLOAK_ADMIN_CLIENT_SECRET` était définie au premier démarrage** (import). Keycloak a alors pris cette valeur, celle du backend.
+   - **Si elle manquait**, Keycloak ne signale rien, mais le secret devient le texte littéral `${KEYCLOAK_ADMIN_CLIENT_SECRET}` (vérifié). Il faut l'aligner sur la valeur du backend : `kcadm.sh update clients/<id> -r loadpilot -s secret=<valeur>` (voir `GUIDE_INSTALLATION.md`, « Aligner le secret »). L'Admin Console permet seulement de *régénérer* un secret aléatoire (Clients → `loadpilot-backend-admin` → Credentials → Regenerate), à recopier ensuite dans la variable du backend.
+   - **Ne jamais commiter cette valeur** : uniquement dans `.env` ou dans la variable d'environnement du backend, jamais dans `perftest-frontend/`.
 2. **Comptes utilisateurs métier** : le réalm importé ne contient volontairement aucun utilisateur (voir "Pourquoi aucun utilisateur n'est fourni" ci-dessous). Créer au moins un compte par rôle pour tester (Users → Add user → Credentials → définir un mot de passe → Role mapping → assigner `ROLE_SUPER_ADMIN`, `ROLE_PERFORMANCE_ENGINEER` ou `ROLE_VIEWER`).
 
 ## Pourquoi aucun utilisateur n'est fourni
@@ -75,7 +78,7 @@ KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/loadpilot
 KEYCLOAK_ADMIN_SERVER_URL=http://localhost:8081
 KEYCLOAK_ADMIN_REALM=loadpilot
 KEYCLOAK_ADMIN_CLIENT_ID=loadpilot-backend-admin
-KEYCLOAK_ADMIN_CLIENT_SECRET=<valeur récupérée dans l'Admin Console, jamais commitée>
+KEYCLOAK_ADMIN_CLIENT_SECRET=<même valeur que celle donnée à Keycloak à l'import, jamais commitée>
 ```
 
 ## Variables frontend attendues (déjà documentées dans `perftest-frontend/.env.example`)
