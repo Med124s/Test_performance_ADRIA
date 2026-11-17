@@ -56,6 +56,7 @@ public final class AuditSnapshots {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("Nom", s.getName());
         m.put("Description", shorten(s.getDescription()));
+        m.put("Mode de charge", s.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS ? "Stress (montée automatique)" : "Manuel");
         m.put("Utilisateurs virtuels", s.getVirtualUsers());
         m.put("Montée en charge (s)", s.getRampUpSeconds());
         m.put("Durée (s)", s.getDurationSeconds());

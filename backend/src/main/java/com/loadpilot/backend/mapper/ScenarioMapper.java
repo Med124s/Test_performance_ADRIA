@@ -37,6 +37,7 @@ public interface ScenarioMapper {
     @Mapping(target = "throttleDefaultDelaySeconds", ignore = true)
     @Mapping(target = "throttleMaxRetries", ignore = true)
     @Mapping(target = "thinkTimeVariationPercent", ignore = true)
+    @Mapping(target = "loadMode", ignore = true)
     Scenario toEntity(ScenarioRequest request);
 
     @Mapping(target = "id", ignore = true)
@@ -65,6 +66,7 @@ public interface ScenarioMapper {
     @Mapping(target = "throttleDefaultDelaySeconds", ignore = true)
     @Mapping(target = "throttleMaxRetries", ignore = true)
     @Mapping(target = "thinkTimeVariationPercent", ignore = true)
+    @Mapping(target = "loadMode", ignore = true)
     void updateEntityFromRequest(ScenarioRequest request, @MappingTarget Scenario scenario);
 
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")

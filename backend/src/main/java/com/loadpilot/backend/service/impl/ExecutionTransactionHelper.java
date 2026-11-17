@@ -48,6 +48,8 @@ public class ExecutionTransactionHelper {
 
     public static final String INACTIVE_NOT_RUNNABLE = "Le scénario est inactif, activez-le pour l'exécuter.";
 
+    /** Provisoire : le moteur de montee automatique n'est pas encore branche. */
+    static final String STRESS_NOT_YET_RUNNABLE = "Le lancement d'un test en mode stress n'est pas encore disponible.";
     public static final String DRAFT_NOT_RUNNABLE =
             "Ce scénario est un brouillon : terminez-le dans l'assistant (« Reprendre ») avant de l'exécuter.";
 
@@ -83,6 +85,11 @@ public class ExecutionTransactionHelper {
         List<Step> steps = stepRepository.findByScenarioId(scenarioId, STEP_ORDER);
         if (steps.isEmpty()) {
             throw new ConflictException("Le scenario ne possede aucune etape a executer.");
+        }
+        if (scenario.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS) {
+            // Une planification ne declenche jamais un test de stress.
+            throw new BadRequestException(scheduleId != null ? ScheduledExecutionServiceImpl.STRESS_NOT_SCHEDULABLE
+                    : STRESS_NOT_YET_RUNNABLE);
         }
         // Scenario au-dela des regles ou limites actuelles : non modifie, mais pas lance.
         java.util.List<String> loadProblems = com.loadpilot.backend.service.validation.LoadRules.validate(scenario.getVirtualUsers(),

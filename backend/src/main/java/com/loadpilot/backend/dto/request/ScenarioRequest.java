@@ -104,8 +104,23 @@ public record ScenarioRequest(
         /** Variation aleatoire du think time (± %, uniforme) ; null = inchange, 0 = think time fixe (defaut). */
         @Min(value = 0, message = "La variation du think time ne peut pas être négative.")
         @Max(value = 100, message = "La variation du think time ne doit pas dépasser 100 %.")
-        Integer thinkTimeVariationPercent
+        Integer thinkTimeVariationPercent,
+
+        /** Mode de charge : MANUAL ou STRESS (reglages de charge ignores) ; null = inchange (MANUAL a la creation). */
+        com.loadpilot.backend.enums.LoadMode loadMode
 ) {
+    public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
+            Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
+            String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,
+            String variables, CsvDistribution csvDistribution, com.loadpilot.backend.enums.RequestDetailMode requestDetailMode,
+            Double maxErrorRatePercent, Long maxP95Ms, Double errorBrakeRatePercent, Integer errorBrakeWindowSeconds,
+            Boolean throttleOn429, Integer throttleDefaultDelaySeconds, Integer throttleMaxRetries, Integer thinkTimeVariationPercent) {
+        this(applicationId, name, description, virtualUsers, rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData,
+                targetRps, draft, wizardStep, draftState, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms,
+                errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries,
+                thinkTimeVariationPercent, null);
+    }
+
     public ScenarioRequest(UUID applicationId, String name, String description, Integer virtualUsers,
             Integer rampUpSeconds, Integer durationSeconds, Integer iterations, Integer thinkTimeMs,
             String csvData, Integer targetRps, Boolean draft, Integer wizardStep, String draftState,

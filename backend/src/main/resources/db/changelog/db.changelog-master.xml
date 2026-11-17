@@ -214,4 +214,7 @@
     -->
     <include file="db/changelog/changes/041-metric-from-results.xml"/>
 
+    <!-- Mode de charge d'un scenario : manuel ou stress - voir changes/042-scenario-load-mode.xml. -->
+    <include file="db/changelog/changes/042-scenario-load-mode.xml"/>
+
 </databaseChangeLog>

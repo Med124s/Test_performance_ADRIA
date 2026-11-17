@@ -49,19 +49,23 @@ public record ScenarioResponse(
         /** Variation aleatoire du think time (± %) ; null = think time fixe. */
         Integer thinkTimeVariationPercent,
         /** Avertissements de charge, jamais bloquants (ex. beaucoup d'utilisateurs sans debit cible, voir LoadRules.warnings). */
-        java.util.List<String> loadWarnings
+        java.util.List<String> loadWarnings,
+        /** Mode de charge : MANUAL ou STRESS (reglages de charge ignores). */
+        com.loadpilot.backend.enums.LoadMode loadMode
 ) {
     public ScenarioResponse withPausedSchedules(long count) {
         return new ScenarioResponse(id, applicationId, applicationName, name, description, status, virtualUsers,
                 rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData, targetRps, createdBy, createdAt,
                 updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, count, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms,
-                errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries, thinkTimeVariationPercent, loadWarnings);
+                errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries, thinkTimeVariationPercent, loadWarnings,
+                loadMode);
     }
 
     public ScenarioResponse withLoadWarnings(java.util.List<String> warnings) {
         return new ScenarioResponse(id, applicationId, applicationName, name, description, status, virtualUsers,
                 rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData, targetRps, createdBy, createdAt,
                 updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, pausedSchedules, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms,
-                errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries, thinkTimeVariationPercent, warnings);
+                errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries, thinkTimeVariationPercent, warnings,
+                loadMode);
     }
 }

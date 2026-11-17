@@ -99,6 +99,12 @@ public class Scenario {
     @Column(name = "draft_state", length = 1_000_000)
     private String draftState;
 
+    /** Mode de charge : MANUAL (reglages ci-dessous) ou STRESS (montee automatique, reglages de charge ignores mais conserves). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "load_mode", nullable = false, length = 20)
+    @Builder.Default
+    private com.loadpilot.backend.enums.LoadMode loadMode = com.loadpilot.backend.enums.LoadMode.MANUAL;
+
     /** Debit cible optionnel (requetes/s, partage entre les utilisateurs virtuels) ; null = aucun pacing. */
     @Column(name = "target_rps")
     private Integer targetRps;

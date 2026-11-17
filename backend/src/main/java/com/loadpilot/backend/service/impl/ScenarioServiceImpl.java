@@ -16,6 +16,7 @@ import com.loadpilot.backend.service.validation.StepRules;
 import com.loadpilot.backend.enums.AuditAction;
 import com.loadpilot.backend.enums.AuditModule;
 import com.loadpilot.backend.enums.AuditResult;
+import com.loadpilot.backend.enums.LoadMode;
 import com.loadpilot.backend.enums.ScenarioStatus;
 import com.loadpilot.backend.exception.ConflictException;
 import com.loadpilot.backend.exception.LoadConfigurationException;
@@ -64,6 +65,7 @@ public class ScenarioServiceImpl implements ScenarioService {
     private final com.loadpilot.backend.mapper.StepMapper stepMapper;
     private final com.loadpilot.backend.service.AppSettingsService settings;
     private final com.loadpilot.backend.service.ExecutionLimitsService executionLimits;
+    private final com.loadpilot.backend.repository.ScheduledExecutionRepository scheduledExecutionRepository;
 
     @Override
     @Transactional
@@ -83,6 +85,7 @@ public class ScenarioServiceImpl implements ScenarioService {
                 scenario.setWizardStep(request.wizardStep());
                 scenario.setDraftState(request.draftState());
             }
+            applyLoadMode(scenario, request);
             applyLoadTestDefaults(scenario, request);
             // Seuils non fournis : valeurs par defaut de Parametres > Systeme.
             if (request.maxErrorRatePercent() == null) {
@@ -182,6 +185,8 @@ public class ScenarioServiceImpl implements ScenarioService {
     }
 
     private static ScenarioResponse withLoadWarnings(ScenarioResponse response, com.loadpilot.backend.service.validation.LoadLimits limits) {
+        // Mode stress : aucun reglage de charge saisi, donc aucun avertissement.
+        if (response.loadMode() == LoadMode.STRESS) return response.withLoadWarnings(List.of());
         return response.withLoadWarnings(com.loadpilot.backend.service.validation.LoadRules.warnings(
                 response.virtualUsers(), response.targetRps(), limits));
     }
@@ -200,6 +205,7 @@ public class ScenarioServiceImpl implements ScenarioService {
 
             scenarioMapper.updateEntityFromRequest(request, scenario);
             scenario.setApplication(application);
+            applyLoadMode(scenario, request);
             applyLoadTestDefaults(scenario, request);
             applyVariables(scenario, request);
             // Etat de l'assistant : brouillons uniquement ; null = inchange.
@@ -429,10 +435,29 @@ public class ScenarioServiceImpl implements ScenarioService {
         if (!problems.isEmpty()) throw new LoadConfigurationException(String.join(" ", problems));
     }
 
-    /** Regles de charge non respectees, avec les limites en vigueur. */
+    /** Regles de charge non respectees, avec les limites en vigueur ; aucune en mode stress (reglages ignores). */
     private List<String> loadProblems(Scenario s) {
+        if (s.getLoadMode() == LoadMode.STRESS) return List.of();
         return com.loadpilot.backend.service.validation.LoadRules.validate(s.getVirtualUsers(), s.getThinkTimeMs(), s.getRampUpSeconds(),
                 s.getDurationSeconds(), s.getIterations(), s.getTargetRps(), executionLimits.loadLimits());
+    }
+
+    /** Mode de charge : null = inchange (MANUAL a la creation) ; STRESS refuse tant que le scenario a des planifications. */
+    private void applyLoadMode(Scenario scenario, ScenarioRequest request) {
+        if (request.loadMode() != null) {
+            scenario.setLoadMode(request.loadMode());
+        } else if (scenario.getLoadMode() == null) {
+            scenario.setLoadMode(LoadMode.MANUAL);
+        }
+        if (scenario.getLoadMode() == LoadMode.STRESS && scenario.getId() != null) {
+            long schedules = scheduledExecutionRepository.countByScenarioId(scenario.getId());
+            if (schedules > 0) throw new ConflictException(stressScheduledMessage(schedules));
+        }
+    }
+
+    static String stressScheduledMessage(long schedules) {
+        return "Ce scénario a " + schedules + " planification(s) : supprimez-les avant de passer en mode stress "
+                + "(un test de stress se lance à la main, il ne se planifie pas).";
     }
 
     private Scenario findOrThrow(UUID id) {

@@ -97,6 +97,7 @@ public class ExecutionServiceImpl implements ExecutionService {
     // Garde-fou des lectures qui chargent tous les resultats.
     private final ResultLoadGuard resultLoadGuard;
     private final com.loadpilot.backend.service.monitoring.InjectorMonitor injectorMonitor;
+    private final com.loadpilot.backend.service.ExecutionLimitsService executionLimits;
 
     // Plafond memoire du detail des requetes par execution (Mo).
     @org.springframework.beans.factory.annotation.Value("${app.execution.request-detail.max-memory-mb:50}")
@@ -116,10 +117,12 @@ public class ExecutionServiceImpl implements ExecutionService {
         boolean capacityReserved = false;
         int virtualUsers = 0;
         try {
-            // Nombre d'utilisateurs virtuels, necessaire pour reserver la capacite.
-            virtualUsers = scenarioRepository.findById(scenarioId)
-                    .map(Scenario::getVirtualUsers)
+            // Nombre d'utilisateurs virtuels, necessaire pour reserver la capacite ; en mode stress, la montee
+            // automatique peut aller jusqu'a la limite d'utilisateurs par test.
+            Scenario scenario = scenarioRepository.findById(scenarioId)
                     .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + scenarioId));
+            virtualUsers = scenario.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS
+                    ? executionLimits.maxVirtualUsersPerTest() : scenario.getVirtualUsers();
 
             // Refus avant toute ecriture si une limite de capacite serait depassee.
             registry.reserveCapacity(virtualUsers);

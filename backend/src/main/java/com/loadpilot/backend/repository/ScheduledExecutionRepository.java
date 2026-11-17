@@ -20,6 +20,9 @@ public interface ScheduledExecutionRepository extends JpaRepository<ScheduledExe
     @Query("SELECT s FROM ScheduledExecution s JOIN FETCH s.scenario sc JOIN FETCH sc.application JOIN FETCH s.createdBy WHERE sc.id = :scenarioId ORDER BY s.createdAt DESC")
     List<ScheduledExecution> findByScenarioIdWithScenarioAndApplication(@Param("scenarioId") UUID scenarioId);
 
+    /** Planifications d'un scenario, actives ou non. */
+    long countByScenarioId(UUID scenarioId);
+
     /** Planification avec scenario, application et createur deja charges. */
     @Query("SELECT s FROM ScheduledExecution s JOIN FETCH s.scenario sc JOIN FETCH sc.application JOIN FETCH s.createdBy WHERE s.id = :id")
     Optional<ScheduledExecution> findByIdWithScenarioAndApplication(UUID id);

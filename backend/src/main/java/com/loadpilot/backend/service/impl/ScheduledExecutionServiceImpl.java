@@ -43,6 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class ScheduledExecutionServiceImpl implements ScheduledExecutionService {
 
     static final String INACTIVE_NOT_SCHEDULABLE = "Le scénario est inactif, activez-le pour le planifier.";
+    static final String STRESS_NOT_SCHEDULABLE = "Un scénario en mode stress ne se planifie pas : lancez-le à la main.";
     static final String RUNNING_NOT_RUNNABLE = "Une exécution de ce scénario est encore en cours : réessayez quand elle sera terminée.";
     static final int HISTORY_MAX = 200;
 
@@ -261,6 +262,9 @@ public class ScheduledExecutionServiceImpl implements ScheduledExecutionService 
         }
         if (scenario.isArchived() || scenario.getApplication().isArchived()) {
             throw new BadRequestException("Ce scénario (ou son application) est archivé : restaurez-le avant de le planifier.");
+        }
+        if (scenario.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS) {
+            throw new BadRequestException(STRESS_NOT_SCHEDULABLE);
         }
         java.util.List<String> loadProblems = com.loadpilot.backend.service.validation.LoadRules.validate(scenario.getVirtualUsers(),
                 scenario.getThinkTimeMs(), scenario.getRampUpSeconds(), scenario.getDurationSeconds(), scenario.getIterations(),

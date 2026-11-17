@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Mode de charge d'un scenario (voir enums.LoadMode).
+
+        scenario.load_mode : MANUAL (charge saisie : utilisateurs, ramp-up, duree, debit cible...) ou
+                             STRESS (montee automatique jusqu'au point de rupture, aucun reglage de charge saisi).
+                             Les scenarios existants passent en MANUAL : rien ne change pour eux.
+    -->
+    <changeSet id="042-scenario-load-mode" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="load_mode" type="VARCHAR(20)" defaultValue="MANUAL">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>
