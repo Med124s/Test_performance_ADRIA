@@ -313,6 +313,7 @@ class HttpClientExecutionEngineTest {
         assertThat(result.httpStatus()).isNull();
         assertThat(result.success()).isFalse();
         assertThat(result.error()).isNotBlank();
+        assertThat(result.networkError()).isEqualTo(com.loadpilot.backend.service.http.NetworkErrors.TIMEOUT);
         assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.FAILED);
     }
 
@@ -330,6 +331,7 @@ class HttpClientExecutionEngineTest {
         assertThat(result.httpStatus()).isNull();
         assertThat(result.success()).isFalse();
         assertThat(result.error()).isNotBlank();
+        assertThat(result.networkError()).isEqualTo(com.loadpilot.backend.service.http.NetworkErrors.CONNECTION_REFUSED);
         assertThat(outcome.finalStatus()).isEqualTo(ExecutionStatus.FAILED);
     }
 

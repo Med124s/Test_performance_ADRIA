@@ -11,6 +11,10 @@ import javax.net.ssl.SSLException;
 /** Traduit une erreur reseau en message lisible, sans reprendre le message brut de l'exception. */
 public final class NetworkErrors {
 
+    /** Categories de kind() suivies par le mode stress. */
+    public static final String TIMEOUT = "TIMEOUT";
+    public static final String CONNECTION_REFUSED = "CONNECTION_REFUSED";
+
     private NetworkErrors() {
     }
 
@@ -40,10 +44,10 @@ public final class NetworkErrors {
 
     /** Categorie de l'erreur : TIMEOUT, DNS, TLS, CONNECTION_REFUSED ou NETWORK. */
     public static String kind(IOException e) {
-        if (e instanceof HttpTimeoutException) return "TIMEOUT";
+        if (e instanceof HttpTimeoutException) return TIMEOUT;
         if (hasCause(e, UnknownHostException.class) || hasCause(e, UnresolvedAddressException.class)) return "DNS";
         if (hasCause(e, SSLException.class)) return "TLS";
-        if (hasCause(e, ConnectException.class)) return "CONNECTION_REFUSED";
+        if (hasCause(e, ConnectException.class)) return CONNECTION_REFUSED;
         return "NETWORK";
     }
 

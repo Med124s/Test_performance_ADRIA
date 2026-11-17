@@ -43,8 +43,10 @@ class ErrorRateBrakeTest {
     void liveStatsWindow_countsRequestsAndFailuresOfTheLastSeconds() {
         LiveStats stats = new LiveStats(List.of());
         for (int i = 0; i < 30; i++) stats.record(-1, outcome(i % 3 != 0));
-        assertThat(stats.recentWindow(30)).isEqualTo(new LiveStats.Window(30, 10));
-        assertThat(stats.recentWindow(10_000)).as("borne a 300 s").isEqualTo(new LiveStats.Window(30, 10));
+        assertThat(stats.recentWindow(30)).extracting(LiveStats.Window::requests, LiveStats.Window::failures)
+                .containsExactly(30L, 10L);
+        assertThat(stats.recentWindow(10_000)).as("borne a 300 s")
+                .extracting(LiveStats.Window::requests, LiveStats.Window::failures).containsExactly(30L, 10L);
         // Le suivi en direct existant ne change pas.
         assertThat(stats.snapshot().failures()).isEqualTo(10);
     }

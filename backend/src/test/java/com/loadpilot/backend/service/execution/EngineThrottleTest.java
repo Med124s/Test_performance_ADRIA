@@ -214,7 +214,8 @@ class EngineThrottleTest {
                 new LoadTestSpec(1, 0, null, 25, 0, null, ThrottlePolicy.of(true, 1, 0)), respected,
                 new VariableSources(List.of(), CsvDistribution.PER_VIRTUAL_USER, Map.of(), limited));
         LiveStats.Window window = respected.liveStats().recentWindow(30);
-        assertThat(window).isEqualTo(new LiveStats.Window(0, 0, 25));
+        assertThat(window).extracting(LiveStats.Window::requests, LiveStats.Window::failures, LiveStats.Window::throttled)
+                .containsExactly(0L, 0L, 25L);
         assertThat(ErrorRateBrake.evaluate(brake, window)).isNull();
         // Le suivi en direct (et le resultat final) les compte bien comme des echecs.
         assertThat(respected.liveStats().snapshot().failures()).isEqualTo(25);
@@ -225,7 +226,9 @@ class EngineThrottleTest {
         engine.execute(always, baseUrl, ApplicationAuthSpec.none(),
                 new LoadTestSpec(1, 0, null, 25, 0, null, ThrottlePolicy.DISABLED), disabled,
                 new VariableSources(List.of(), CsvDistribution.PER_VIRTUAL_USER, Map.of(), always));
-        assertThat(disabled.liveStats().recentWindow(30)).isEqualTo(new LiveStats.Window(25, 25, 0));
+        assertThat(disabled.liveStats().recentWindow(30))
+                .extracting(LiveStats.Window::requests, LiveStats.Window::failures, LiveStats.Window::throttled)
+                .containsExactly(25L, 25L, 0L);
         assertThat(ErrorRateBrake.evaluate(brake, disabled.liveStats().recentWindow(30))).startsWith(ErrorRateBrake.REASON_PREFIX);
 
         // Ralentissement actif mais vraies erreurs (500) : toujours jugees par le frein.
@@ -234,6 +237,8 @@ class EngineThrottleTest {
         engine.execute(fail, baseUrl, ApplicationAuthSpec.none(),
                 new LoadTestSpec(1, 0, null, 25, 0, null, ThrottlePolicy.DEFAULT), realErrors,
                 new VariableSources(List.of(), CsvDistribution.PER_VIRTUAL_USER, Map.of(), fail));
-        assertThat(realErrors.liveStats().recentWindow(30)).isEqualTo(new LiveStats.Window(25, 25, 0));
+        assertThat(realErrors.liveStats().recentWindow(30))
+                .extracting(LiveStats.Window::requests, LiveStats.Window::failures, LiveStats.Window::throttled)
+                .containsExactly(25L, 25L, 0L);
     }
 }

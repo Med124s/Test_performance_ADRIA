@@ -348,13 +348,14 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                     keptBody, checks);
         } catch (HttpTimeoutException e) {
             StepOutcome outcome = new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false,
-                    "Delai d'attente depasse (" + effectiveTimeoutSeconds + "s)", Instant.now(), virtualUser, iteration, requestUrl);
+                    "Delai d'attente depasse (" + effectiveTimeoutSeconds + "s)", Instant.now(), virtualUser, iteration, requestUrl,
+                    null, com.loadpilot.backend.service.http.NetworkErrors.TIMEOUT);
             return detailOn ? detail.attach(outcome, url, sentHeaders(request, built), built.body(), null, null, null, null) : outcome;
         } catch (IOException e) {
             String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.debug("Etape '{}' echouee (technique) : {}", step.name(), e.getClass().getSimpleName());
             StepOutcome outcome = new StepOutcome(step.stepId(), null, elapsedMs(startedAt), false, message, Instant.now(),
-                    virtualUser, iteration, requestUrl);
+                    virtualUser, iteration, requestUrl, null, com.loadpilot.backend.service.http.NetworkErrors.kind(e));
             return detailOn ? detail.attach(outcome, url, sentHeaders(request, built), built.body(), null, null, null, null) : outcome;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

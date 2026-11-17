@@ -16,18 +16,26 @@ public record StepOutcome(
         Integer iteration,
         String requestUrl,
         /** Detail complet conserve pour cette requete (echec ou echantillon), sinon null. */
-        RequestDetail detail
+        RequestDetail detail,
+        /** Echec reseau (NetworkErrors.kind : TIMEOUT, CONNECTION_REFUSED...) ; null si une reponse a ete recue. */
+        String networkError
 ) {
     public StepOutcome(UUID stepId, Integer httpStatus, long responseTimeMs, boolean success, String error, Instant timestamp) {
-        this(stepId, httpStatus, responseTimeMs, success, error, timestamp, null, null, null, null);
+        this(stepId, httpStatus, responseTimeMs, success, error, timestamp, null, null, null, null, null);
     }
 
     public StepOutcome(UUID stepId, Integer httpStatus, long responseTimeMs, boolean success, String error, Instant timestamp,
             Integer virtualUser, Integer iteration, String requestUrl) {
-        this(stepId, httpStatus, responseTimeMs, success, error, timestamp, virtualUser, iteration, requestUrl, null);
+        this(stepId, httpStatus, responseTimeMs, success, error, timestamp, virtualUser, iteration, requestUrl, null, null);
+    }
+
+    public StepOutcome(UUID stepId, Integer httpStatus, long responseTimeMs, boolean success, String error, Instant timestamp,
+            Integer virtualUser, Integer iteration, String requestUrl, RequestDetail detail) {
+        this(stepId, httpStatus, responseTimeMs, success, error, timestamp, virtualUser, iteration, requestUrl, detail, null);
     }
 
     public StepOutcome withDetail(RequestDetail newDetail) {
-        return new StepOutcome(stepId, httpStatus, responseTimeMs, success, error, timestamp, virtualUser, iteration, requestUrl, newDetail);
+        return new StepOutcome(stepId, httpStatus, responseTimeMs, success, error, timestamp, virtualUser, iteration, requestUrl,
+                newDetail, networkError);
     }
 }
