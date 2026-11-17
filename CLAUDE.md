@@ -46,6 +46,15 @@ cd perftest-frontend; npm test; npm run build   # tests et build frontend
   - en-têtes et corps des requêtes : 30 jours ;
   - un rapport figé est gardé après la purge ;
   - l'option « Conserver » exclut une exécution de la purge.
+- **Mode stress** (`loadMode = STRESS`, en cours de développement ; le mode manuel reste inchangé) :
+  - aucun réglage de charge saisi : le débit offert monte seul, le réservoir de VUs suit (un VU de plus quand tous sont occupés et que des créneaux sont manqués) ;
+  - montée bornée par les limites applicatives en vigueur (VUs par test, débit cible maximal, durée maximale) ;
+  - rupture détectée sans seuil saisi, par comparaison à une baseline ; constantes internes dans `StressSettings`, jamais exposées ;
+  - rupture → « Seuils dépassés », motif détaillé, niveau de charge enregistré (VUs, débit, temps de réponse, critère) ;
+  - aucune rupture avant les limites → « Réussie », note « aucune rupture détectée jusqu'à X VU / Y req/s » ;
+  - LoadPilot saturé avant la cible → « Annulée », motif « Non concluant — LoadPilot a atteint sa propre limite technique avant la cible » ;
+  - les 429 et 502/503/504 de la cible comptent comme des refus, au même titre que les timeouts et les connexions refusées ;
+  - un stress test tourne seul sur le serveur, ne se planifie pas ; think time des étapes conservé, think time global ignoré.
 - **Journal d'audit** : 365 jours ; événements Keycloak : 365 jours.
 - **Migration de Keycloak vers PostgreSQL** :
   - validée mais pas encore faite : Keycloak tourne en `start-dev` avec H2 dans son conteneur ;
