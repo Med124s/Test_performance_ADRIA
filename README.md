@@ -132,6 +132,9 @@ Aucune valeur ci-dessous n'est une valeur réelle — uniquement les noms et rô
 | `LOADPILOT_MAX_GLOBAL_VUS` | Non | 500 | Plafond global : utilisateurs virtuels de tous les tests en cours réunis |
 | `LOADPILOT_MAX_VUS_PER_EXECUTION` | Non | 200 | Plafond par test ; toujours inférieur ou égal au plafond global (un test au plus 40 % du budget par défaut, pour laisser tourner plusieurs tests en parallèle) |
 | `LOADPILOT_MAX_CONCURRENT_EXECUTIONS` | Non | 10 | Limite d'exécutions simultanées |
+| `LOADPILOT_MAX_TARGET_RPS` | Non | 500 | Plafond du débit cible (req/s) ; borne aussi la montée d'un test de stress |
+| `LOADPILOT_MAX_DURATION_SECONDS` | Non | 3600 | Plafond de la durée d'un test (s) ; borne aussi la durée d'un test de stress |
+| `LOADPILOT_MAX_ITERATIONS` | Non | 10000 | Plafond des itérations par utilisateur virtuel |
 | `LOADPILOT_TARGET_RPS_ADVISED_ABOVE_VUS` | Non | 50 | Au-delà de ce nombre d'utilisateurs virtuels sans débit cible : avertissement, jamais un refus (0 = jamais) |
 | `LOADPILOT_MAX_RESULTS_IN_MEMORY` | Non | calculée : mémoire de la JVM ÷ 2,5 Ko (~1,6 M avec 4 Go) | Garde-fou mémoire : résultats gardés en mémoire, toutes exécutions confondues (voir section 17) |
 | `LOADPILOT_SCHEDULER_POLL_INTERVAL_MS` | Non | 5000 | Intervalle du poller de planification |
