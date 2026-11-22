@@ -32,6 +32,9 @@ public record ExecutionDetailResponse(
         /** Debit (req/s, temps de pause exclu) et taux d'erreurs (%) : memes formules que les Metric
          * (PerformanceAggregates), sans les recharger ; null si rien a mesurer. */
         Double throughputRps,
-        Double errorRatePercent
+        Double errorRatePercent,
+        /** Mode de charge, et resultat du test de stress (null en mode manuel). */
+        com.loadpilot.backend.enums.LoadMode loadMode,
+        StressResultResponse stress
 ) {
 }

@@ -217,4 +217,7 @@
     <!-- Mode de charge d'un scenario : manuel ou stress - voir changes/042-scenario-load-mode.xml. -->
     <include file="db/changelog/changes/042-scenario-load-mode.xml"/>
 
+    <!-- Resultat d'un test de stress (point de rupture) - voir changes/043-execution-stress-result.xml. -->
+    <include file="db/changelog/changes/043-execution-stress-result.xml"/>
+
 </databaseChangeLog>

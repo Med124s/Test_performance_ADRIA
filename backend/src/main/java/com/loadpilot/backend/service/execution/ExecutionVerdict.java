@@ -49,6 +49,33 @@ public final class ExecutionVerdict {
         return new Result(ExecutionStatus.THRESHOLDS_EXCEEDED, message.append('.').toString());
     }
 
+    /** Motif d'un test de stress termine sans decision de la montee (cas anormal). */
+    public static final String STRESS_WITHOUT_RESULT = "Test de stress terminé sans résultat de la montée en charge.";
+
+    /**
+     * Mode stress : les seuils du scenario sont sans objet. Rupture -> THRESHOLDS_EXCEEDED, aucune rupture jusqu'a une
+     * limite de LoadPilot -> SUCCESS, baseline inexploitable -> FAILED ; annulation (dont « non concluant ») -> CANCELLED.
+     */
+    public static Result decideStress(ScenarioExecutionOutcome outcome, boolean cancelled, String cancelMessage, StressResult stress) {
+        if (cancelled) return new Result(ExecutionStatus.CANCELLED, cancelMessage);
+        ResultSummary all = outcome.summary();
+        if (all.total() == 0) {
+            return new Result(ExecutionStatus.FAILED,
+                    outcome.errorMessage() != null ? outcome.errorMessage() : "Aucune requête n'a été exécutée.");
+        }
+        if (!all.anyResponse()) {
+            String first = all.firstOutcomeError();
+            return new Result(ExecutionStatus.FAILED, UNREACHABLE + (first != null ? " (" + first + ")" : "") + ".");
+        }
+        if (stress == null || stress.outcome() == null) return new Result(ExecutionStatus.FAILED, STRESS_WITHOUT_RESULT);
+        return switch (stress.outcome()) {
+            case BREAKPOINT -> new Result(ExecutionStatus.THRESHOLDS_EXCEEDED, stress.message());
+            case NO_BREAKPOINT -> new Result(ExecutionStatus.SUCCESS, null);
+            case BASELINE_UNUSABLE -> new Result(ExecutionStatus.FAILED, stress.message());
+            case INCONCLUSIVE -> new Result(ExecutionStatus.CANCELLED, stress.message());
+        };
+    }
+
     /** Taux d'erreurs (%) arrondi a 0,1. */
     public static double roundedRate(long failures, long total) {
         return total == 0 ? 0.0 : Math.round(failures * 1000.0 / total) / 10.0;

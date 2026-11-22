@@ -2,6 +2,7 @@ package com.loadpilot.backend.service.execution;
 
 import com.loadpilot.backend.entity.Execution;
 import com.loadpilot.backend.enums.ExecutionStatus;
+import com.loadpilot.backend.enums.StressOutcome;
 
 /** Raison courte d'un statut, affichee sous le badge : "Erreurs : 2,5 %", "P95 > seuil", "Annulee par admin-test"... */
 public final class ExecutionStatusReason {
@@ -25,18 +26,28 @@ public final class ExecutionStatusReason {
                     yield "Arrêt automatique : limite mémoire";
                 }
                 if (message.startsWith(ErrorRateBrake.REASON_PREFIX)) yield "Arrêt automatique : trop d’erreurs";
+                if (message.startsWith(BreakpointWatcher.INCONCLUSIVE_PREFIX)) yield "Non concluant : LoadPilot saturé";
                 if (message.toLowerCase().contains("pause")) yield "Annulée : pause trop longue";
                 yield "Annulée";
             }
-            case THRESHOLDS_EXCEEDED -> e.getMaxErrorRatePercent() != null && errorRate > e.getMaxErrorRatePercent()
-                    ? "Erreurs : " + ExecutionVerdict.format(errorRate) + " %"
-                    : "P95 > seuil";
+            case THRESHOLDS_EXCEEDED -> {
+                if (e.getStressOutcome() == StressOutcome.BREAKPOINT && e.getBreakpointOfferedRps() != null) {
+                    yield "Point de rupture : " + ExecutionVerdict.format(e.getBreakpointOfferedRps()) + " req/s";
+                }
+                yield e.getMaxErrorRatePercent() != null && errorRate > e.getMaxErrorRatePercent()
+                        ? "Erreurs : " + ExecutionVerdict.format(errorRate) + " %"
+                        : "P95 > seuil";
+            }
             case FAILED -> failedReason(e, message, ko, errorRate);
+            case SUCCESS -> e.getStressOutcome() == StressOutcome.NO_BREAKPOINT && e.getStressPeakOfferedRps() != null
+                    ? "Aucune rupture jusqu’à " + ExecutionVerdict.format(e.getStressPeakOfferedRps()) + " req/s"
+                    : null;
             default -> null;
         };
     }
 
     private static String failedReason(Execution e, String message, long failures, double errorRate) {
+        if (e.getStressOutcome() == StressOutcome.BASELINE_UNUSABLE) return "Baseline impossible";
         if (message.startsWith("Authentification")) return "Authentification échouée";
         if (message.startsWith(ExecutionVerdict.UNREACHABLE)) return "Application injoignable";
         String lower = message.toLowerCase();

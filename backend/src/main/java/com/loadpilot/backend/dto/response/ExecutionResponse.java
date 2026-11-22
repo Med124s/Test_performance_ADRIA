@@ -18,6 +18,9 @@ public record ExecutionResponse(
         Integer successfulSteps,
         Integer failedSteps,
         Long duration,
-        String errorMessage
+        String errorMessage,
+        /** Mode de charge copie au lancement, et resultat du test de stress (null en mode manuel). */
+        com.loadpilot.backend.enums.LoadMode loadMode,
+        StressResultResponse stress
 ) {
 }

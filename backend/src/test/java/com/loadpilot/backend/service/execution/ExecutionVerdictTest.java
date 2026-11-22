@@ -85,6 +85,65 @@ class ExecutionVerdictTest {
                 .isEqualTo(ExecutionStatus.SUCCESS);
     }
 
+    private static final BreakpointDetector.Breakpoint BREAKPOINT = new BreakpointDetector.Breakpoint(
+            java.util.Set.of(BreakpointDetector.Criterion.RESPONSE_TIME), 45, 60, 12, 20.0, 19.5, 400L, 100L, 0.0,
+            "Point de rupture vers 20 req/s offertes et 12 utilisateur(s) virtuel(s), à 45 s du début : P95 de 400 ms.");
+
+    @Test
+    void stressVerdict_followsTheBreakpoint_notTheScenarioThresholds() {
+        // 10 % d'erreurs : au-dela de tout seuil, mais sans objet en mode stress.
+        ScenarioExecutionOutcome ran = outcome(mix(90, 10, 50));
+
+        ExecutionVerdict.Result rupture = ExecutionVerdict.decideStress(ran, false, null,
+                new StressResult(com.loadpilot.backend.enums.StressOutcome.BREAKPOINT, BREAKPOINT, null, 30, 35.0, BREAKPOINT.message()));
+        assertThat(rupture).isEqualTo(new ExecutionVerdict.Result(ExecutionStatus.THRESHOLDS_EXCEEDED, BREAKPOINT.message()));
+
+        StressResult noBreakpoint = new StressResult(com.loadpilot.backend.enums.StressOutcome.NO_BREAKPOINT, null,
+                StressRamp.Limit.TARGET_RPS, 200, 500.0, StressResult.noBreakpointMessage(200, 500.0, StressRamp.Limit.TARGET_RPS));
+        assertThat(ExecutionVerdict.decideStress(ran, false, null, noBreakpoint))
+                .isEqualTo(new ExecutionVerdict.Result(ExecutionStatus.SUCCESS, null));
+        assertThat(noBreakpoint.message())
+                .isEqualTo("Aucune rupture détectée jusqu'à 200 VU / 500 req/s offertes (limite de LoadPilot atteinte : débit cible maximal).");
+
+        ExecutionVerdict.Result baseline = ExecutionVerdict.decideStress(ran, false, null,
+                new StressResult(com.loadpilot.backend.enums.StressOutcome.BASELINE_UNUSABLE, null, null, 3, 2.0, "Baseline impossible : 12 réponse(s)"));
+        assertThat(baseline).isEqualTo(new ExecutionVerdict.Result(ExecutionStatus.FAILED, "Baseline impossible : 12 réponse(s)"));
+
+        // Non concluant : annulation automatique avec son motif.
+        String inconclusive = BreakpointWatcher.INCONCLUSIVE_PREFIX + " : CPU de LoadPilot à 95 %.";
+        assertThat(ExecutionVerdict.decideStress(ran, true, inconclusive, new StressResult(
+                com.loadpilot.backend.enums.StressOutcome.INCONCLUSIVE, null, null, 50, 80.0, inconclusive)))
+                .isEqualTo(new ExecutionVerdict.Result(ExecutionStatus.CANCELLED, inconclusive));
+    }
+
+    @Test
+    void stressVerdict_testThatCouldNotRun_isFailed() {
+        ScenarioExecutionOutcome down = outcome(List.of(ko(null, 3, "Connection refused")));
+        assertThat(ExecutionVerdict.decideStress(down, false, null, null).errorMessage()).startsWith(ExecutionVerdict.UNREACHABLE);
+        assertThat(ExecutionVerdict.decideStress(outcome(mix(5, 0, 5)), false, null,
+                new StressResult(null, null, null, 1, 2.0, null)))
+                .isEqualTo(new ExecutionVerdict.Result(ExecutionStatus.FAILED, ExecutionVerdict.STRESS_WITHOUT_RESULT));
+    }
+
+    @Test
+    void stressStatusReasons() {
+        Execution rupture = Execution.builder().status(ExecutionStatus.THRESHOLDS_EXCEEDED).successfulSteps(90).failedSteps(10)
+                .stressOutcome(com.loadpilot.backend.enums.StressOutcome.BREAKPOINT).breakpointOfferedRps(182.0).build();
+        assertThat(ExecutionStatusReason.of(rupture)).isEqualTo("Point de rupture : 182 req/s");
+
+        Execution none = Execution.builder().status(ExecutionStatus.SUCCESS)
+                .stressOutcome(com.loadpilot.backend.enums.StressOutcome.NO_BREAKPOINT).stressPeakOfferedRps(500.0).build();
+        assertThat(ExecutionStatusReason.of(none)).isEqualTo("Aucune rupture jusqu’à 500 req/s");
+
+        Execution baseline = Execution.builder().status(ExecutionStatus.FAILED).successfulSteps(12).failedSteps(0)
+                .stressOutcome(com.loadpilot.backend.enums.StressOutcome.BASELINE_UNUSABLE).errorMessage("Baseline impossible : 12").build();
+        assertThat(ExecutionStatusReason.of(baseline)).isEqualTo("Baseline impossible");
+
+        Execution inconclusive = Execution.builder().status(ExecutionStatus.CANCELLED)
+                .errorMessage(BreakpointWatcher.INCONCLUSIVE_PREFIX + " : CPU de LoadPilot à 95 %.").build();
+        assertThat(ExecutionStatusReason.of(inconclusive)).isEqualTo("Non concluant : LoadPilot saturé");
+    }
+
     @Test
     void statusReasons() {
         Execution e = Execution.builder().status(ExecutionStatus.THRESHOLDS_EXCEEDED).successfulSteps(195).failedSteps(5)

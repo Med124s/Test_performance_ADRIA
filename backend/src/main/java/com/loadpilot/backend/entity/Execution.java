@@ -175,6 +175,61 @@ public class Execution {
     @Column(name = "request_details_purged_at")
     private Instant requestDetailsPurgedAt;
 
+    /** Mode de charge copie au lancement. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "load_mode", nullable = false, length = 20)
+    @Builder.Default
+    private com.loadpilot.backend.enums.LoadMode loadMode = com.loadpilot.backend.enums.LoadMode.MANUAL;
+
+    // ---- Resultat d'un test de stress (null en mode manuel), garde apres la purge des resultats ----
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stress_outcome", length = 30)
+    private com.loadpilot.backend.enums.StressOutcome stressOutcome;
+
+    /** Aucune rupture : limite de LoadPilot atteinte (TARGET_RPS, VIRTUAL_USERS, DURATION). */
+    @Column(name = "stress_limit", length = 20)
+    private String stressLimit;
+
+    @Column(name = "stress_message", length = 1000)
+    private String stressMessage;
+
+    @Column(name = "stress_peak_virtual_users")
+    private Integer stressPeakVirtualUsers;
+
+    @Column(name = "stress_peak_offered_rps")
+    private Double stressPeakOfferedRps;
+
+    /** Criteres confirmes, separes par des virgules (RESPONSE_TIME, REFUSALS, THROUGHPUT). */
+    @Column(name = "breakpoint_criteria", length = 100)
+    private String breakpointCriteria;
+
+    /** Debut de l'anomalie et confirmation, en secondes depuis le debut du test. */
+    @Column(name = "breakpoint_onset_seconds")
+    private Integer breakpointOnsetSeconds;
+
+    @Column(name = "breakpoint_detected_seconds")
+    private Integer breakpointDetectedSeconds;
+
+    /** Niveau de charge et mesures de la premiere fenetre anormale. */
+    @Column(name = "breakpoint_virtual_users")
+    private Integer breakpointVirtualUsers;
+
+    @Column(name = "breakpoint_offered_rps")
+    private Double breakpointOfferedRps;
+
+    @Column(name = "breakpoint_throughput_rps")
+    private Double breakpointThroughputRps;
+
+    @Column(name = "breakpoint_p95_ms")
+    private Long breakpointP95Ms;
+
+    @Column(name = "baseline_p95_ms")
+    private Long baselineP95Ms;
+
+    @Column(name = "breakpoint_refusal_percent")
+    private Double breakpointRefusalPercent;
+
     @Builder.Default
     @OneToMany(mappedBy = "execution", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ExecutionStepResult> results = new ArrayList<>();

@@ -223,9 +223,12 @@ public class ExecutionServiceImpl implements ExecutionService {
                     log.warn("Mesures CPU / RAM non enregistrees pour l'execution {} : {}", prepared.executionId(), e.getClass().getSimpleName());
                 }
             }
+            // Mode stress : point de rupture, ou limite de LoadPilot atteinte, lus dans le handle.
+            com.loadpilot.backend.service.execution.StressResult stressResult = prepared.loadSpec().stress() != null
+                    ? com.loadpilot.backend.service.execution.StressResult.of(handle) : null;
             Execution finalized = transactionHelper.finalizeExecution(prepared.executionId(), outcome, handle.isCancelled(),
                     handle.cancellationReason(), handle.detailRecorder() != null && handle.detailRecorder().sampleCapReached(),
-                    handle.cancelledBy());
+                    handle.cancelledBy(), stressResult);
 
             AuditResult auditResult = finalized.getStatus() == ExecutionStatus.SUCCESS
                     ? AuditResult.SUCCESS : AuditResult.FAILURE;
@@ -233,7 +236,7 @@ public class ExecutionServiceImpl implements ExecutionService {
             auditLogService.record(auditTargets.onExecution(AuditEvent.of(AuditAction.FINISH, AuditModule.EXECUTION), finalized.getId())
                     .system(prepared.scheduleId() != null ? "Exécution planifiée" : "Fin d’exécution")
                     .result(auditResult)
-                    .description("Exécution terminée : " + AuditTargets.statusLabel(finalized.getStatus())));
+                    .description(finishDescription(finalized)));
             // Execution planifiee : notification envoyee plus bas, une fois le P95 calcule.
             if (prepared.scheduleId() == null) notifyTerminalStatus(prepared, finalized.getStatus());
 
@@ -410,7 +413,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 execution.isDetailSampleCapReached(), requestDetailRepository.countByExecutionIdAndKind(id, "FAILURE"),
                 requestDetailRepository.countByExecutionIdAndKind(id, "SAMPLE"), reportSnapshots.retention(execution, false, false),
                 toDouble(ThroughputCalculator.compute(executed(execution), execution.activeDurationMs())),
-                toDouble(PerformanceAggregates.errorRate(failed(execution), executed(execution))));
+                toDouble(PerformanceAggregates.errorRate(failed(execution), executed(execution))), base.loadMode(), base.stress());
     }
 
     private static int executed(Execution e) {
@@ -697,6 +700,13 @@ public class ExecutionServiceImpl implements ExecutionService {
     /** Arret par le frein automatique sur taux d'erreurs. */
     public void cancelForErrorRate(UUID id, String reason) {
         cancelAutomatically(id, reason, "Frein sur taux d’erreurs");
+    }
+
+    /** Description d'audit de fin ; mode stress : resultat de la montee, borne a la colonne (500 caracteres). */
+    static String finishDescription(Execution finalized) {
+        String text = "Exécution terminée : " + AuditTargets.statusLabel(finalized.getStatus())
+                + (finalized.getStressMessage() != null ? " — " + finalized.getStressMessage() : "");
+        return text.length() > 500 ? text.substring(0, 499) + "…" : text;
     }
 
     /**

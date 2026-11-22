@@ -126,8 +126,10 @@ public class ExecutionTransactionHelper {
                 .triggeredBy(triggeredByRef)
                 .scheduleId(scheduleId)
                 .requestDetailMode(scenario.getRequestDetailMode())
-                .maxErrorRatePercent(scenario.getMaxErrorRatePercent())
-                .maxP95Ms(scenario.getMaxP95Ms())
+                // Mode stress : seuils du scenario sans objet (verdict selon le point de rupture).
+                .maxErrorRatePercent(stressLimits != null ? null : scenario.getMaxErrorRatePercent())
+                .maxP95Ms(stressLimits != null ? null : scenario.getMaxP95Ms())
+                .loadMode(scenario.getLoadMode())
                 .build();
         Execution saved = executionRepository.saveAndFlush(execution);
 
@@ -199,6 +201,14 @@ public class ExecutionTransactionHelper {
     @Transactional
     public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
             String cancellationReason, boolean detailSampleCapReached, String cancelledBy) {
+        return finalizeExecution(executionId, outcome, wasCancelled, cancellationReason, detailSampleCapReached, cancelledBy, null);
+    }
+
+    /** "stress" : resultat d'un test de stress (verdict et point de rupture enregistres) ; null en mode manuel. */
+    @Transactional
+    public Execution finalizeExecution(UUID executionId, ScenarioExecutionOutcome outcome, boolean wasCancelled,
+            String cancellationReason, boolean detailSampleCapReached, String cancelledBy,
+            com.loadpilot.backend.service.execution.StressResult stress) {
         Execution execution = executionRepository.findByIdForUpdate(executionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + executionId));
 
@@ -227,10 +237,12 @@ public class ExecutionTransactionHelper {
         closePause(execution, finishedAt);
         execution.setSuccessfulSteps((int) successCount);
         execution.setFailedSteps((int) failCount);
-        // Statut final selon les seuils de reussite copies au lancement.
-        ExecutionVerdict.Result verdict = ExecutionVerdict.decide(outcome, wasCancelled,
-                cancellationReason != null ? cancellationReason : "Execution annulee par l'utilisateur.",
-                execution.getMaxErrorRatePercent(), execution.getMaxP95Ms());
+        // Statut final selon les seuils de reussite copies au lancement ; mode stress : selon le point de rupture.
+        String cancelMessage = cancellationReason != null ? cancellationReason : "Execution annulee par l'utilisateur.";
+        ExecutionVerdict.Result verdict = stress != null
+                ? ExecutionVerdict.decideStress(outcome, wasCancelled, cancelMessage, stress)
+                : ExecutionVerdict.decide(outcome, wasCancelled, cancelMessage, execution.getMaxErrorRatePercent(), execution.getMaxP95Ms());
+        if (stress != null) applyStressResult(execution, stress);
         execution.setStatus(verdict.status());
         execution.setErrorMessage(verdict.errorMessage());
         if (wasCancelled && cancellationReason == null && cancelledBy != null) execution.setCancelledBy(cancelledBy);
@@ -238,6 +250,27 @@ public class ExecutionTransactionHelper {
         execution.setDuration(Duration.between(execution.getStartedAt(), finishedAt).toMillis());
 
         return executionRepository.saveAndFlush(execution);
+    }
+
+    /** Resultat du test de stress ; utilisateurs virtuels de l'execution = pic de la montee (et non la limite reservee). */
+    private static void applyStressResult(Execution execution, com.loadpilot.backend.service.execution.StressResult stress) {
+        execution.setStressOutcome(stress.outcome());
+        execution.setStressLimit(stress.limit() != null ? stress.limit().name() : null);
+        execution.setStressMessage(stress.message());
+        execution.setStressPeakVirtualUsers(stress.peakVirtualUsers());
+        execution.setStressPeakOfferedRps(stress.peakOfferedRps());
+        if (stress.peakVirtualUsers() > 0) execution.setVirtualUsers(stress.peakVirtualUsers());
+        com.loadpilot.backend.service.execution.BreakpointDetector.Breakpoint b = stress.breakpoint();
+        if (b == null) return;
+        execution.setBreakpointCriteria(String.join(",", b.criteria().stream().map(Enum::name).sorted().toList()));
+        execution.setBreakpointOnsetSeconds((int) b.onsetSecond());
+        execution.setBreakpointDetectedSeconds((int) b.confirmedSecond());
+        execution.setBreakpointVirtualUsers(b.virtualUsers());
+        execution.setBreakpointOfferedRps(b.offeredRps());
+        execution.setBreakpointThroughputRps(b.throughputRps());
+        execution.setBreakpointP95Ms(b.p95Ms());
+        execution.setBaselineP95Ms(b.baselineP95Ms());
+        execution.setBreakpointRefusalPercent(b.refusalPercent());
     }
 
     /** Ecrit un lot de resultats pendant le test, dans sa propre transaction ; steps sert a copier nom, methode et URL de chaque etape. */

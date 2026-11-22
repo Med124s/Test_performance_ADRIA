@@ -176,6 +176,7 @@ class ScenarioStressModeTest {
                 .andExpect(status().isAccepted())
                 // Capacite de la montee : la limite d'utilisateurs par test, pas les 5 000 enregistres.
                 .andExpect(jsonPath("$.virtualUsers").value(org.hamcrest.Matchers.lessThanOrEqualTo(200)))
+                .andExpect(jsonPath("$.loadMode").value("STRESS"))
                 .andReturn().getResponse().getContentAsString();
         String executionId = objectMapper.readTree(launched).get("id").asText();
         try {

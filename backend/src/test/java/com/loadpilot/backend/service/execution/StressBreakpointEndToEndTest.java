@@ -38,6 +38,11 @@ class StressBreakpointEndToEndTest {
     @BeforeAll
     static void start() throws IOException {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        // Cible saine : toujours rapide, sans limite de capacite.
+        server.createContext("/healthy", ex -> {
+            ex.sendResponseHeaders(200, -1);
+            ex.close();
+        });
         server.createContext("/", ex -> {
             boolean overloaded;
             synchronized (arrivals) {
@@ -94,5 +99,25 @@ class StressBreakpointEndToEndTest {
         });
         assertThat(handle.stressRamp().limitReached()).as("arret par la rupture, pas par une limite").isNull();
         assertThat(elapsedSeconds).isLessThan(80);
+    }
+
+    @Test
+    void healthyTarget_isNeverABreakpoint_whileTheRampRises() {
+        RunningExecutionHandle handle = new RunningExecutionHandle();
+        BreakpointWatcher.Session watcher = BreakpointWatcher.start(handle, decision -> {
+            handle.stressOutcome(decision);
+            handle.requestStop();
+        });
+        List<StepExecutionSpec> steps = List.of(new StepExecutionSpec(UUID.randomUUID(), "etape", HttpMethod.GET, "/healthy",
+                null, null, null, null, null, null, null, null, null));
+        // 40 s d'echauffement et de baseline, puis 45 s de montee (jusqu'a ~47 req/s) : arret a la duree maximale.
+        new HttpClientExecutionEngine(5, new ObjectMapper(), EXECUTOR).execute(steps, baseUrl, ApplicationAuthSpec.none(),
+                LoadTestSpec.stress(new StressRamp.Limits(200, 500, 85), 0), handle,
+                new VariableSources(List.of(), CsvDistribution.PER_VIRTUAL_USER, Map.of(), steps));
+        watcher.stop();
+
+        assertThat(handle.stressOutcome()).as("aucune rupture sur une cible saine").isNull();
+        assertThat(handle.stressRamp().limitReached()).isEqualTo(StressRamp.Limit.DURATION);
+        assertThat(handle.stressRamp().peakOfferedRps()).isGreaterThan(40.0);
     }
 }

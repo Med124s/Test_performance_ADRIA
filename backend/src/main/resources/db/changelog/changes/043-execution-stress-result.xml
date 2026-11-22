@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Resultat d'un test de stress (voir enums.StressOutcome), garde apres la purge des resultats detailles.
+
+        execution.load_mode                  : mode de charge copie au lancement (MANUAL pour les executions existantes).
+        execution.stress_outcome             : BREAKPOINT, NO_BREAKPOINT, INCONCLUSIVE ou BASELINE_UNUSABLE ; NULL en mode
+                                               manuel ou si le test a ete arrete autrement (annulation, limite memoire).
+        execution.stress_limit               : NO_BREAKPOINT - limite de LoadPilot atteinte (TARGET_RPS, VIRTUAL_USERS, DURATION).
+        execution.stress_message             : resume lisible du resultat.
+        execution.stress_peak_virtual_users  : utilisateurs virtuels et debit offert (req/s) au plus haut de la montee.
+        execution.stress_peak_offered_rps
+        execution.breakpoint_*               : BREAKPOINT - criteres confirmes (separes par des virgules), debut de l'anomalie
+                                               et confirmation (secondes depuis le debut), puis le niveau de charge et les
+                                               mesures de la premiere fenetre anormale ; baseline_p95_ms : P95 de la baseline.
+    -->
+    <changeSet id="043-execution-stress-result" author="loadpilot">
+        <addColumn tableName="execution">
+            <column name="load_mode" type="VARCHAR(20)" defaultValue="MANUAL">
+                <constraints nullable="false"/>
+            </column>
+            <column name="stress_outcome" type="VARCHAR(30)"/>
+            <column name="stress_limit" type="VARCHAR(20)"/>
+            <column name="stress_message" type="VARCHAR(1000)"/>
+            <column name="stress_peak_virtual_users" type="INT"/>
+            <column name="stress_peak_offered_rps" type="DOUBLE PRECISION"/>
+            <column name="breakpoint_criteria" type="VARCHAR(100)"/>
+            <column name="breakpoint_onset_seconds" type="INT"/>
+            <column name="breakpoint_detected_seconds" type="INT"/>
+            <column name="breakpoint_virtual_users" type="INT"/>
+            <column name="breakpoint_offered_rps" type="DOUBLE PRECISION"/>
+            <column name="breakpoint_throughput_rps" type="DOUBLE PRECISION"/>
+            <column name="breakpoint_p95_ms" type="BIGINT"/>
+            <column name="baseline_p95_ms" type="BIGINT"/>
+            <column name="breakpoint_refusal_percent" type="DOUBLE PRECISION"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

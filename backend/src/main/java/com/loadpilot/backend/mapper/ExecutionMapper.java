@@ -13,6 +13,7 @@ public interface ExecutionMapper {
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")
     @Mapping(target = "scenarioId", source = "scenario.id", qualifiedByName = "uuidToString")
     @Mapping(target = "scenarioName", source = "scenario.name")
+    @Mapping(target = "stress", source = ".", qualifiedByName = "executionStress")
     ExecutionResponse toResponse(Execution execution);
 
     List<ExecutionResponse> toResponseList(List<Execution> executions);
