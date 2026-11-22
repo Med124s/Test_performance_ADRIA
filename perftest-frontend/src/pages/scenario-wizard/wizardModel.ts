@@ -7,7 +7,7 @@ import { analyzeCsv, validateCsv as validateCsvData } from './csvModel'
 import { QueryParamRow, VARIABLE_NAME, VariableRow, detectPathVariables, splitUrl } from './variablesModel'
 import {
   BackendCaptureSource, BackendCsvDistribution, BackendRequestDetailMode, BackendJsonAssertionOperator,
-  BackendHttpMethod,
+  BackendHttpMethod, BackendLoadMode,
   BackendScenarioRequest,
   BackendStepRequest,
 } from '../../types/backendContracts'
@@ -76,6 +76,8 @@ export interface ScenarioInfo {
   throttleMaxRetries?: string
   /** Variation aléatoire du think time (± %) ; vide = fixe. */
   thinkTimeVariationPercent?: string
+  /** Mode de charge : MANUAL (réglages ci-dessous) ou STRESS (montée automatique) ; absent (ancien brouillon) = MANUAL. */
+  loadMode?: BackendLoadMode
 }
 
 /** Paramètres de charge : durée et itérations optionnelles ; les deux = arrêt à la première atteinte, aucun = une itération par utilisateur. */
@@ -114,7 +116,7 @@ export const LOAD_PRESETS: LoadPreset[] = [
   },
   {
     id: 'stress',
-    label: 'Stress',
+    label: 'Forte charge',
     icon: 'bi-fire',
     description: '50 utilisateurs pendant 2 minutes, montée en 30 s.',
     values: { virtualUsers: '50', rampUpSeconds: '30', durationSeconds: '120', iterations: '', thinkTimeMs: '200', targetRps: '' },
@@ -652,6 +654,49 @@ export function thinkVariationFromScenario(s: { thinkTimeVariationPercent?: numb
 }
 
 export const hasErrors = (errors: FieldErrors) => Object.values(errors).some(Boolean)
+
+// ---- Mode stress ----
+
+/** Montée automatique du mode stress : mêmes constantes que le serveur (StressSettings), affichées à titre d'information. */
+export const STRESS_RAMP = {
+  warmupSeconds: 10,
+  baselineSeconds: 30,
+  baselineRps: 2,
+  rampRpsPerSecond: 1,
+  windowSeconds: 5,
+  confirmationWindows: 3,
+  responseTimeFactor: 3,
+  responseTimeMarginMs: 200,
+  refusalPercent: 5,
+  throughputPercent: 80,
+}
+
+export const isStress = (info: Pick<ScenarioInfo, 'loadMode'>) => info.loadMode === 'STRESS'
+
+/** Erreurs de l'étape « Charge & résumé » : aucune en mode stress (aucun réglage saisi). */
+export function loadStepErrors(info: ScenarioInfo, load: LoadConfig, limits?: Partial<LoadLimits> | null): FieldErrors {
+  if (isStress(info)) return {}
+  return { ...validateLoad(load, limits), ...validateThresholds(info), ...validateErrorBrake(info), ...validateThrottle(info), ...validateThinkVariation(info) }
+}
+
+/**
+ * Charge envoyée avec le scénario. Mode stress : réglages manuels gardés s'ils restent valides (retrouvés en repassant
+ * en manuel), sinon ceux du test de validation ; ils sont ignorés au lancement.
+ */
+export function loadPartForRequest(info: ScenarioInfo, load: LoadConfig): typeof TEST_RUN_LOAD {
+  return isStress(info) && hasErrors(validateLoad(load)) ? TEST_RUN_LOAD : loadToRequest(load)
+}
+
+/**
+ * Mode de charge et réglages associés. Mode stress : seuils, frein, 429 et variation non envoyés (inchangés côté serveur,
+ * sans objet pour un test de stress).
+ */
+export function loadSettingsToRequest(info: ScenarioInfo): Pick<BackendScenarioRequest, 'loadMode' | 'maxErrorRatePercent' | 'maxP95Ms'
+  | 'errorBrakeRatePercent' | 'errorBrakeWindowSeconds' | 'throttleOn429' | 'throttleDefaultDelaySeconds' | 'throttleMaxRetries'
+  | 'thinkTimeVariationPercent'> {
+  if (isStress(info)) return { loadMode: 'STRESS' }
+  return { loadMode: 'MANUAL', ...thresholdsToRequest(info), ...errorBrakeToRequest(info), ...throttleToRequest(info), ...thinkVariationToRequest(info) }
+}
 
 // ---- Requêtes envoyées au backend ----
 

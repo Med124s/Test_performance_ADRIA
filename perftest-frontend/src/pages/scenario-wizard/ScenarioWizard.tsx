@@ -39,20 +39,15 @@ import {
   duplicateStep,
   hasContentCheck,
   hasErrors,
+  isStress,
+  loadPartForRequest,
+  loadSettingsToRequest,
+  loadStepErrors,
   loadToRequest,
   newStep,
   stepToRequest,
   validateCsv,
   validateInfo,
-  validateLoad,
-  validateThresholds,
-  thresholdsToRequest,
-  validateErrorBrake,
-  errorBrakeToRequest,
-  validateThrottle,
-  throttleToRequest,
-  validateThinkVariation,
-  thinkVariationToRequest,
   validateStep,
 } from './wizardModel'
 import './scenarioWizard.css'
@@ -77,7 +72,7 @@ function sectionSnapshots(info: ScenarioInfo, steps: DraftStep[], load: LoadConf
     JSON.stringify([loadValues, info.requestDetailMode ?? null, info.maxErrorRatePercent ?? null, info.maxP95Ms ?? null,
       info.errorBrakeRatePercent ?? null, info.errorBrakeRatePercent ? info.errorBrakeWindowSeconds ?? null : null,
       info.throttleOn429 ?? null, info.throttleDefaultDelaySeconds ?? null, info.throttleMaxRetries ?? null,
-      info.thinkTimeVariationPercent ?? null]),
+      info.thinkTimeVariationPercent ?? null, info.loadMode ?? 'MANUAL']),
   ]
 }
 
@@ -147,8 +142,8 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
   const scenarioVariableErrors = useMemo(() => validateScenarioVariables(info.variables, csvColumns).errors, [info.variables, csvColumns])
   const scenarioVariableNames = info.variables.map((v) => v.key.trim()).filter(Boolean)
   const stepErrors = useMemo(() => Object.fromEntries(steps.map((s) => [s.uid, validateStep(s)])), [steps])
-  const loadErrors = useMemo(() => ({ ...validateLoad(load, loadLimits), ...validateThresholds(info), ...validateErrorBrake(info), ...validateThrottle(info), ...validateThinkVariation(info) }),
-    [load, loadLimits, info.maxErrorRatePercent, info.maxP95Ms, info.errorBrakeRatePercent, info.errorBrakeWindowSeconds, info.throttleOn429, info.throttleDefaultDelaySeconds, info.throttleMaxRetries, info.thinkTimeVariationPercent]) // eslint-disable-line react-hooks/exhaustive-deps
+  const loadErrors = useMemo(() => loadStepErrors(info, load, loadLimits),
+    [load, loadLimits, info.maxErrorRatePercent, info.maxP95Ms, info.errorBrakeRatePercent, info.errorBrakeWindowSeconds, info.throttleOn429, info.throttleDefaultDelaySeconds, info.throttleMaxRetries, info.thinkTimeVariationPercent, info.loadMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const signature = draftSignature(info, steps)
   const testStale = testedSignature !== null && testedSignature !== signature
@@ -399,10 +394,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       variables: variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
-      ...thresholdsToRequest(info),
-      ...errorBrakeToRequest(info),
-      ...throttleToRequest(info),
-      ...thinkVariationToRequest(info),
+      ...loadSettingsToRequest(info),
     }
     let id = scenarioId
     if (id) {
@@ -452,16 +444,13 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       name: name.slice(0, 255),
       description: info.description.trim().slice(0, 1000) || null,
       csvData: csvValid ? info.csvData.trim() || null : null,
-      ...(hasErrors(loadErrors) ? TEST_RUN_LOAD : loadToRequest(load)),
+      ...(isStress(info) ? loadPartForRequest(info, load) : hasErrors(loadErrors) ? TEST_RUN_LOAD : loadToRequest(load)),
       draft: true,
       // Variables invalides : conservées dans l'état du brouillon, base inchangée.
       variables: scenarioVariableErrors.length ? null : variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
-      ...thresholdsToRequest(info),
-      ...errorBrakeToRequest(info),
-      ...throttleToRequest(info),
-      ...thinkVariationToRequest(info),
+      ...loadSettingsToRequest(info),
       wizardStep: current,
       draftState: serializeDraft({ info: savedInfo, steps, load, maxReached: Math.max(maxReached, current), csvFileName, testedSignature: testPassed ? signature : null }),
     }
@@ -649,7 +638,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
     setFinalSaving(launch ? 'launch' : 'save')
     setFinalError(null)
     try {
-      const { scenarioId: id } = await persist(loadToRequest(load))
+      const { scenarioId: id } = await persist(loadPartForRequest(info, load))
       await scenariosBackendApi.publish(id)
       allowLeaveRef.current = true
       needsConfirmRef.current = false
@@ -1043,6 +1032,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
               onGoTo={goTo}
               onRequestDetailModeChange={(requestDetailMode) => setInfo((p) => ({ ...p, requestDetailMode }))}
               onThresholdsChange={(patch) => setInfo((p) => ({ ...p, ...patch }))}
+              onLoadModeChange={(loadMode) => setInfo((p) => ({ ...p, loadMode }))}
             />
             {!isEdit && finalError && <div className="sw-inline-alert ko mt-3"><i className="bi bi-exclamation-octagon"></i><span>{finalError}</span></div>}
           </>

@@ -647,6 +647,9 @@
 }
 
 .sw-preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.6rem; }
+/* Mode de charge : deux choix côte à côte, empilés sur petit écran. */
+.sw-mode-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.sw-stress-list { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; }
 .sw-preset {
   display: flex;
   flex-direction: column;

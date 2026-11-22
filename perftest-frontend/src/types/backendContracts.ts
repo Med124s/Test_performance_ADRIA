@@ -331,7 +331,12 @@ export interface BackendScenarioRequest {
   throttleMaxRetries?: number | null
   /** Variation aléatoire du think time (± %, 0 à 100) : 0 = fixe ; null/absent = inchangée. */
   thinkTimeVariationPercent?: number | null
+  /** Mode de charge ; null/absent = inchangé (MANUAL à la création). */
+  loadMode?: BackendLoadMode | null
 }
+
+/** Mode de charge : MANUAL (charge saisie) ou STRESS (montée automatique jusqu'au point de rupture, réglages de charge ignorés). */
+export type BackendLoadMode = 'MANUAL' | 'STRESS'
 
 /** PUT /api/scenarios/{id}/full : informations + étapes (avec id = modifiée, sans id = créée, absente = supprimée ; ordre = position). */
 export interface BackendScenarioFullRequest {
@@ -394,6 +399,8 @@ export interface BackendScenarioResponse {
   thinkTimeVariationPercent?: number | null
   /** Avertissements de charge, jamais bloquants (ex. beaucoup d'utilisateurs sans débit cible). */
   loadWarnings?: string[]
+  /** Mode de charge (absent : réponse antérieure, MANUAL). */
+  loadMode?: BackendLoadMode
 }
 
 // ---- Steps ----

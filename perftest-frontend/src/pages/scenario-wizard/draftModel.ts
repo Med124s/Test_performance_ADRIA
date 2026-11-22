@@ -6,7 +6,7 @@ import { withDefaults } from '../../utils/thresholds'
 import { analyzeCsv } from './csvModel'
 import { QueryParamRow, parseQueryString, splitUrl, urlWithQuery, variablesFromJson, variablesToJson } from './variablesModel'
 import {
-  DEFAULT_LOAD, DraftStep, LoadConfig, ScenarioInfo, loadToRequest, newStep, stepToRequest, thresholdsFromScenario, thresholdsToRequest, errorBrakeFromScenario, errorBrakeToRequest, throttleFromScenario, throttleToRequest, thinkVariationFromScenario, thinkVariationToRequest,
+  DEFAULT_LOAD, DraftStep, LoadConfig, ScenarioInfo, loadPartForRequest, loadSettingsToRequest, newStep, stepToRequest, thresholdsFromScenario, errorBrakeFromScenario, throttleFromScenario, thinkVariationFromScenario,
 } from './wizardModel'
 
 export interface WizardDraftState {
@@ -95,6 +95,7 @@ export function stateFromBackend(scenario: BackendScenarioResponse, steps: Backe
       ...errorBrakeFromScenario(scenario),
       ...throttleFromScenario(scenario),
       ...thinkVariationFromScenario(scenario),
+      loadMode: scenario.loadMode ?? 'MANUAL',
     },
     steps: steps.map(stepFromBackend),
     load: loadFromScenario(scenario),
@@ -127,14 +128,11 @@ export function fullRequest(scenarioId: string, info: ScenarioInfo, steps: Draft
       name: info.name.trim(),
       description: info.description.trim() || null,
       csvData: info.csvData.trim() || null,
-      ...loadToRequest(load),
+      ...loadPartForRequest(info, load),
       variables: variablesToJson(info.variables),
       csvDistribution: info.csvDistribution,
       requestDetailMode: info.requestDetailMode ?? null,
-      ...thresholdsToRequest(info),
-      ...errorBrakeToRequest(info),
-      ...throttleToRequest(info),
-      ...thinkVariationToRequest(info),
+      ...loadSettingsToRequest(info),
     },
     steps: steps.map((s, i) => ({ id: s.backendId, step: stepToRequest(s, scenarioId, i + 1) })),
   }
@@ -150,6 +148,7 @@ export function savedInfo(scenario: BackendScenarioResponse): ScenarioInfo {
     ...errorBrakeFromScenario(scenario),
     ...throttleFromScenario(scenario),
     ...thinkVariationFromScenario(scenario),
+    loadMode: scenario.loadMode ?? 'MANUAL',
   }
 }
 
@@ -203,7 +202,7 @@ export function applySuggestions(info: ScenarioInfo, suggested: Partial<Scenario
   return next
 }
 
-export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', maxErrorRatePercent: '1', maxP95Ms: '', errorBrakeRatePercent: '', errorBrakeWindowSeconds: '30', throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3', thinkTimeVariationPercent: '' }
+export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', maxErrorRatePercent: '1', maxP95Ms: '', errorBrakeRatePercent: '', errorBrakeWindowSeconds: '30', throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3', thinkTimeVariationPercent: '', loadMode: 'MANUAL' }
 
 function parseJson<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback

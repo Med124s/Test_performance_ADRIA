@@ -246,7 +246,7 @@ function Scenarios() {
       monitor.track(execution.id, scenario.name)
       await refetchExecutions()
       showToast(
-        `Exécution de « ${scenario.name} » lancée (${scenario.virtualUsers} utilisateur(s) virtuel(s)). Suivez sa progression depuis la page Exécutions.`,
+        `Exécution de « ${scenario.name} » lancée (${scenario.loadMode === 'STRESS' ? 'mode stress, montée automatique' : `${scenario.virtualUsers} utilisateur(s) virtuel(s)`}). Suivez sa progression depuis la page Exécutions.`,
         'success'
       )
     } catch (err) {
@@ -441,6 +441,11 @@ function Scenarios() {
                   <div className="col-12">
                     <div style={{ fontSize: '12px', color: 'var(--pt-text-muted)', marginBottom: '4px' }}>Profil de charge</div>
                     <div className="d-flex flex-wrap gap-2">
+                      {selectedScenarioDetail.loadMode === 'STRESS' ? (
+                      <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}>
+                        <i className="bi bi-graph-up-arrow me-1"></i>Point de rupture : montée automatique
+                      </span>
+                      ) : (<>
                       <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}>
                         <i className="bi bi-people me-1"></i>{selectedScenarioDetail.virtualUsers} VU
                       </span>
@@ -462,6 +467,7 @@ function Scenarios() {
                           <i className="bi bi-hourglass-split me-1"></i>Think time {selectedScenarioDetail.thinkTimeMs}ms
                         </span>
                       )}
+                      </>)}
                     </div>
                   </div>
                 </div>
@@ -838,7 +844,7 @@ function Scenarios() {
                               className="topbar-icon"
                               disabled={isInactive || launchingScenarioId === scenario.id}
                               aria-label={`Exécuter ${scenario.name}`}
-                              title={isInactive ? undefined : `Exécuter le scénario (${scenario.virtualUsers} VU, ramp-up ${scenario.rampUpSeconds}s${scenario.durationSeconds ? `, durée ${scenario.durationSeconds}s` : scenario.iterations ? `, ${scenario.iterations} itération(s)` : ''}) — asynchrone, suivez la progression sur la page Exécutions`}
+                              title={isInactive ? undefined : `Exécuter le scénario (${scenario.loadMode === 'STRESS' ? 'mode stress : montée automatique jusqu’au point de rupture' : `${scenario.virtualUsers} VU, ramp-up ${scenario.rampUpSeconds}s${scenario.durationSeconds ? `, durée ${scenario.durationSeconds}s` : scenario.iterations ? `, ${scenario.iterations} itération(s)` : ''}`}) — asynchrone, suivez la progression sur la page Exécutions`}
                               style={{ width: '30px', height: '30px', borderRadius: '8px', border: '1px solid var(--pt-success)', background: 'var(--pt-success-light)', opacity: isInactive ? 0.45 : 1, cursor: isInactive ? 'not-allowed' : undefined }}
                               onClick={() => handleExecuteScenario(scenario)}
                             >

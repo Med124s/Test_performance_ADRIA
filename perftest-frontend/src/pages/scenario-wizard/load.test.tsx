@@ -127,12 +127,12 @@ describe('Charge — estimation, avertissements, profils et limite du serveur', 
     const onChange = vi.fn()
     render(<LoadSummaryPanel info={EMPTY_INFO} application={undefined} steps={[newStep()]} errors={{}} showErrors limits={{ ...LIMITS, maxVirtualUsers: 30 }}
       load={load({ virtualUsers: '5' })} testRun={INITIAL_TEST_RUN} testStale={false} testPassed={false} csvRows={null} onChange={onChange} onGoTo={() => {}} />)
-    const button = screen.getByRole('button', { name: /Stress — Dépasse la limite du serveur : 30 utilisateurs/ }) as HTMLButtonElement
+    const button = screen.getByRole('button', { name: /Forte charge — Dépasse la limite du serveur : 30 utilisateurs/ }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(button.title).toBe('Dépasse la limite du serveur : 30 utilisateurs')
     fireEvent.click(button)
     expect(onChange).not.toHaveBeenCalled()
-    expect(screen.getByText(/« Stress » dépasse les limites du serveur/)).toBeTruthy()
+    expect(screen.getByText(/« Forte charge » dépasse les limites du serveur/)).toBeTruthy()
     expect((screen.getByRole('button', { name: /Charge/ }) as HTMLButtonElement).disabled).toBe(false)
   })
 

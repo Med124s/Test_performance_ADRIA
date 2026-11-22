@@ -59,9 +59,10 @@ export default function ScheduleFormModal({ schedule, scenarios, onClose, onSave
   const [serverError, setServerError] = useState<string | null>(null)
   const [preview, setPreview] = useState<{ runs: string[]; error: string | null; loading: boolean }>({ runs: [], error: null, loading: false })
 
-  // Scénarios planifiables : actifs et non archivés (+ celui de la planification modifiée).
+  // Scénarios planifiables : actifs, non archivés et hors mode stress (+ celui de la planification modifiée).
   const selectable = useMemo(() => scenarios.filter((s) =>
-    (s.status === 'ACTIVE' && !s.archived && !s.applicationArchived) || s.id === schedule?.scenarioId), [scenarios, schedule])
+    (s.status === 'ACTIVE' && !s.archived && !s.applicationArchived && s.loadMode !== 'STRESS') || s.id === schedule?.scenarioId), [scenarios, schedule])
+  const stressCount = scenarios.filter((s) => s.status === 'ACTIVE' && !s.archived && s.loadMode === 'STRESS').length
   const scenarioOptions = useMemo(() => selectable.map((s) => ({ value: s.id, label: s.name, hint: s.applicationName })), [selectable])
   const scenario = scenarios.find((s) => s.id === scenarioId) ?? null
 
@@ -173,6 +174,7 @@ export default function ScheduleFormModal({ schedule, scenarios, onClose, onSave
               ariaLabel="Scénario à lancer" width="100%" />
             {show('scenario') && <div className="pl-error">{show('scenario')}</div>}
             {selectable.length === 0 && <div className="pl-hint">Aucun scénario actif : activez un scénario pour pouvoir le planifier.</div>}
+            {stressCount > 0 && <div className="pl-hint">Les scénarios en mode stress (point de rupture) ne se planifient pas : lancez-les à la main.</div>}
             {scenario && (
               <div className="pl-load mt-2" aria-label="Charge du scénario">
                 <span><strong>{scenario.virtualUsers}</strong> VU</span>

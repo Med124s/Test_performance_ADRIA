@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BackendApplicationResponse, BackendRequestDetailMode } from '../../types/backendContracts'
+import { BackendApplicationResponse, BackendLoadMode, BackendRequestDetailMode } from '../../types/backendContracts'
 import { TestRunState } from './TestRunPanel'
 import { useThresholds } from '../../utils/thresholds'
 import {
@@ -21,6 +21,7 @@ import {
   loadWarnings,
   measuredRequestMs,
   presetBlockedReason,
+  STRESS_RAMP,
 } from './wizardModel'
 
 interface LoadSummaryPanelProps {
@@ -45,6 +46,8 @@ interface LoadSummaryPanelProps {
     | 'throttleOn429' | 'throttleDefaultDelaySeconds' | 'throttleMaxRetries' | 'thinkTimeVariationPercent'>>) => void
   /** Limites de charge en vigueur, lues depuis le serveur (null : inconnues). */
   limits?: LoadLimits | null
+  /** Mode de charge (enregistré avec les informations du scénario). */
+  onLoadModeChange?: (mode: BackendLoadMode) => void
 }
 
 /** Icône ⓘ avec une explication courte, au survol et au clavier. */
@@ -56,7 +59,7 @@ function InfoTip({ text }: { text: string }) {
   )
 }
 
-function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange, onThresholdsChange, limits }: LoadSummaryPanelProps) {
+function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange, onThresholdsChange, limits, onLoadModeChange }: LoadSummaryPanelProps) {
   const err = (field: string) => (showErrors ? errors[field] : undefined)
   const setField = (patch: Partial<LoadConfig>) => onChange({ ...patch, presetId: 'custom' })
 
@@ -96,10 +99,79 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
   const suggestedBrakeRate = systemDefaults.errorBrakeRatePercent != null
     ? String(systemDefaults.errorBrakeRatePercent).replace('.', ',') : ERROR_BRAKE_DEFAULT_RATE
   const throttleOn = info.throttleOn429 !== false
+  const stress = info.loadMode === 'STRESS'
+  const stressLimitsLabel = limits
+    ? `${formatInt(limits.maxTargetRps)} req/s, ${formatInt(limits.maxVirtualUsers)} utilisateurs virtuels ou ${formatApproxSeconds(limits.maxDurationSeconds)} de test`
+    : 'aux limites de charge du serveur'
+
+  const requestDetailField = onRequestDetailModeChange && (
+    <div className="col-12">
+      <label className="pt-form-label" htmlFor="load-request-detail">
+        Détail des requêtes <InfoTip text="Requêtes conservées pour le détail de l’exécution, secrets masqués." />
+      </label>
+      <select id="load-request-detail" className="pt-form-control" value={info.requestDetailMode ?? 'FAILURES_AND_SAMPLE'}
+        onChange={(e) => onRequestDetailModeChange(e.target.value as BackendRequestDetailMode)}>
+        <option value="FAILURES_AND_SAMPLE">Échecs + échantillon (recommandé)</option>
+        <option value="FAILURES">Échecs seulement</option>
+        <option value="NONE">Aucun</option>
+      </select>
+    </div>
+  )
 
   return (
     <div className="sw-load-grid">
       <div className="d-flex flex-column gap-3">
+        {onLoadModeChange && (
+          <div>
+            <div className="sw-section-label">Mode de charge</div>
+            <div className="sw-preset-grid sw-mode-grid" role="radiogroup" aria-label="Mode de charge">
+              <button type="button" role="radio" aria-checked={!stress} className={`sw-preset ${!stress ? 'selected' : ''}`}
+                onClick={() => onLoadModeChange('MANUAL')}>
+                <i className="bi bi-sliders2"></i>
+                <span className="sw-preset-label">Charge configurée</span>
+                <span className="sw-preset-desc">Vous fixez les utilisateurs, la durée, le débit et les seuils de réussite.</span>
+              </button>
+              <button type="button" role="radio" aria-checked={stress} className={`sw-preset ${stress ? 'selected' : ''}`}
+                onClick={() => onLoadModeChange('STRESS')}>
+                <i className="bi bi-graph-up-arrow"></i>
+                <span className="sw-preset-label">Point de rupture</span>
+                <span className="sw-preset-desc">LoadPilot augmente la charge tout seul jusqu’à la rupture de l’application.</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {stress ? (
+          <div className="pt-card" data-testid="stress-mode">
+            <div className="sw-section-label">Recherche automatique du point de rupture</div>
+            <p className="mb-2">Aucun réglage de charge à saisir : LoadPilot fait monter la charge lui-même.</p>
+            <ul className="sw-stress-list">
+              <li>
+                <strong>Montée</strong> : {STRESS_RAMP.warmupSeconds} s d’échauffement puis {STRESS_RAMP.baselineSeconds} s de mesure de référence
+                à {STRESS_RAMP.baselineRps} req/s, puis +{STRESS_RAMP.rampRpsPerSecond} req/s chaque seconde, jusqu’à {stressLimitsLabel}.
+                Les utilisateurs virtuels sont ajoutés au besoin.
+              </li>
+              <li>
+                <strong>Rupture</strong> : signe vérifié sur {STRESS_RAMP.confirmationWindows} fenêtres de {STRESS_RAMP.windowSeconds} s consécutives,
+                par rapport à la mesure de référence :
+                P95 plus de {STRESS_RAMP.responseTimeFactor} fois plus lent (et +{STRESS_RAMP.responseTimeMarginMs} ms au moins),
+                au moins {STRESS_RAMP.refusalPercent} % de refus (délais dépassés, connexions refusées, 429, 502/503/504),
+                ou débit obtenu sous {STRESS_RAMP.throughputPercent} % du débit envoyé.
+              </li>
+              <li>
+                <strong>Résultat</strong> : « Seuils dépassés » avec le niveau de charge de la rupture ; « Réussie » si aucune rupture
+                avant les limites du serveur ; « Échouée » si l’application ne tient pas la mesure de référence ;
+                « Annulée » (non concluant) si LoadPilot sature avant l’application.
+              </li>
+              <li>
+                <strong>Conditions</strong> : le test tourne seul sur le serveur, ne se met pas en pause et ne se planifie pas.
+                Les pauses des étapes sont conservées ; les seuils de réussite et le frein automatique ne s’appliquent pas.
+              </li>
+            </ul>
+            {requestDetailField && <div className="row g-3 mt-1">{requestDetailField}</div>}
+          </div>
+        ) : (
+        <>
         <div>
           <div className="sw-section-label">Profil de charge</div>
           <div className="sw-preset-grid">
@@ -282,19 +354,7 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                 )}
               </div>
             )}
-            {onRequestDetailModeChange && (
-              <div className="col-12">
-                <label className="pt-form-label" htmlFor="load-request-detail">
-                  Détail des requêtes <InfoTip text="Requêtes conservées pour le détail de l’exécution, secrets masqués." />
-                </label>
-                <select id="load-request-detail" className="pt-form-control" value={info.requestDetailMode ?? 'FAILURES_AND_SAMPLE'}
-                  onChange={(e) => onRequestDetailModeChange(e.target.value as BackendRequestDetailMode)}>
-                  <option value="FAILURES_AND_SAMPLE">Échecs + échantillon (recommandé)</option>
-                  <option value="FAILURES">Échecs seulement</option>
-                  <option value="NONE">Aucun</option>
-                </select>
-              </div>
-            )}
+            {requestDetailField}
           </div>
           {warnings.length > 0 && (
             <div className="sw-inline-alert warn mt-3">
@@ -303,6 +363,8 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
       <aside className="sw-summary">
@@ -342,14 +404,22 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
 
         <div className="sw-summary-block">
           <div className="sw-summary-row"><span><i className="bi bi-speedometer2"></i> Charge</span></div>
+          {stress ? (
+            <div className="sw-summary-stats" data-testid="stress-summary">
+              <div><strong>Auto</strong><span>utilisateurs</span></div>
+              <div><strong>Rupture</strong><span>arrêt</span></div>
+              <div><strong>+{STRESS_RAMP.rampRpsPerSecond} req/s</strong><span>par seconde</span></div>
+            </div>
+          ) : (
           <div className="sw-summary-stats">
             <div><strong>{vu || '—'}</strong><span>utilisateurs</span></div>
             <div><strong>{stopLabel}</strong><span>arrêt</span></div>
             <div><strong>{ramp ? formatSeconds(ramp) : '0 s'}</strong><span>ramp-up</span></div>
           </div>
-          {estimate && <div className="sw-summary-sub mt-2"><i className="bi bi-arrow-left-right"></i> ≈ {estimate.requests.toLocaleString('fr-FR')} requêtes au total (estimation)</div>}
-          {estimate && estimate.totalSeconds >= 1 && <div className="sw-summary-sub mt-2"><i className="bi bi-clock"></i> ≈ {formatApproxSeconds(estimate.totalSeconds)} de test (estimation)</div>}
-          {csvRows !== null && vu > csvRows && (
+          )}
+          {!stress && estimate && <div className="sw-summary-sub mt-2"><i className="bi bi-arrow-left-right"></i> ≈ {estimate.requests.toLocaleString('fr-FR')} requêtes au total (estimation)</div>}
+          {!stress && estimate && estimate.totalSeconds >= 1 && <div className="sw-summary-sub mt-2"><i className="bi bi-clock"></i> ≈ {formatApproxSeconds(estimate.totalSeconds)} de test (estimation)</div>}
+          {!stress && csvRows !== null && vu > csvRows && (
             <div className="sw-summary-sub mt-2">
               <i className="bi bi-arrow-repeat"></i> CSV : {csvRows} ligne(s) pour {vu} utilisateurs — réutilisation cyclique (une ligne par utilisateur).
             </div>
