@@ -167,7 +167,7 @@ public final class BreakpointDetector {
             case REFUSALS -> ExecutionVerdict.format(onset.refusalPercent())
                     + " % de refus (délais dépassés, connexions refusées, 429, 502/503/504)";
             case THROUGHPUT -> "débit obtenu " + ExecutionVerdict.format(onset.stats().throughputRps()) + " req/s pour "
-                    + ExecutionVerdict.format(onset.offeredRps()) + " req/s offertes";
+                    + ExecutionVerdict.format(onset.offeredRps()) + " req/s offertes en moyenne sur la fenêtre";
         };
     }
 
