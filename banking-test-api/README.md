@@ -42,6 +42,26 @@ Remove-Item Env:ERROR_RATE; npm start
 
 Les erreurs 400 (validation) et 401 (authentification) ne sont pas concernées : elles restent déterministes.
 
+### Capacité simulée (démo du mode stress)
+
+Sans réglage, cette API tient bien plus que les plafonds de LoadPilot : un test en mode « Point de rupture » se termine alors par « Aucune rupture ». Pour montrer une rupture, fixez une capacité :
+
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `CAPACITY_RPS` | Requêtes par seconde tenues sans ralentir. Au-delà, chaque requête attend 200 ms de plus par tranche de 10 % de dépassement (+1 s à 150 %) ; au-delà du double, réponse `503` immédiate | non défini = désactivée |
+
+`/health`, `/metrics` et les routes de remise à zéro ne sont jamais concernés. La capacité appliquée est affichée au démarrage.
+
+```powershell
+# Démo du point de rupture : capacité de 50 req/s, sans erreur aléatoire
+$env:CAPACITY_RPS = '50'; $env:ERROR_RATE = '0'; npm start
+
+# Revenir au comportement par défaut
+Remove-Item Env:CAPACITY_RPS; Remove-Item Env:ERROR_RATE; npm start
+```
+
+Avec 50 req/s et un scénario d'une étape en lecture, LoadPilot a détecté la rupture vers 63 req/s offertes, environ 2 minutes après le lancement (guide : `docs/demo/GUIDE_DEMO_STRESS.md`).
+
 ## Routes
 
 | Méthode | Route | Authentification |

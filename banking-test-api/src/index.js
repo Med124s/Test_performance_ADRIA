@@ -10,7 +10,7 @@ import cors from 'cors'
 import promClient from 'prom-client'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { db, nextId, resetDatabase, resetTestData } from './db.js'
-import { latencyConfig, rollSimulatedOutcome, errorSimulationConfig } from './config.js'
+import { latencyConfig, rollSimulatedOutcome, errorSimulationConfig, capacityConfig, overloadOutcome } from './config.js'
 
 const app = express()
 
@@ -21,6 +21,25 @@ const app = express()
 app.use(cors())
 app.options('*', cors())
 app.use(express.json())
+
+// ------------------------------------------------------------
+// Capacité simulée (CAPACITY_RPS, voir config.js) : au-delà, l'API ralentit
+// puis refuse (503), comme un vrai serveur saturé. Désactivée par défaut.
+// ------------------------------------------------------------
+const CAPACITY_EXEMPT = new Set(['/health', '/metrics', '/api/admin/reset', '/api/reset'])
+const recentArrivals = [] // horodatages (ms) des requêtes de la dernière seconde
+app.use(async (req, res, next) => {
+  if (!capacityConfig.capacityRps || CAPACITY_EXEMPT.has(req.path)) return next()
+  const now = Date.now()
+  recentArrivals.push(now)
+  while (recentArrivals.length && recentArrivals[0] <= now - 1000) recentArrivals.shift()
+  const { extraMs, unavailable } = overloadOutcome(recentArrivals.length, capacityConfig.capacityRps)
+  if (unavailable) {
+    return res.status(503).json({ success: false, error: 'Service indisponible : capacité dépassée (simulation CAPACITY_RPS).' })
+  }
+  if (extraMs > 0) await new Promise((resolve) => setTimeout(resolve, extraMs))
+  next()
+})
 
 // ------------------------------------------------------------
 // Latence simulée — configurable via ?latency=<ms> (plafonnée), sinon
@@ -738,6 +757,9 @@ app.listen(PORT, () => {
   const pct = (v) => `${Math.round(v * 1000) / 10} %`
   console.log(`Erreurs aléatoires : ${pct(errorSimulationConfig.conflict409Probability)} de 409, `
     + `${pct(errorSimulationConfig.serverError500Probability)} de 500 (réglable avec ERROR_RATE)`)
+  console.log(capacityConfig.capacityRps
+    ? `Capacité simulée : ${capacityConfig.capacityRps} req/s, puis ralentissement et 503 au-delà du double (CAPACITY_RPS)`
+    : 'Capacité simulée : désactivée (CAPACITY_RPS non défini)')
   const resetState = IS_PRODUCTION ? 'interdite (NODE_ENV=production)'
     : ADMIN_RESET_KEY ? 'activée (en-tête X-Admin-Key)' : 'désactivée (ADMIN_RESET_KEY non définie)'
   console.log(`Remise à zéro POST /api/admin/reset : ${resetState}`)

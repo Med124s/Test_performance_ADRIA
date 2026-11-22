@@ -26,6 +26,37 @@ export const latencyConfig = {
   maxAllowedMs: 5000,
 }
 
+// Capacité simulée — démonstration du mode stress de LoadPilot (recherche du point de rupture).
+// Sans elle, cette API tient bien plus que les plafonds de LoadPilot et aucune rupture n'apparaît.
+//
+//   CAPACITY_RPS  requêtes par seconde que l'API tient sans ralentir ; non défini ou 0 = désactivée (défaut).
+//
+// Au-delà, chaque requête attend OVERLOAD_STEP_MS de plus par tranche de 10 % de dépassement
+// (+200 ms à 110 % de la capacité, +1 s à 150 %) ; au-delà du double, réponse 503 immédiate.
+// Les routes de santé, de métriques et de remise à zéro ne sont jamais concernées.
+export const OVERLOAD_STEP_MS = 200
+
+export function buildCapacityConfig(env = process.env) {
+  const raw = env.CAPACITY_RPS
+  if (raw === undefined || String(raw).trim() === '') return { capacityRps: 0 }
+  const value = Number(String(raw).trim())
+  if (!Number.isFinite(value) || value < 0) {
+    console.warn(`[config] CAPACITY_RPS="${raw}" ignoré : attendu un nombre de requêtes par seconde (0 = désactivée).`)
+    return { capacityRps: 0 }
+  }
+  return { capacityRps: value }
+}
+
+export const capacityConfig = buildCapacityConfig()
+
+/** Effet de la surcharge pour "arrivals" requêtes reçues dans la dernière seconde (capacité 0 = aucun effet). */
+export function overloadOutcome(arrivals, capacityRps) {
+  if (!capacityRps || arrivals <= capacityRps) return { extraMs: 0, unavailable: false }
+  const load = arrivals / capacityRps
+  if (load > 2) return { extraMs: 0, unavailable: true }
+  return { extraMs: Math.round((load - 1) * 10 * OVERLOAD_STEP_MS), unavailable: false }
+}
+
 // Probabilités appliquées SEULEMENT après validation + auth réussies, sur
 // les endpoints d'écriture (transferts, facture, versement).
 //
