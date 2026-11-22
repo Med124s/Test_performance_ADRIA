@@ -27,6 +27,34 @@ class RunningExecutionRegistryLimitsTest {
     }
 
     @Test
+    void stressTest_runsAlone_andBlocksOtherLaunchesUntilItEnds() {
+        RunningExecutionRegistry registry = new RunningExecutionRegistry(500, 10);
+        registry.reserveCapacity(200, true);
+        java.util.UUID id = java.util.UUID.randomUUID();
+        org.assertj.core.api.Assertions.assertThat(registry.registerReserved(id, 200, true).isStressMode()).isTrue();
+
+        assertThatThrownBy(() -> registry.reserveCapacity(1)).hasMessage(RunningExecutionRegistry.STRESS_RUNNING);
+        assertThatThrownBy(() -> registry.reserveCapacity(200, true)).hasMessage(RunningExecutionRegistry.STRESS_RUNNING);
+
+        registry.unregister(id);
+        registry.reserveCapacity(1);
+    }
+
+    @Test
+    void stressTest_isRefused_whileAnotherExecutionRuns() {
+        RunningExecutionRegistry registry = new RunningExecutionRegistry(500, 10);
+        registry.reserveCapacity(5);
+        assertThatThrownBy(() -> registry.reserveCapacity(200, true))
+                .hasMessage("Un test de stress tourne seul sur le serveur : 1 exécution(s) en cours. Réessayez quand elles seront terminées.");
+
+        registry.releaseReservationWithoutRegistering(5);
+        registry.reserveCapacity(200, true);
+        // Reservation abandonnee (lancement en echec) : la place est liberee.
+        registry.releaseReservationWithoutRegistering(200, true);
+        registry.reserveCapacity(1);
+    }
+
+    @Test
     void tooManyConcurrentTests() {
         RunningExecutionRegistry registry = new RunningExecutionRegistry(200, 1);
         registry.reserveCapacity(10);

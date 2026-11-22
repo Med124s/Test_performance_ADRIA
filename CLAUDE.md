@@ -47,7 +47,8 @@ cd perftest-frontend; npm test; npm run build   # tests et build frontend
   - un rapport figé est gardé après la purge ;
   - l'option « Conserver » exclut une exécution de la purge.
 - **Mode stress** (`loadMode = STRESS`, en cours de développement ; le mode manuel reste inchangé) :
-  - aucun réglage de charge saisi : le débit offert monte seul, le réservoir de VUs suit (un VU de plus quand tous sont occupés et que des créneaux sont manqués) ;
+  - aucun réglage de charge saisi : le débit offert monte seul, le réservoir de VUs suit (quand tous sont occupés et que des créneaux sont manqués, on ajoute autant de VUs que le déficit l'exige, loi de Little, croissance bornée) ;
+  - pas de pause pendant un stress test (elle fausserait la comparaison à la baseline) : il se termine ou s'annule ;
   - montée bornée par les limites applicatives en vigueur (VUs par test, débit cible maximal, durée maximale) ;
   - rupture détectée sans seuil saisi, par comparaison à une baseline ; constantes internes dans `StressSettings`, jamais exposées ;
   - rupture → « Seuils dépassés », motif détaillé, niveau de charge enregistré (VUs, débit, temps de réponse, critère) ;

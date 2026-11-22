@@ -48,8 +48,6 @@ public class ExecutionTransactionHelper {
 
     public static final String INACTIVE_NOT_RUNNABLE = "Le scénario est inactif, activez-le pour l'exécuter.";
 
-    /** Provisoire : le moteur de montee automatique n'est pas encore branche. */
-    static final String STRESS_NOT_YET_RUNNABLE = "Le lancement d'un test en mode stress n'est pas encore disponible.";
     public static final String DRAFT_NOT_RUNNABLE =
             "Ce scénario est un brouillon : terminez-le dans l'assistant (« Reprendre ») avant de l'exécuter.";
 
@@ -86,15 +84,17 @@ public class ExecutionTransactionHelper {
         if (steps.isEmpty()) {
             throw new ConflictException("Le scenario ne possede aucune etape a executer.");
         }
-        if (scenario.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS) {
-            // Une planification ne declenche jamais un test de stress.
-            throw new BadRequestException(scheduleId != null ? ScheduledExecutionServiceImpl.STRESS_NOT_SCHEDULABLE
-                    : STRESS_NOT_YET_RUNNABLE);
+        boolean stress = scenario.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS;
+        // Une planification ne declenche jamais un test de stress.
+        if (stress && scheduleId != null) {
+            throw new BadRequestException(ScheduledExecutionServiceImpl.STRESS_NOT_SCHEDULABLE);
         }
-        // Scenario au-dela des regles ou limites actuelles : non modifie, mais pas lance.
-        java.util.List<String> loadProblems = com.loadpilot.backend.service.validation.LoadRules.validate(scenario.getVirtualUsers(),
-                scenario.getThinkTimeMs(), scenario.getRampUpSeconds(), scenario.getDurationSeconds(), scenario.getIterations(),
-                scenario.getTargetRps(), executionLimits.loadLimits());
+        // Scenario au-dela des regles ou limites actuelles : non modifie, mais pas lance (mode stress : reglages ignores).
+        com.loadpilot.backend.service.validation.LoadLimits limits = executionLimits.loadLimits();
+        java.util.List<String> loadProblems = stress ? java.util.List.of()
+                : com.loadpilot.backend.service.validation.LoadRules.validate(scenario.getVirtualUsers(),
+                        scenario.getThinkTimeMs(), scenario.getRampUpSeconds(), scenario.getDurationSeconds(), scenario.getIterations(),
+                        scenario.getTargetRps(), limits);
         if (!loadProblems.isEmpty()) {
             throw new BadRequestException(String.join(" ", loadProblems) + " Modifiez la charge du scénario avant de le lancer.");
         }
@@ -105,15 +105,21 @@ public class ExecutionTransactionHelper {
 
         AppUser triggeredByRef = triggeredByAppUserId != null
                 ? appUserRepository.getReferenceById(triggeredByAppUserId) : null;
+        // Limites de la montee automatique, copiees au lancement ; null = mode manuel.
+        com.loadpilot.backend.service.execution.StressRamp.Limits stressLimits = stress
+                ? new com.loadpilot.backend.service.execution.StressRamp.Limits(limits.maxVirtualUsers(), limits.maxTargetRps(),
+                        limits.maxDurationSeconds())
+                : null;
 
         Execution execution = Execution.builder()
                 .scenario(scenario)
                 .startedAt(Instant.now())
                 .status(ExecutionStatus.QUEUED)
-                .virtualUsers(scenario.getVirtualUsers())
-                .rampUpSeconds(scenario.getRampUpSeconds())
-                .durationSeconds(scenario.getDurationSeconds())
-                .iterations(scenario.getIterations())
+                // Mode stress : la montee peut aller jusqu'a la limite d'utilisateurs par test, sans ramp-up ni duree saisis.
+                .virtualUsers(stressLimits != null ? stressLimits.maxVirtualUsers() : scenario.getVirtualUsers())
+                .rampUpSeconds(stressLimits != null ? 0 : scenario.getRampUpSeconds())
+                .durationSeconds(stressLimits != null ? null : scenario.getDurationSeconds())
+                .iterations(stressLimits != null ? null : scenario.getIterations())
                 .totalSteps(steps.size())
                 .successfulSteps(0)
                 .failedSteps(0)
@@ -134,11 +140,13 @@ public class ExecutionTransactionHelper {
                         s.getAssertionJsonOperator(), s.getAssertionJsonValue()))
                 .toList();
 
-        LoadTestSpec loadSpec = new LoadTestSpec(scenario.getVirtualUsers(), scenario.getRampUpSeconds(),
-                scenario.getDurationSeconds(), scenario.getIterations(), scenario.getThinkTimeMs(),
-                scenario.getTargetRps(), com.loadpilot.backend.service.execution.ThrottlePolicy.of(scenario.getThrottleOn429(),
-                        scenario.getThrottleDefaultDelaySeconds(), scenario.getThrottleMaxRetries()),
-                scenario.getThinkTimeVariationPercent() == null ? 0 : scenario.getThinkTimeVariationPercent());
+        int thinkTimeVariation = scenario.getThinkTimeVariationPercent() == null ? 0 : scenario.getThinkTimeVariationPercent();
+        LoadTestSpec loadSpec = stressLimits != null ? LoadTestSpec.stress(stressLimits, thinkTimeVariation)
+                : new LoadTestSpec(scenario.getVirtualUsers(), scenario.getRampUpSeconds(),
+                        scenario.getDurationSeconds(), scenario.getIterations(), scenario.getThinkTimeMs(),
+                        scenario.getTargetRps(), com.loadpilot.backend.service.execution.ThrottlePolicy.of(scenario.getThrottleOn429(),
+                                scenario.getThrottleDefaultDelaySeconds(), scenario.getThrottleMaxRetries()),
+                        thinkTimeVariation);
 
         // CSV lu une seule fois par lancement.
         List<Map<String, String>> vuVariableRows = CsvDataSource.parse(scenario.getCsvData());
@@ -148,8 +156,9 @@ public class ExecutionTransactionHelper {
 
         return new PreparedExecution(saved.getId(), specs, applicationBaseUrl, auth, loadSpec, vuVariableRows, variableSources,
                 scenario.getName(), triggeredByAppUserId, scheduleId, scenario.getRequestDetailMode(),
-                com.loadpilot.backend.service.execution.ErrorRateBrake.Config.of(scenario.getErrorBrakeRatePercent(),
-                        scenario.getErrorBrakeWindowSeconds()),
+                // Mode stress : pas de frein sur seuil saisi, la rupture est detectee par rapport a la baseline.
+                stressLimits != null ? null : com.loadpilot.backend.service.execution.ErrorRateBrake.Config.of(
+                        scenario.getErrorBrakeRatePercent(), scenario.getErrorBrakeWindowSeconds()),
                 com.loadpilot.backend.service.http.NetworkProfile.of(scenario.getApplication()));
     }
 

@@ -130,25 +130,31 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             recorder.baseSecrets(secrets);
         }
 
+        // Mode stress : montee automatique, reglages de charge du scenario ignores ; null = mode manuel.
+        StressRamp.Limits stress = loadSpec.stress();
         int virtualUsers = Math.max(1, loadSpec.virtualUsers());
         // Montee en charge : chaque utilisateur virtuel demarre staggerMs apres le precedent.
-        long staggerMs = (virtualUsers > 1 && loadSpec.rampUpSeconds() > 0)
+        long staggerMs = (stress == null && virtualUsers > 1 && loadSpec.rampUpSeconds() > 0)
                 ? (loadSpec.rampUpSeconds() * 1000L) / virtualUsers
                 : 0L;
-        // Duree mesuree en temps actif (pauses exclues).
-        ActiveDeadline deadline = loadSpec.durationSeconds() != null
-                ? new ActiveDeadline(System.nanoTime(), loadSpec.durationSeconds() * 1_000_000_000L, handle)
+        // Duree mesuree en temps actif (pauses exclues) ; mode stress : duree maximale d'un test.
+        Integer durationSeconds = stress != null ? Integer.valueOf(stress.maxDurationSeconds()) : loadSpec.durationSeconds();
+        ActiveDeadline deadline = durationSeconds != null
+                ? new ActiveDeadline(System.nanoTime(), durationSeconds * 1_000_000_000L, handle)
                 : null;
         // Pacing partage par tous les utilisateurs virtuels de l'execution ; null = aucun pacing.
-        PacingGate pacingGate = loadSpec.targetRps() != null ? new PacingGate(loadSpec.targetRps()) : null;
-        handle.startLiveStats(steps);
+        // Mode stress : debit reglable, pilote par la montee.
+        PacingGate pacingGate = stress != null ? PacingGate.adjustable(StressSettings.BASELINE_RPS)
+                : loadSpec.targetRps() != null ? new PacingGate(loadSpec.targetRps()) : null;
+        LiveStats live = handle.startLiveStats(steps);
         // Jeton partage, renouvele sur un 401 en "Connexion automatique".
         RenewableApplicationAuth sharedAuth = new RenewableApplicationAuth(auth, resolvedAuth, applicationBaseUrl, timeoutSeconds,
                 authenticator, recorder, network);
 
-        // Resultats de chaque utilisateur virtuel, recuperables meme apres une annulation.
-        List<VirtualUserRun> runs = new ArrayList<>();
-        List<Future<?>> futures = new ArrayList<>();
+        // Resultats de chaque utilisateur virtuel, recuperables meme apres une annulation ; en mode stress,
+        // des utilisateurs virtuels s'ajoutent pendant le test.
+        List<VirtualUserRun> runs = new java.util.concurrent.CopyOnWriteArrayList<>();
+        List<Future<?>> futures = new java.util.concurrent.CopyOnWriteArrayList<>();
         // Resultats ecrits au fil du test (ResultStream).
         ResultStream stream = handle.resultStream();
         VirtualUserLoop.Shared shared = new VirtualUserLoop.Shared(steps, loadSpec, handle, deadline, pacingGate, sources, network,
@@ -156,11 +162,10 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 (clients, step, stepNumber, variables, virtualUser, iteration, retryAfter) -> executeStepWithRenewal(clients, step,
                         stepNumber, applicationBaseUrl, sharedAuth, variables, sources, virtualUser, iteration, handle.detailRecorder(),
                         retryAfter));
-        for (int vu = 0; vu < virtualUsers; vu++) {
-            long startDelayMs = vu * staggerMs;
+        // Demarre l'utilisateur virtuel "virtualUser" apres "startDelayMs".
+        java.util.function.BiConsumer<Integer, Long> startVirtualUser = (virtualUser, startDelayMs) -> {
             // Contexte de variables propre a cet utilisateur virtuel ; ligne CSV selon la distribution du scenario.
             VariableContext variables = new VariableContext(sources.scenarioVariables(), resolvedAuth.token());
-            int virtualUser = vu;
             VirtualUserRun run = new VirtualUserRun();
             runs.add(run);
             java.util.function.Consumer<StepOutcome> sink = stream != null ? stream::accept : run.results::add;
@@ -175,6 +180,13 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
             });
             handle.registerFuture(future);
             futures.add(future);
+        };
+        if (stress != null) {
+            runStress(stress, pacingGate, live, handle, startVirtualUser);
+        } else {
+            for (int vu = 0; vu < virtualUsers; vu++) {
+                startVirtualUser.accept(vu, vu * staggerMs);
+            }
         }
 
         for (Future<?> future : futures) {
@@ -216,6 +228,35 @@ public class HttpClientExecutionEngine implements ExecutionEngine {
                 : (summary.total() == 0 ? "Aucune requete n'a ete executee." : null);
 
         return new ScenarioExecutionOutcome(allOutcomes, status, errorMessage, summary);
+    }
+
+    /**
+     * Mode stress : demarre le reservoir, fait tourner la montee (un tick par seconde, dans ce thread) jusqu'a une limite
+     * de LoadPilot ou l'annulation, puis demande l'arret : chaque utilisateur virtuel termine sa requete en cours.
+     */
+    private static void runStress(StressRamp.Limits limits, PacingGate gate, LiveStats live, RunningExecutionHandle handle,
+            java.util.function.BiConsumer<Integer, Long> startVirtualUser) {
+        java.util.concurrent.atomic.AtomicInteger created = new java.util.concurrent.atomic.AtomicInteger();
+        StressRamp.Pool pool = new StressRamp.Pool() {
+            @Override
+            public int virtualUsers() {
+                return created.get();
+            }
+
+            @Override
+            public void add(int count) {
+                for (int i = 0; i < count; i++) startVirtualUser.accept(created.getAndIncrement(), 0L);
+            }
+        };
+        StressRamp ramp = new StressRamp(limits, gate, live, pool);
+        handle.stressRamp(ramp);
+        pool.add(Math.min(StressSettings.INITIAL_VIRTUAL_USERS, limits.maxVirtualUsers()));
+        StressRamp.Limit limit = ramp.run(handle);
+        if (limit != null) {
+            log.info("Test de stress : montee terminee a la limite {} ({} VU, {} req/s offertes).", limit,
+                    ramp.peakVirtualUsers(), ramp.peakOfferedRps());
+        }
+        handle.requestStop();
     }
 
     /** Attente maximale de l'arret reel des VU apres une annulation (secondes). */

@@ -156,14 +156,55 @@ class ScenarioStressModeTest {
     }
 
     @Test
-    void stressScenario_launchIsRefusedUntilTheEngineIsReady() throws Exception {
-        String appId = createApplication("stress-launch-app");
-        String id = create(scenarioBeyondLimits(appId, "stress-lancement", "STRESS"));
-        addStep(id);
+    void stressLaunch_runsAlone_cannotBePaused_andCanBeCancelled() throws Exception {
+        // Cible sur un port ferme : aucune requete ne sort de la machine.
+        int closedPort;
+        try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        String body = objectMapper.writeValueAsString(new ApplicationRequest("stress-launch-app", "d", "http://localhost:" + closedPort));
+        String appId = objectMapper.readTree(mockMvc.perform(post("/api/applications").with(AS_SUPER_ADMIN)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()).get("id").asText();
+        String stressId = create(scenarioBeyondLimits(appId, "stress-lancement", "STRESS"));
+        addStep(stressId);
+        String manualId = create(objectMapper.createObjectNode().put("applicationId", appId).put("name", "manuel-pendant-stress"));
+        addStep(manualId);
 
-        mockMvc.perform(post("/api/executions").with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ExecutionRequest(UUID.fromString(id)))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Le lancement d'un test en mode stress n'est pas encore disponible."));
+        String launched = mockMvc.perform(post("/api/executions").with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ExecutionRequest(UUID.fromString(stressId)))))
+                .andExpect(status().isAccepted())
+                // Capacite de la montee : la limite d'utilisateurs par test, pas les 5 000 enregistres.
+                .andExpect(jsonPath("$.virtualUsers").value(org.hamcrest.Matchers.lessThanOrEqualTo(200)))
+                .andReturn().getResponse().getContentAsString();
+        String executionId = objectMapper.readTree(launched).get("id").asText();
+        try {
+            mockMvc.perform(post("/api/executions").with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new ExecutionRequest(UUID.fromString(manualId)))))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.message").value("Un test de stress est en cours : il tourne seul sur le serveur. "
+                            + "Réessayez quand il sera terminé."));
+
+            waitForStatus(executionId, "RUNNING");
+            mockMvc.perform(post("/api/executions/" + executionId + "/pause").with(AS_SUPER_ADMIN))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Un test de stress ne se met pas en pause (la comparaison à la baseline "
+                            + "serait faussée) : laissez-le se terminer ou annulez-le."));
+        } finally {
+            mockMvc.perform(post("/api/executions/" + executionId + "/cancel").with(AS_SUPER_ADMIN));
+        }
+        waitForStatus(executionId, "CANCELLED");
+    }
+
+    private void waitForStatus(String executionId, String expected) throws Exception {
+        long deadline = System.currentTimeMillis() + 10_000;
+        String current = null;
+        while (System.currentTimeMillis() < deadline) {
+            current = objectMapper.readTree(mockMvc.perform(get("/api/executions/" + executionId).with(AS_SUPER_ADMIN))
+                    .andReturn().getResponse().getContentAsString()).get("status").asText();
+            if (expected.equals(current)) return;
+            Thread.sleep(50);
+        }
+        throw new AssertionError("Statut attendu " + expected + ", obtenu " + current);
     }
 }

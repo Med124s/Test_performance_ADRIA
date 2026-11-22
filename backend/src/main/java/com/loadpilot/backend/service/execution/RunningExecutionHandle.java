@@ -159,6 +159,47 @@ public final class RunningExecutionHandle {
         futures.forEach(f -> f.cancel(true));
     }
 
+    // ---- Fin de la montee en charge (mode stress) ----
+
+    private volatile boolean stopRequested = false;
+
+    /**
+     * Fin normale d'un test de stress (ce n'est pas une annulation) : les utilisateurs virtuels terminent leur
+     * requete en cours, qui est comptee, puis s'arretent au lieu de commencer la suivante.
+     */
+    public void requestStop() {
+        stopRequested = true;
+        synchronized (pauseLock) {
+            pauseLock.notifyAll();
+        }
+    }
+
+    public boolean isStopRequested() {
+        return stopRequested;
+    }
+
+    private volatile boolean stressMode = false;
+
+    /** Execution en mode stress (connu des l'enregistrement, avant le demarrage du moteur). */
+    public boolean isStressMode() {
+        return stressMode;
+    }
+
+    void stressMode(boolean stress) {
+        this.stressMode = stress;
+    }
+
+    private volatile StressRamp stressRamp;
+
+    /** Montee en charge automatique (mode stress), null en mode manuel ou tant qu'elle n'a pas demarre. */
+    public StressRamp stressRamp() {
+        return stressRamp;
+    }
+
+    void stressRamp(StressRamp ramp) {
+        this.stressRamp = ramp;
+    }
+
     // ---- Pause ----
 
     /** Met en pause ; false si deja en pause ou annulee. */
@@ -205,10 +246,10 @@ public final class RunningExecutionHandle {
         }
     }
 
-    /** Attend la fin de la pause ; false si l'execution est annulee. */
+    /** Attend la fin de la pause ; false si l'execution est annulee ou arretee (fin d'un test de stress). */
     public boolean awaitIfPaused() {
         synchronized (pauseLock) {
-            while (paused && !cancelled) {
+            while (paused && !cancelled && !stopRequested) {
                 try {
                     pauseLock.wait();
                 } catch (InterruptedException e) {
@@ -217,10 +258,10 @@ public final class RunningExecutionHandle {
                 }
             }
         }
-        return !cancelled;
+        return !cancelled && !stopRequested;
     }
 
-    /** Attend "millis" millisecondes de temps actif (pauses exclues) ; false si annulee. */
+    /** Attend "millis" millisecondes de temps actif (pauses exclues) ; false si annulee ou arretee. */
     public boolean sleepActive(long millis) {
         long remaining = millis * 1_000_000L;
         while (remaining > 0) {
@@ -237,6 +278,6 @@ public final class RunningExecutionHandle {
             long active = (System.nanoTime() - start) - (pausedNanos() - pausedBefore);
             remaining -= Math.max(0L, active);
         }
-        return !cancelled;
+        return !cancelled && !stopRequested;
     }
 }

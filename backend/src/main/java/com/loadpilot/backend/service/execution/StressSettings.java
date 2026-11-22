@@ -22,6 +22,15 @@ public final class StressSettings {
     /** Maintien a une limite de LoadPilot avant de conclure « aucune rupture » : couvre la confirmation et les timeouts en cours. */
     public static final int HOLD_AT_LIMIT_SECONDS = 30;
 
+    // Reservoir d'utilisateurs virtuels : agrandi chaque seconde selon le deficit (loi de Little).
+
+    /** Utilisateurs virtuels au demarrage. */
+    public static final int INITIAL_VIRTUAL_USERS = 1;
+    /** Croissance maximale du reservoir en une seconde (% des utilisateurs virtuels existants, au moins 1). */
+    public static final int MAX_POOL_GROWTH_PERCENT = 50;
+    /** Secondes terminees qui mesurent le debit obtenu par utilisateur virtuel. */
+    public static final int ACHIEVED_RATE_SECONDS = 3;
+
     // Detection : chaque critere doit etre vrai sur CONFIRMATION_WINDOWS fenetres consecutives.
 
     /** Fenetre d'evaluation (secondes entieres et terminees). */

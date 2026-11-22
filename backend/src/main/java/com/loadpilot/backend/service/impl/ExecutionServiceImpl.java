@@ -71,6 +71,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class ExecutionServiceImpl implements ExecutionService {
 
+    static final String STRESS_NOT_PAUSABLE = "Un test de stress ne se met pas en pause (la comparaison à la baseline serait faussée) : "
+            + "laissez-le se terminer ou annulez-le.";
+
     private static final Logger log = LoggerFactory.getLogger(ExecutionServiceImpl.class);
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "startedAt");
 
@@ -116,22 +119,23 @@ public class ExecutionServiceImpl implements ExecutionService {
     private ExecutionResponse doExecute(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId) {
         boolean capacityReserved = false;
         int virtualUsers = 0;
+        boolean stress = false;
         try {
             // Nombre d'utilisateurs virtuels, necessaire pour reserver la capacite ; en mode stress, la montee
             // automatique peut aller jusqu'a la limite d'utilisateurs par test.
             Scenario scenario = scenarioRepository.findById(scenarioId)
                     .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + scenarioId));
-            virtualUsers = scenario.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS
-                    ? executionLimits.maxVirtualUsersPerTest() : scenario.getVirtualUsers();
+            stress = scenario.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS;
+            virtualUsers = stress ? executionLimits.maxVirtualUsersPerTest() : scenario.getVirtualUsers();
 
-            // Refus avant toute ecriture si une limite de capacite serait depassee.
-            registry.reserveCapacity(virtualUsers);
+            // Refus avant toute ecriture si une limite de capacite serait depassee ; un test de stress tourne seul.
+            registry.reserveCapacity(virtualUsers, stress);
             capacityReserved = true;
 
             // Valide le scenario et cree l'execution QUEUED avec ses parametres de charge.
             PreparedExecution prepared = transactionHelper.prepareAndStart(scenarioId, triggeredByAppUserId, scheduleId);
 
-            RunningExecutionHandle handle = registry.registerReserved(prepared.executionId(), virtualUsers);
+            RunningExecutionHandle handle = registry.registerReserved(prepared.executionId(), virtualUsers, stress);
             handle.detailRecorder(new RequestDetailRecorder(prepared.requestDetailMode(), requestDetailMaxMemoryMb * 1024L * 1024L));
             // Desormais, la capacite est liberee par registry.unregister() (runAsync, bloc finally).
             capacityReserved = false;
@@ -151,7 +155,7 @@ public class ExecutionServiceImpl implements ExecutionService {
         } catch (RuntimeException e) {
             // Capacite reservee mais aucune execution creee : liberation.
             if (capacityReserved) {
-                registry.releaseReservationWithoutRegistering(virtualUsers);
+                registry.releaseReservationWithoutRegistering(virtualUsers, stress);
             }
             auditLogService.record(launchAudit(AuditEvent.of(AuditAction.EXECUTE, AuditModule.EXECUTION), scenarioId, scheduleId)
                     .description("Exécution non lancée").failed(e));
@@ -624,6 +628,10 @@ public class ExecutionServiceImpl implements ExecutionService {
             }
             if (handle.isCancelled()) {
                 throw new ConflictException(ExecutionTransactionHelper.PAUSE_FINISHED);
+            }
+            // Une pause fausserait la comparaison a la baseline : un test de stress se poursuit ou s'annule.
+            if (handle.isStressMode()) {
+                throw new ConflictException(STRESS_NOT_PAUSABLE);
             }
             Execution paused = transactionHelper.markPaused(id);
             handle.pause();
