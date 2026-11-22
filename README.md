@@ -451,6 +451,20 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
     - après le test : plus rien n'est retenu.
   - Utile sur un serveur Linux avec une limite de descripteurs basse (`ulimit -n`, souvent 1024 hors Docker) : prévoir au moins 4 096 pour 200 utilisateurs virtuels avec marge.
 - **Pacing approximatif** : le débit cible (`targetRps`) est un mécanisme de répartition simple par créneaux, partagé entre tous les utilisateurs virtuels d'une exécution, pas un contrôleur de débit avancé.
+- **Mode « Point de rupture » (stress automatique)** : choisi dans l'étape « Charge & résumé » d'un scénario, il ne demande aucun réglage de charge. LoadPilot augmente la charge tout seul et s'arrête quand l'application cède.
+  - **Montée** : 10 s d'échauffement, puis 30 s de mesure de référence à 2 req/s, puis +1 req/s chaque seconde. Des utilisateurs virtuels sont ajoutés au besoin, selon le déficit de débit (loi de Little).
+  - **Rupture** : vérifiée sur 3 fenêtres de 5 s consécutives, par rapport à la mesure de référence. Elle est retenue si le P95 est plus de 3 fois plus lent (et d'au moins 200 ms), si au moins 5 % des requêtes sont refusées (délais dépassés, connexions refusées, 429, 502/503/504), ou si le débit obtenu tombe sous 80 % du débit envoyé pendant la montée.
+  - **Constantes internes** : elles sont dans `StressSettings` et ne sont jamais exposées à l'utilisateur.
+  - **Résultat** :
+    - « Seuils dépassés » avec le niveau de charge au **début** de l'anomalie (utilisateurs virtuels, débit offert et obtenu, P95, critère) ;
+    - « Réussie » avec la note « aucune rupture détectée jusqu'à X VU / Y req/s » si une limite du serveur est atteinte d'abord ;
+    - « Échouée » si l'application ne tient pas la mesure de référence (moins de 30 réponses en 30 s) ;
+    - « Annulée », non concluant, si le CPU de LoadPilot dépasse `LOADPILOT_INJECTOR_CPU_WARNING_PERCENT` sur 3 lectures avant tout signe de rupture.
+  - **Conservation** : le résultat est enregistré avec l'exécution (gardé après la purge), marqué sur le graphique et dans le PDF.
+  - **Conditions** : un test de stress tourne **seul** sur le serveur, ne se met pas en pause et ne se planifie pas. Les seuils de réussite et le frein automatique du scénario ne s'appliquent pas.
+  - **Portée** : la montée s'arrête aux limites en vigueur (Paramètres > Système, plafonnées par `LOADPILOT_MAX_VUS_PER_EXECUTION`, `LOADPILOT_MAX_TARGET_RPS` et `LOADPILOT_MAX_DURATION_SECONDS`). Pour chercher la rupture plus haut sur un serveur plus puissant, il faut relever ces plafonds **et** la limite dans Paramètres > Système, et augmenter `LOADPILOT_JVM_MAX_MEMORY`.
+  - **Durée** : à +1 req/s par seconde, atteindre 500 req/s prend environ 8 minutes ; 3 000 req/s dépasseraient la durée maximale de 1 h.
+  - **Banc de capacité** : chaque utilisateur virtuel a ses propres clients HTTP. Un banc de capacité est recommandé avant de relever fortement le plafond d'utilisateurs virtuels.
 - **HTTPS non fourni** (voir section 13).
 - **Docker non validé en exécution réelle** dans l'environnement de développement de ce projet (voir section 12).
 - **Backup/restore non fourni** (voir section 14).

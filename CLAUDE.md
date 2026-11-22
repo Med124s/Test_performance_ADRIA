@@ -46,7 +46,7 @@ cd perftest-frontend; npm test; npm run build   # tests et build frontend
   - en-têtes et corps des requêtes : 30 jours ;
   - un rapport figé est gardé après la purge ;
   - l'option « Conserver » exclut une exécution de la purge.
-- **Mode stress** (`loadMode = STRESS`, en cours de développement ; le mode manuel reste inchangé) :
+- **Mode stress** (`loadMode = STRESS`, « Point de rupture » dans l'interface ; le mode manuel reste inchangé ; démo : `docs/demo/GUIDE_DEMO_STRESS.md`) :
   - aucun réglage de charge saisi : le débit offert monte seul, le réservoir de VUs suit (quand tous sont occupés et que des créneaux sont manqués, on ajoute autant de VUs que le déficit l'exige, loi de Little, croissance bornée) ;
   - pas de pause pendant un stress test (elle fausserait la comparaison à la baseline) : il se termine ou s'annule ;
   - montée bornée par les limites applicatives en vigueur (VUs par test, débit cible maximal, durée maximale) ;
@@ -68,4 +68,6 @@ cd perftest-frontend; npm test; npm run build   # tests et build frontend
 - **Secrets des applications testées** : chiffrés en base (AES-GCM), clé `LOADPILOT_SECRETS_KEY` obligatoire au démarrage (voir `docs/SECRETS.md`). Ne jamais la perdre, ni la journaliser.
 - **`/api/reset`** de banking-test-api : jamais dans un scénario de charge, car il remet les données de démo à zéro.
 - **Erreurs aléatoires** : banking-test-api renvoie des 409/500 aléatoires (7 % par défaut). Lancer avec `ERROR_RATE=0` pour des résultats sans ces erreurs.
+- **Capacité simulée** : sans `CAPACITY_RPS`, banking-test-api ne casse pas sous les plafonds de LoadPilot. Pour montrer une rupture en mode stress : `CAPACITY_RPS=50` (rupture mesurée vers 63 req/s offertes).
+- **Suites de tests longues** : la mise en veille du poste fige la JVM et fausse les tests de bout en bout du mode stress ; garder la machine éveillée pendant `mvn -o test`.
 - **Données** : ne pas supprimer de données existantes, ni lancer `VACUUM FULL`, sans accord.
