@@ -17,7 +17,16 @@ public final class InjectorTrack {
         this.cpuWarningPercent = cpuWarningPercent;
     }
 
-    public synchronized void add(Sample sample) {
+    /** Lectures consecutives au-dessus du seuil, et System.nanoTime() de la premiere (-1 sans saturation en cours). */
+    private int consecutiveOverloaded;
+    private long overloadedSinceNanos = -1;
+
+    public void add(Sample sample) {
+        add(sample, System.nanoTime());
+    }
+
+    /** "atNanos" : System.nanoTime() de la lecture. */
+    public synchronized void add(Sample sample, long atNanos) {
         latest = sample;
         samples++;
         Double cpu = sample.processCpuPercent();
@@ -25,6 +34,22 @@ public final class InjectorTrack {
             cpuMaxPercent = cpuMaxPercent == null ? cpu : Math.max(cpuMaxPercent, cpu);
             if (cpu >= cpuWarningPercent) overloadedSamples++;
         }
+        if (cpu != null && cpu >= cpuWarningPercent) {
+            if (consecutiveOverloaded++ == 0) overloadedSinceNanos = atNanos;
+        } else {
+            consecutiveOverloaded = 0;
+            overloadedSinceNanos = -1;
+        }
+    }
+
+    /** Lectures consecutives du CPU de LoadPilot au-dessus du seuil, jusqu'a la derniere. */
+    public synchronized int consecutiveOverloadedSamples() {
+        return consecutiveOverloaded;
+    }
+
+    /** System.nanoTime() de la premiere lecture de la saturation en cours, -1 sans saturation en cours. */
+    public synchronized long overloadedSinceNanos() {
+        return overloadedSinceNanos;
     }
 
     public synchronized Sample latest() {

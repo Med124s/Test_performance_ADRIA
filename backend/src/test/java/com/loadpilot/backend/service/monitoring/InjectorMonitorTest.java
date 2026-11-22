@@ -36,6 +36,24 @@ class InjectorMonitorTest {
     }
 
     @Test
+    void track_countsConsecutiveOverloadedSamples_fromTheStartOfTheCurrentSaturation() {
+        InjectorTrack track = new InjectorTrack(85);
+        track.add(cpu(90.0), 100);
+        track.add(cpu(40.0), 200);
+        assertThat(track.consecutiveOverloadedSamples()).isZero();
+        assertThat(track.overloadedSinceNanos()).isEqualTo(-1);
+
+        track.add(cpu(85.0), 300);
+        track.add(cpu(99.0), 400);
+        assertThat(track.consecutiveOverloadedSamples()).isEqualTo(2);
+        assertThat(track.overloadedSinceNanos()).isEqualTo(300);
+
+        // Lecture indisponible : la serie s'interrompt.
+        track.add(cpu(null), 500);
+        assertThat(track.consecutiveOverloadedSamples()).isZero();
+    }
+
+    @Test
     void track_atOrAboveTheThreshold_overloadedWithAClearWarning_evenIfCpuComesBackDown() {
         InjectorTrack track = new InjectorTrack(85);
         track.add(cpu(30.0));

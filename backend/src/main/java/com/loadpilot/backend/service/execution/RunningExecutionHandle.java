@@ -122,6 +122,11 @@ public final class RunningExecutionHandle {
         return liveStats;
     }
 
+    /** Compteurs fournis (tests, horloge simulee). */
+    void liveStats(LiveStats stats) {
+        liveStats = stats;
+    }
+
     /** Compteurs en direct, ou null tant que le moteur n'a pas demarre. */
     public LiveStats liveStats() {
         return liveStats;
@@ -187,6 +192,17 @@ public final class RunningExecutionHandle {
 
     void stressMode(boolean stress) {
         this.stressMode = stress;
+    }
+
+    private volatile BreakpointWatcher.Outcome stressOutcome;
+
+    /** Decision de la surveillance du point de rupture (mode stress) ; null si aucune (limite de LoadPilot, annulation...). */
+    public BreakpointWatcher.Outcome stressOutcome() {
+        return stressOutcome;
+    }
+
+    public void stressOutcome(BreakpointWatcher.Outcome outcome) {
+        this.stressOutcome = outcome;
     }
 
     private volatile StressRamp stressRamp;

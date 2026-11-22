@@ -29,6 +29,7 @@ import com.loadpilot.backend.repository.ScenarioRepository;
 import com.loadpilot.backend.service.AuditLogService;
 import com.loadpilot.backend.service.ExecutionService;
 import com.loadpilot.backend.service.NotificationService;
+import com.loadpilot.backend.service.execution.BreakpointWatcher;
 import com.loadpilot.backend.service.execution.CancellationAttempt;
 import com.loadpilot.backend.service.execution.CancellationOutcome;
 import com.loadpilot.backend.service.execution.ErrorRateBrake;
@@ -38,6 +39,7 @@ import com.loadpilot.backend.service.execution.RequestDetailRecorder;
 import com.loadpilot.backend.service.execution.RunningExecutionHandle;
 import com.loadpilot.backend.service.execution.RunningExecutionRegistry;
 import com.loadpilot.backend.service.execution.ScenarioExecutionOutcome;
+import com.loadpilot.backend.service.execution.StressSettings;
 import com.loadpilot.backend.service.monitoring.MonitoringConfig;
 import com.loadpilot.backend.service.monitoring.ResourceMonitor;
 import com.loadpilot.backend.service.monitoring.ResourceTrack;
@@ -177,6 +179,7 @@ public class ExecutionServiceImpl implements ExecutionService {
     private void runAsync(PreparedExecution prepared, RunningExecutionHandle handle, MonitoringConfig monitoring) {
         ResourceMonitor.Session monitoringSession = null;
         ErrorRateBrake.Session brake = null;
+        BreakpointWatcher.Session breakpointWatcher = null;
         com.loadpilot.backend.service.monitoring.InjectorMonitor.Session injectorSession = null;
         com.loadpilot.backend.service.execution.ResultStream resultStream = null;
         UUID finishedId = null;
@@ -187,19 +190,24 @@ public class ExecutionServiceImpl implements ExecutionService {
                 outcome = new ScenarioExecutionOutcome(List.of(), ExecutionStatus.FAILED, null);
             } else {
                 if (monitoring != null) monitoringSession = resourceMonitor.start(monitoring, handle.resources());
-                // Mesures de LoadPilot lui-meme, a la meme frequence que celles de la cible (5 s sans monitoring).
+                // Mesures de LoadPilot lui-meme, a la meme frequence que celles de la cible (5 s sans monitoring) ;
+                // mode stress : plus souvent, pour arreter vite un test que LoadPilot ne peut plus mesurer.
+                boolean stress = prepared.loadSpec().stress() != null;
                 com.loadpilot.backend.service.monitoring.InjectorTrack injectorTrack = injectorMonitor.newTrack();
                 handle.injector(injectorTrack);
-                injectorSession = injectorMonitor.start(injectorTrack, monitoring != null ? monitoring.intervalSeconds()
+                injectorSession = injectorMonitor.start(injectorTrack, stress ? StressSettings.INJECTOR_INTERVAL_SECONDS
+                        : monitoring != null ? monitoring.intervalSeconds()
                         : com.loadpilot.backend.service.monitoring.InjectorMonitor.DEFAULT_INTERVAL_SECONDS);
                 brake = ErrorRateBrake.start(prepared.errorBrake(), handle,
                         reason -> cancelForErrorRate(prepared.executionId(), reason));
+                if (stress) breakpointWatcher = BreakpointWatcher.start(handle, decision -> onStressDecision(prepared, handle, decision));
                 // Resultats ecrits en base pendant le test, par lots.
                 resultStream = openResultStream(prepared);
                 handle.resultStream(resultStream);
                 outcome = executionEngine.execute(prepared.steps(), prepared.applicationBaseUrl(), prepared.auth(),
                         prepared.loadSpec(), handle, prepared.variableSources(), prepared.network());
                 brake.stop();
+                if (breakpointWatcher != null) breakpointWatcher.stop();
                 injectorSession.stop();
                 // Dernier lot ecrit avant la finalisation.
                 closeResultStream(resultStream, prepared.executionId());
@@ -257,6 +265,7 @@ public class ExecutionServiceImpl implements ExecutionService {
             if (markedFailed) notifyTerminalStatus(prepared, ExecutionStatus.FAILED);
         } finally {
             if (brake != null) brake.stop();
+            if (breakpointWatcher != null) breakpointWatcher.stop();
             if (injectorSession != null) injectorSession.stop();
             if (monitoringSession != null) monitoringSession.stop();
             closeResultStream(resultStream, prepared.executionId());
@@ -688,6 +697,29 @@ public class ExecutionServiceImpl implements ExecutionService {
     /** Arret par le frein automatique sur taux d'erreurs. */
     public void cancelForErrorRate(UUID id, String reason) {
         cancelAutomatically(id, reason, "Frein sur taux d’erreurs");
+    }
+
+    /**
+     * Mode stress : rupture confirmee ou baseline inexploitable -> fin du test (requetes en cours terminees), decision
+     * gardee pour le verdict ; LoadPilot sature avant la cible -> annulation automatique « non concluant ».
+     */
+    private void onStressDecision(PreparedExecution prepared, RunningExecutionHandle handle, BreakpointWatcher.Outcome decision) {
+        switch (decision) {
+            case BreakpointWatcher.Ruptured ruptured -> {
+                log.info("Execution {} : {}", prepared.executionId(), ruptured.breakpoint().message());
+                handle.stressOutcome(decision);
+                handle.requestStop();
+            }
+            case BreakpointWatcher.BaselineUnusable unusable -> {
+                log.warn("Execution {} : {}", prepared.executionId(), unusable.reason());
+                handle.stressOutcome(decision);
+                handle.requestStop();
+            }
+            case BreakpointWatcher.Inconclusive inconclusive -> {
+                handle.stressOutcome(decision);
+                cancelAutomatically(prepared.executionId(), inconclusive.reason(), "Injecteur saturé (test de stress)");
+            }
+        }
     }
 
     /** Arret par le garde-fou memoire. */

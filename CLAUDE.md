@@ -53,7 +53,8 @@ cd perftest-frontend; npm test; npm run build   # tests et build frontend
   - rupture détectée sans seuil saisi, par comparaison à une baseline ; constantes internes dans `StressSettings`, jamais exposées ;
   - rupture → « Seuils dépassés », motif détaillé, niveau de charge enregistré (VUs, débit, temps de réponse, critère) ;
   - aucune rupture avant les limites → « Réussie », note « aucune rupture détectée jusqu'à X VU / Y req/s » ;
-  - LoadPilot saturé avant la cible → « Annulée », motif « Non concluant — LoadPilot a atteint sa propre limite technique avant la cible » ;
+  - LoadPilot saturé avant la cible → « Annulée », motif « Non concluant — LoadPilot a atteint sa propre limite technique avant la cible » ; une anomalie de la cible commencée avant la saturation l'emporte si elle se confirme ;
+  - baseline inexploitable (moins de 30 réponses en 30 s à 2 req/s) → « Échouée » ;
   - les 429 et 502/503/504 de la cible comptent comme des refus, au même titre que les timeouts et les connexions refusées ;
   - un stress test tourne seul sur le serveur, ne se planifie pas ; think time des étapes conservé, think time global ignoré.
 - **Journal d'audit** : 365 jours ; événements Keycloak : 365 jours.
