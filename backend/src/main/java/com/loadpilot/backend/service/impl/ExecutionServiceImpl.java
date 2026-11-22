@@ -39,6 +39,7 @@ import com.loadpilot.backend.service.execution.RequestDetailRecorder;
 import com.loadpilot.backend.service.execution.RunningExecutionHandle;
 import com.loadpilot.backend.service.execution.RunningExecutionRegistry;
 import com.loadpilot.backend.service.execution.ScenarioExecutionOutcome;
+import com.loadpilot.backend.service.execution.StressRamp;
 import com.loadpilot.backend.service.execution.StressSettings;
 import com.loadpilot.backend.service.monitoring.MonitoringConfig;
 import com.loadpilot.backend.service.monitoring.ResourceMonitor;
@@ -448,9 +449,12 @@ public class ExecutionServiceImpl implements ExecutionService {
             activeElapsedMs = Math.max(0L, execution.getDuration() - pausedMs);
         }
         int vus = execution.getVirtualUsers() == null ? 1 : execution.getVirtualUsers();
+        boolean stress = execution.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS;
         // Iterations prevues : VU x iterations ; sans duree ni iterations, une par VU ; duree seule : inconnu.
+        // Mode stress : fin inconnue a l'avance (rupture ou limite de LoadPilot), pas de progression.
         Long planned = null;
-        if (execution.getIterations() != null) planned = (long) vus * execution.getIterations();
+        if (stress) planned = null;
+        else if (execution.getIterations() != null) planned = (long) vus * execution.getIterations();
         else if (execution.getDurationSeconds() == null) planned = (long) vus;
         return new ExecutionStatusResponse(
                 execution.getId().toString(),
@@ -462,7 +466,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 live != null ? (int) live.requests() : execution.getSuccessfulSteps() + execution.getFailedSteps(),
                 live != null ? (int) live.successes() : execution.getSuccessfulSteps(),
                 live != null ? (int) live.failures() : execution.getFailedSteps(),
-                computeProgressPercent(execution, live, planned, activeElapsedMs),
+                stress ? null : computeProgressPercent(execution, live, planned, activeElapsedMs),
                 execution.getScenario() != null ? execution.getScenario().getId().toString() : null,
                 execution.getScenario() != null ? execution.getScenario().getName() : null,
                 execution.getRampUpSeconds(),
@@ -475,7 +479,25 @@ public class ExecutionServiceImpl implements ExecutionService {
                 pausedMs,
                 activeElapsedMs,
                 resources(execution, handle),
-                injector(handle, live));
+                injector(handle, live),
+                execution.getLoadMode(),
+                stressLive(handle),
+                com.loadpilot.backend.mapper.MapperSupport.executionStress(execution));
+    }
+
+    /** Montee du test de stress en cours ; null hors mode stress ou tant que le moteur n'a pas demarre. */
+    static com.loadpilot.backend.dto.response.StressLiveResponse stressLive(RunningExecutionHandle handle) {
+        StressRamp ramp = handle != null ? handle.stressRamp() : null;
+        LiveStats stats = handle != null ? handle.liveStats() : null;
+        if (ramp == null || stats == null) return null;
+        long elapsed = stats.elapsedSeconds();
+        int warmupEnd = StressSettings.WARMUP_SECONDS;
+        int baselineEnd = StressSettings.WARMUP_SECONDS + StressSettings.BASELINE_SECONDS;
+        StressRamp.Limit holding = ramp.holding();
+        String phase = holding != null ? "HOLD" : elapsed < warmupEnd ? "WARMUP" : elapsed < baselineEnd ? "BASELINE" : "RAMP";
+        return new com.loadpilot.backend.dto.response.StressLiveResponse(phase, elapsed, warmupEnd, baselineEnd, ramp.offeredRps(),
+                ramp.peakOfferedRps(), ramp.virtualUsers(), handle.stressBaselineP95Ms(), holding != null ? holding.name() : null,
+                ramp.limits().maxVirtualUsers(), ramp.limits().maxRps(), ramp.limits().maxDurationSeconds());
     }
 
     /** Mesures de LoadPilot pendant le test ; null hors execution en cours. */
@@ -867,7 +889,9 @@ public class ExecutionServiceImpl implements ExecutionService {
                 steps,
                 errors,
                 thresholds,
-                retention);
+                retention,
+                execution.getLoadMode(),
+                com.loadpilot.backend.mapper.MapperSupport.executionStress(execution));
     }
 
     /** Seuils copies au lancement et leur resultat ; null pour une execution sans seuils. */

@@ -148,6 +148,16 @@ public final class StressRamp {
         return holding == null && limitReached == null;
     }
 
+    /** Limite atteinte et en cours de maintien (ou deja tenue), null tant que la montee continue. */
+    public Limit holding() {
+        return holding;
+    }
+
+    /** Utilisateurs virtuels crees jusqu'ici. */
+    public int virtualUsers() {
+        return pool.virtualUsers();
+    }
+
     /** Limite qui a mis fin a la montee, null tant qu'elle continue. */
     public Limit limitReached() {
         return limitReached;

@@ -20,6 +20,13 @@ public final class ReportPdfSampleExport {
         return target;
     }
 
+    /** Exemple d'un test de stress (point de rupture et reperes du graphique). */
+    public static Path writeStress(Path target) throws Exception {
+        Files.createDirectories(target.toAbsolutePath().getParent());
+        Files.write(target, new ReportPdfWriter().write(ReportPdfSamples.stressData()));
+        return target;
+    }
+
     public static void main(String[] args) throws Exception {
         System.out.println(write(Path.of(args.length > 0 ? args[0] : "target/rapport-exemple.pdf")).toAbsolutePath());
     }

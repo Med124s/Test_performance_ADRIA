@@ -3,10 +3,12 @@ import { Bar, Line } from 'react-chartjs-2'
 import {
   BarElement, CategoryScale, Chart as ChartJS, Filler, Legend, LinearScale, LineElement, Plugin, PointElement, Tooltip,
 } from 'chart.js'
-import { BackendExecutionTimeline } from '../../types/backendContracts'
+import { BackendExecutionTimeline, BackendStressResult } from '../../types/backendContracts'
 import { executionsBackendApi } from '../../services/api/executionsBackend'
 import { ApiError } from '../../services/api/httpClient'
-import { ERROR_COLORS, STEP_COLORS, errorsByType, formatT, isLongRun, perSecond, slowestSteps } from './timelineModel'
+import { ERROR_COLORS, STEP_COLORS, StressMarks, errorsByType, formatT, isLongRun, perSecond, slowestSteps, stressMarks } from './timelineModel'
+import { STRESS_RAMP } from '../scenario-wizard/wizardModel'
+import { formatElapsed, formatRps } from '../../utils/stressResult'
 import StepEvolutionTable from './StepEvolutionTable'
 import { formatMs } from '../../utils/numberFormat'
 import { MONITORING_SCOPE_TEXT, MONITORING_TYPE_LABELS } from '../../components/application-monitoring/monitoringModel'
@@ -82,7 +84,55 @@ const extremeMarkers: Plugin<'line'> = {
   },
 }
 
-export default function TimelineAnalysis({ executionId }: { executionId: string }) {
+// Test de stress : zone verte de la mesure de référence, lignes du début (orange) et de la confirmation (rouge) de la rupture.
+const STRESS_ONSET_COLOR = '#D97706'
+const STRESS_CONFIRMED_COLOR = '#DC2626'
+const stressMarkers: Plugin<'line'> = {
+  id: 'stressMarkers',
+  beforeDatasetsDraw(chart, _args, options) {
+    const marks = (options as { marks?: StressMarks | null }).marks
+    const x = chart.scales.x
+    if (!marks?.baseline || !x) return
+    const { ctx, chartArea } = chart
+    const half = (chartArea.right - chartArea.left) / Math.max(1, chart.data.labels?.length ?? 1) / 2
+    ctx.save()
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.12)'
+    const left = x.getPixelForValue(marks.baseline.from) - half
+    ctx.fillRect(left, chartArea.top, x.getPixelForValue(marks.baseline.to) + half - left, chartArea.bottom - chartArea.top)
+    ctx.restore()
+  },
+  afterDatasetsDraw(chart, _args, options) {
+    const { marks, onsetLabel } = options as { marks?: StressMarks | null; onsetLabel?: string }
+    const x = chart.scales.x
+    if (!marks || !x) return
+    const { ctx, chartArea } = chart
+    const lines = [
+      ...(marks.onset != null && marks.onset >= 0 ? [{ index: marks.onset, color: STRESS_ONSET_COLOR, label: onsetLabel ?? 'Début de la rupture', leftSide: true }] : []),
+      ...(marks.confirmed != null && marks.confirmed >= 0 ? [{ index: marks.confirmed, color: STRESS_CONFIRMED_COLOR, label: 'Rupture confirmée', leftSide: false }] : []),
+    ]
+    ctx.save()
+    ctx.font = '600 11px system-ui, sans-serif'
+    lines.forEach((l, i) => {
+      const px = x.getPixelForValue(l.index)
+      ctx.strokeStyle = l.color
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([5, 4])
+      ctx.beginPath()
+      ctx.moveTo(px, chartArea.top)
+      ctx.lineTo(px, chartArea.bottom)
+      ctx.stroke()
+      ctx.setLineDash([])
+      // Premier libellé à gauche de sa ligne, le second à droite (lignes proches) ; à l'opposé s'il sortait du graphique.
+      const width = ctx.measureText(l.label).width
+      const left = l.leftSide ? px - 4 - width >= chartArea.left : px + 4 + width > chartArea.right
+      ctx.fillStyle = l.color
+      ctx.fillText(l.label, left ? px - 4 - width : px + 4, chartArea.top + 12 + i * 14)
+    })
+    ctx.restore()
+  },
+}
+
+export default function TimelineAnalysis({ executionId, stress }: { executionId: string; stress?: BackendStressResult | null }) {
   const [tl, setTl] = useState<BackendExecutionTimeline | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showAvg, setShowAvg] = useState(false)
@@ -117,6 +167,8 @@ export default function TimelineAnalysis({ executionId }: { executionId: string 
     ...(tl.slowest ? [{ bucket: tl.slowest.bucket, label: `Plus lente : ${formatMs(tl.slowest.responseTimeMs)}`, color: '#DC2626' }] : []),
     ...(tl.fastest ? [{ bucket: tl.fastest.bucket, label: `Plus rapide : ${formatMs(tl.fastest.responseTimeMs)}`, color: '#16A34A' }] : []),
   ]
+  const marks = stress ? stressMarks(tl.t, stress, STRESS_RAMP.warmupSeconds, STRESS_RAMP.warmupSeconds + STRESS_RAMP.baselineSeconds) : null
+  const stressPluginOptions = { marks, onsetLabel: stress?.offeredRps != null ? `Début de la rupture (${formatRps(stress.offeredRps)})` : undefined }
   const xScale = { ticks: { color: text, maxTicksLimit: 12, maxRotation: 0 }, grid: { display: false }, title: { display: true, text: bucket > 1 ? `Temps (intervalles de ${bucket} s)` : 'Temps', color: text } }
   const legend = { position: 'bottom' as const, labels: { color: text, boxWidth: 12, font: { size: 11 } } }
 
@@ -138,6 +190,7 @@ export default function TimelineAnalysis({ executionId }: { executionId: string 
       legend,
       pauseShading: pausePluginOptions,
       extremeMarkers: { marks: extremeMarks, p95: tl.p95Ms },
+      stressMarkers: stressPluginOptions,
       tooltip: {
         callbacks: {
           title: (items: { dataIndex: number }[]) => `À ${labels[items[0]?.dataIndex ?? 0]}${bucket > 1 ? ` (+${bucket} s)` : ''}`,
@@ -237,7 +290,14 @@ export default function TimelineAnalysis({ executionId }: { executionId: string 
           <h5 className="ta-title mb-0"><i className="bi bi-graph-up text-primary me-2"></i>Utilisateurs, débit et temps de réponse</h5>
           <label className="ta-check"><input type="checkbox" className="form-check-input m-0" checked={showAvg} onChange={(e) => setShowAvg(e.target.checked)} /> Afficher la moyenne</label>
         </div>
-        <div className="ta-chart"><Line data={globalData} options={globalOptions} plugins={[pauseShading as Plugin<'line'>, extremeMarkers]} /></div>
+        <div className="ta-chart"><Line data={globalData} options={globalOptions} plugins={[pauseShading as Plugin<'line'>, extremeMarkers, stressMarkers]} /></div>
+        {marks && stress && (
+          <p className="ta-note mb-0 mt-2" data-testid="stress-legend">
+            <span className="ta-dot" style={{ background: 'rgba(34, 197, 94, 0.5)' }}></span>Zone verte : mesure de référence ({STRESS_RAMP.baselineSeconds} s à {STRESS_RAMP.baselineRps} req/s).
+            {stress.outcome === 'BREAKPOINT' && <>{' '}<span className="ta-dot" style={{ background: STRESS_ONSET_COLOR }}></span>Début de la rupture à {formatElapsed(stress.onsetSeconds)}
+              {' '}(<span className="ta-dot" style={{ background: STRESS_CONFIRMED_COLOR }}></span>confirmée à {formatElapsed(stress.detectedSeconds)}).</>}
+          </p>
+        )}
         {extremeMarks.length > 0 && (
           <p className="ta-note mb-0 mt-2" data-testid="extreme-legend">
             {tl.slowest && <><span className="ta-dot" style={{ background: '#DC2626' }}></span>Requête la plus lente : {formatMs(tl.slowest.responseTimeMs)} à {formatT(tl.t[tl.slowest.bucket] ?? 0, long)}{bucket > 1 ? ` (+${bucket} s)` : ''}. </>}

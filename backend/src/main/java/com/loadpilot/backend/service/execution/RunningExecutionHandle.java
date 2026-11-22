@@ -194,6 +194,17 @@ public final class RunningExecutionHandle {
         this.stressMode = stress;
     }
 
+    private volatile Long stressBaselineP95Ms;
+
+    /** P95 de la baseline du test de stress (suivi en direct), null tant qu'elle n'est pas mesuree. */
+    public Long stressBaselineP95Ms() {
+        return stressBaselineP95Ms;
+    }
+
+    void stressBaselineP95Ms(Long p95Ms) {
+        this.stressBaselineP95Ms = p95Ms;
+    }
+
     private volatile BreakpointWatcher.Outcome stressOutcome;
 
     /** Decision de la surveillance du point de rupture (mode stress) ; null si aucune (limite de LoadPilot, annulation...). */

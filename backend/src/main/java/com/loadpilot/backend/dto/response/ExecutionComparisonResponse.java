@@ -16,7 +16,9 @@ public record ExecutionComparisonResponse(
             ExecutionStatus status, Integer virtualUsers, Integer rampUpSeconds, Integer durationSeconds, Integer iterations,
             /** Duree de travail reelle (ms), pauses exclues. */
             Long activeDurationMs, int requests, BigDecimal throughput, Long p95Ms, Long p99Ms, BigDecimal errorRate,
-            Double cpuMaxPercent, Double memoryMaxMb) {
+            Double cpuMaxPercent, Double memoryMaxMb,
+            /** Mode de charge ; test de stress : debit offert au point de rupture (null sans rupture). */
+            com.loadpilot.backend.enums.LoadMode loadMode, Double breakpointOfferedRps) {
     }
 
     public record StepRow(String name, String method, List<Long> p95Ms) {

@@ -21,6 +21,7 @@ import { BackendExecutionDetailResponse, BackendStepReportEntry } from '../types
 import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
 import StepRequestsExplorer from './execution-detail/StepRequestsExplorer'
 import { RetentionNotice } from './execution-report/Retention'
+import StressResultCard from '../components/StressResultCard'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { executionStatusMeta } from '../utils/executionStatus'
@@ -224,8 +225,12 @@ function SpringExecutionDetail({ id }: { id: string }) {
             <i className="bi bi-dash-circle"></i> {execution.totalSteps - executedSteps} étape(s) non exécutée(s)
           </span>
         )}
+        {execution.loadMode === 'STRESS' ? (
+          <span className="pt-pill neutral" style={{ fontSize: '13px' }}><i className="bi bi-graph-up-arrow"></i> Point de rupture : montée jusqu’à {execution.virtualUsers} VU</span>
+        ) : (<>
         <span className="pt-pill neutral" style={{ fontSize: '13px' }}><i className="bi bi-people"></i> {execution.virtualUsers} VU</span>
         <span className="pt-pill neutral" style={{ fontSize: '13px' }}><i className="bi bi-graph-up-arrow"></i> Ramp-up {execution.rampUpSeconds}s</span>
+        </>)}
         {execution.durationSeconds != null && (
           <span className="pt-pill neutral" style={{ fontSize: '13px' }}><i className="bi bi-stopwatch"></i> Durée {execution.durationSeconds}s</span>
         )}
@@ -233,6 +238,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
           <span className="pt-pill neutral" style={{ fontSize: '13px' }}><i className="bi bi-arrow-repeat"></i> {execution.iterations} itération(s)</span>
         )}
       </div>
+      <StressResultCard stress={execution.stress} />
 
       <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)' }}>
         <i className="bi bi-speedometer2" style={{ color: 'var(--pt-primary)' }}></i> PERFORMANCE

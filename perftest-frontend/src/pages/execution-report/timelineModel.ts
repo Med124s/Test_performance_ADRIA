@@ -49,3 +49,29 @@ export function perSecond(count: number, bucketSeconds: number): number {
 /** Palette distincte (lisible en thème clair et sombre). */
 export const STEP_COLORS = ['#4F46E5', '#F59E0B', '#10B981', '#EF4444', '#06B6D4', '#A855F7', '#EC4899', '#84CC16', '#F97316', '#64748B']
 export const ERROR_COLORS = ['#EF4444', '#F97316', '#EAB308', '#A855F7', '#06B6D4', '#64748B']
+
+/** Intervalle du graphique qui contient la seconde "seconds" (dernier t <= seconds) ; -1 si avant le premier. */
+export function bucketIndexAt(t: number[], seconds: number): number {
+  let index = -1
+  for (let i = 0; i < t.length && t[i] <= seconds; i++) index = i
+  return index
+}
+
+/** Repères d'un test de stress sur l'axe des intervalles : mesure de référence, début et confirmation de la rupture. */
+export interface StressMarks {
+  baseline: { from: number; to: number } | null
+  onset: number | null
+  confirmed: number | null
+}
+
+export function stressMarks(t: number[], stress: { outcome: string | null; onsetSeconds: number | null; detectedSeconds: number | null },
+  warmupSeconds: number, baselineEndSeconds: number): StressMarks {
+  const from = bucketIndexAt(t, warmupSeconds)
+  const to = bucketIndexAt(t, baselineEndSeconds - 1)
+  const breakpoint = stress.outcome === 'BREAKPOINT'
+  return {
+    baseline: from >= 0 && to >= from ? { from, to } : null,
+    onset: breakpoint && stress.onsetSeconds != null ? bucketIndexAt(t, stress.onsetSeconds) : null,
+    confirmed: breakpoint && stress.detectedSeconds != null ? bucketIndexAt(t, stress.detectedSeconds) : null,
+  }
+}

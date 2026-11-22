@@ -9,6 +9,8 @@ import { executionStatusMeta } from '../utils/executionStatus'
 import { NoFailedSteps, OnlyFailedToggle, StepPagerFooter, useStepPaging } from '../components/StepTablePager'
 import LiveResources from '../components/application-monitoring/LiveResources'
 import LiveInjector from '../components/LiveInjector'
+import LiveStress from '../components/LiveStress'
+import StressResultCard from '../components/StressResultCard'
 
 // Suivi en direct d'une exécution (/executions/live/:id).
 
@@ -117,13 +119,14 @@ function ExecutionLive() {
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>{execution?.scenarioName || status?.scenarioName || 'Exécution'}</h1>
           <div className="em-muted mt-1" aria-live="polite">
             {status ? <span className={paused ? 'em-status-paused' : undefined}>{liveStatusLabel(status.status)}</span> : 'Connexion…'}
-            {status && <> · {status.virtualUsers} utilisateur(s) · ramp-up {status.rampUpSeconds ?? 0} s
+            {status && status.loadMode === 'STRESS' && <> · point de rupture : montée automatique</>}
+            {status && status.loadMode !== 'STRESS' && <> · {status.virtualUsers} utilisateur(s) · ramp-up {status.rampUpSeconds ?? 0} s
               {status.durationSeconds ? ` · durée ${status.durationSeconds} s` : ''}{status.iterations ? ` · ${status.iterations} itération(s)` : ''}</>}
           </div>
           {execution?.connectionError && <div className="sw-field-error">Connexion au serveur perdue : nouvelle tentative chaque seconde…</div>}
         </div>
         <div className="d-flex gap-2 flex-wrap">
-          {!finished && canWrite && (status?.status === 'RUNNING' || paused) && (
+          {!finished && canWrite && status?.loadMode !== 'STRESS' && (status?.status === 'RUNNING' || paused) && (
             paused ? (
               <button type="button" className="pt-btn-primary" onClick={() => run('resume')} disabled={busy !== null}>
                 {busy === 'resume' ? <span className="spinner-border spinner-border-sm"></span> : <i className="bi bi-play-fill"></i>} Reprendre
@@ -172,7 +175,7 @@ function ExecutionLive() {
       </div>
 
       <div className="em-kpis mb-3">
-        <div className="em-kpi"><strong>{live ? `${live.activeVirtualUsers} / ${status?.virtualUsers}` : finished ? '0' : '—'}</strong><span>utilisateurs actifs</span></div>
+        <div className="em-kpi"><strong>{live ? (status?.loadMode === 'STRESS' ? live.activeVirtualUsers : `${live.activeVirtualUsers} / ${status?.virtualUsers}`) : finished ? '0' : '—'}</strong><span>utilisateurs actifs</span></div>
         <div className="em-kpi"><strong>{total}</strong><span>requêtes envoyées</span></div>
         <div className="em-kpi ok"><strong>{successes}</strong><span>succès</span></div>
         <div className={`em-kpi ${failures ? 'ko' : ''}`}><strong>{failures}</strong><span>échecs</span></div>
@@ -180,6 +183,8 @@ function ExecutionLive() {
         <div className="em-kpi"><strong>{avg != null ? `${Math.round(avg)} ms` : '—'}</strong><span>temps de réponse moyen</span></div>
       </div>
 
+      {!finished && <LiveStress live={status?.stressLive} />}
+      {finished && <StressResultCard stress={status?.stress} />}
       {!finished && <LiveInjector injector={status?.injector} />}
       <LiveResources resources={status?.resources} finished={finished} />
 

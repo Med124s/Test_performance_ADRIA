@@ -621,6 +621,7 @@ function Executions() {
                   Une <strong>nouvelle exécution</strong> démarre avec la configuration actuelle du scénario
                   {(() => {
                     const s = scenarioById.get(retryConfirm.scenarioId)
+                    if (s?.loadMode === 'STRESS') return ' (mode stress : montée automatique jusqu’au point de rupture)'
                     return s ? ` (${s.virtualUsers} utilisateur(s), ramp-up ${s.rampUpSeconds} s${s.durationSeconds != null ? `, ${s.durationSeconds} s` : ''}${s.iterations != null ? `, ${s.iterations} itération(s)` : ''})` : ''
                   })()}. L’exécution du {formatDate(retryConfirm.startedAt)} n’est pas modifiée.
                 </p>
@@ -675,6 +676,13 @@ function Executions() {
             {selectedScenarioId && (() => {
               const s = scenarioById.get(selectedScenarioId)
               if (!s) return null
+              if (s.loadMode === 'STRESS') {
+                return (
+                  <div className="d-flex flex-wrap gap-2 mt-2">
+                    <span className="pt-pill neutral" style={{ fontSize: '11px' }}><i className="bi bi-graph-up-arrow me-1"></i>Point de rupture : montée automatique, test seul sur le serveur</span>
+                  </div>
+                )
+              }
               return (
                 <div className="d-flex flex-wrap gap-2 mt-2">
                   <span className="pt-pill neutral" style={{ fontSize: '11px' }}><i className="bi bi-people me-1"></i>{s.virtualUsers} VU</span>

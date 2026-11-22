@@ -82,3 +82,13 @@
 .rp-thresholds li.ok .rp-th-mark { background: var(--pt-success-light); color: var(--pt-success); }
 .rp-thresholds li.ko .rp-th-mark { background: var(--pt-warning-light); color: var(--pt-warning); }
 .rp-th-limit { color: var(--pt-text-muted); font-size: 12px; }
+
+/* Résultat d'un test de stress (rapport, détail, fin du suivi en direct). */
+.rp-stress { border-left: 4px solid var(--rp-stress-tone, var(--pt-border)); }
+.rp-stress-warning { --rp-stress-tone: var(--pt-warning); }
+.rp-stress-success { --rp-stress-tone: var(--pt-success); }
+.rp-stress-danger { --rp-stress-tone: var(--pt-danger); }
+.rp-stress-neutral { --rp-stress-tone: var(--pt-text-muted); }
+.rp-stress-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem 1rem; font-size: 13px; }
+.rp-stress-facts dt { font-weight: 500; color: var(--pt-text-muted); font-size: 12px; }
+.rp-stress-facts dd { margin: 0; }

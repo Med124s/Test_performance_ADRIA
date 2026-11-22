@@ -20,7 +20,10 @@ type Row = { label: string; hint?: string; direction: Direction; value: (c: Back
 const duration = (ms: number | null) => (ms == null ? '—' : ms >= 60_000 ? `${Math.floor(ms / 60_000)} min ${String(Math.round((ms % 60_000) / 1000)).padStart(2, '0')} s` : `${formatNumber(ms / 1000, 1)} s`)
 
 const ROWS: Row[] = [
-  { label: 'Utilisateurs virtuels', direction: 'neutral', value: (c) => c.virtualUsers, format: (c) => formatNumber(c.virtualUsers, 0) },
+  { label: 'Mode de charge', direction: 'neutral', value: () => null, format: (c) => (c.loadMode === 'STRESS' ? 'Point de rupture' : 'Charge configurée') },
+  { label: 'Point de rupture', hint: 'Test de stress : débit offert au début de la rupture', direction: 'higher', value: (c) => c.breakpointOfferedRps ?? null,
+    format: (c) => (c.loadMode !== 'STRESS' ? '—' : c.breakpointOfferedRps == null ? 'Aucune rupture' : formatRps(c.breakpointOfferedRps)) },
+  { label: 'Utilisateurs virtuels', hint: 'Test de stress : pic de la montée automatique', direction: 'neutral', value: (c) => c.virtualUsers, format: (c) => formatNumber(c.virtualUsers, 0) },
   { label: 'Ramp-up', direction: 'neutral', value: (c) => c.rampUpSeconds, format: (c) => (c.rampUpSeconds == null ? '—' : `${c.rampUpSeconds} s`) },
   { label: 'Durée', hint: 'Durée de travail réelle, pauses exclues', direction: 'neutral', value: (c) => c.activeDurationMs, format: (c) => duration(c.activeDurationMs) },
   { label: 'Requêtes', direction: 'neutral', value: (c) => c.requests, format: (c) => formatNumber(c.requests, 0) },

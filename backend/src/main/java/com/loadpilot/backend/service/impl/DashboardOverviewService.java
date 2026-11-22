@@ -292,9 +292,12 @@ public class DashboardOverviewService {
 
     /** Execution precedente comparable (reussie ou echouee) du meme scenario, toutes periodes confondues. */
     private Execution previousComparable(Execution e) {
+        // Test de stress : P95 global de toute la montee, sans equivalent a comparer ; mode manuel : seulement un test manuel.
+        if (e.getLoadMode() == com.loadpilot.backend.enums.LoadMode.STRESS) return null;
         List<Execution> list = entityManager.createQuery("select e from Execution e where e.scenario.id = :sid and e.startedAt < :t "
-                        + "and e.status in :st order by e.startedAt desc", Execution.class)
+                        + "and e.status in :st and e.loadMode = :mode order by e.startedAt desc", Execution.class)
                 .setParameter("sid", e.getScenario().getId()).setParameter("t", e.getStartedAt()).setParameter("st", COMPARABLE)
+                .setParameter("mode", com.loadpilot.backend.enums.LoadMode.MANUAL)
                 .setMaxResults(1).getResultList();
         if (list.isEmpty()) return null;
         ensureStats(list.get(0));

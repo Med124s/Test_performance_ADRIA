@@ -62,6 +62,21 @@ final class ReportPdfSamples {
                 20, 30, 300, null, "m.benyghil", 12_000L, stats, steps, errors, thresholds, retention);
     }
 
+    /** Test de stress : rupture detectee vers 182 req/s (P95), sans seuils de scenario. */
+    static ReportPdfWriter.Data stressData() {
+        ExecutionReportResponse base = report(ExecutionStatus.THRESHOLDS_EXCEEDED);
+        com.loadpilot.backend.dto.response.StressResultResponse stress = new com.loadpilot.backend.dto.response.StressResultResponse(
+                com.loadpilot.backend.enums.StressOutcome.BREAKPOINT, null,
+                "Point de rupture vers 182 req/s offertes et 57 utilisateur(s) virtuel(s), à 3 min 42 s du début : P95 de 1 240 ms, "
+                        + "4,1 × la baseline (300 ms) (confirmé sur 3 fenêtres de 5 s consécutives).",
+                64, 197.0, List.of("RESPONSE_TIME"), 222, 237, 57, 182.0, 171.5, 1240L, 300L, 1.2);
+        ExecutionReportResponse r = new ExecutionReportResponse(base.id(), base.scenarioId(), base.scenarioName(), base.applicationId(),
+                base.applicationName(), base.status(), base.startedAt(), base.finishedAt(), base.duration(), stress.message(), 64, 0, null, null,
+                base.triggeredByUsername(), 0, base.statistics(), base.steps(), base.errors(), null, base.retention(),
+                com.loadpilot.backend.enums.LoadMode.STRESS, stress);
+        return new ReportPdfWriter.Data(r, timeline(), "Point de rupture : 182 req/s", ZONE, Instant.parse("2026-10-21T10:15:00Z"));
+    }
+
     static ExecutionTimelineResponse timeline() {
         int buckets = 60;
         List<Integer> t = new ArrayList<>();

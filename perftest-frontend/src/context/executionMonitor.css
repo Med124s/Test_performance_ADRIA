@@ -89,3 +89,9 @@
 @media (prefers-reduced-motion: reduce) {
   .em-progress-bar, .em-progress-bar.indeterminate { animation: none; transition: none; }
 }
+
+/* Phases de la montée d'un test de stress (suivi en direct). */
+.em-stress-phases { display: flex; flex-wrap: wrap; gap: 0.35rem; list-style: none; margin: 0; padding: 0; }
+.em-stress-phases li { font-size: 12px; padding: 0.1rem 0.55rem; border-radius: 999px; border: 1px solid var(--pt-border); color: var(--pt-text-muted); }
+.em-stress-phases li.done { color: var(--pt-success); border-color: color-mix(in srgb, var(--pt-success) 40%, var(--pt-border)); }
+.em-stress-phases li.current { color: var(--pt-primary); border-color: var(--pt-primary); font-weight: 600; }

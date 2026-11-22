@@ -109,6 +109,14 @@ class StressExecutionResultTest {
 
         String executionId = objectMapper.readTree(postJson("/api/executions", new ExecutionRequest(UUID.fromString(scenarioId))))
                 .get("id").asText();
+        // Suivi en direct pendant l'echauffement : montee, sans pourcentage de progression.
+        Thread.sleep(3000);
+        JsonNode running = json("/api/executions/" + executionId + "/status");
+        assertThat(running.get("loadMode").asText()).isEqualTo("STRESS");
+        assertThat(running.get("progressPercent").isNull()).isTrue();
+        assertThat(running.get("stressLive").get("phase").asText()).isEqualTo("WARMUP");
+        assertThat(running.get("stressLive").get("offeredRps").asDouble()).isEqualTo(2.0);
+        assertThat(running.get("stressLive").get("baselineP95Ms").isNull()).isTrue();
         JsonNode e = execution(executionId);
         long deadline = System.currentTimeMillis() + 150_000;
         while (System.currentTimeMillis() < deadline && !e.get("status").asText().matches("SUCCESS|THRESHOLDS_EXCEEDED|FAILED|CANCELLED")) {
@@ -141,5 +149,22 @@ class StressExecutionResultTest {
         JsonNode history = objectMapper.readTree(mockMvc.perform(get("/api/executions/history").param("scenarioId", scenarioId)
                 .with(AS_SUPER_ADMIN)).andReturn().getResponse().getContentAsString());
         assertThat(history.toString()).contains("Point de rupture : ");
+
+        // Termine : plus de montee en direct, resultat dans le statut et dans le rapport.
+        JsonNode finished = json("/api/executions/" + executionId + "/status");
+        assertThat(finished.get("stressLive").isNull()).isTrue();
+        assertThat(finished.get("stress").get("outcome").asText()).isEqualTo("BREAKPOINT");
+        JsonNode report = json("/api/executions/" + executionId + "/report");
+        assertThat(report.get("loadMode").asText()).isEqualTo("STRESS");
+        assertThat(report.get("stress").get("onsetSeconds").asInt()).isEqualTo(stress.get("onsetSeconds").asInt());
+        assertThat(report.get("thresholds").isNull()).as("seuils sans objet en mode stress").isTrue();
+        byte[] pdf = mockMvc.perform(get("/api/executions/" + executionId + "/report/pdf").with(AS_SUPER_ADMIN))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        assertThat(new String(pdf, 0, 5, java.nio.charset.StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
+    }
+
+    private JsonNode json(String url) throws Exception {
+        return objectMapper.readTree(mockMvc.perform(get(url).with(AS_SUPER_ADMIN)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
     }
 }

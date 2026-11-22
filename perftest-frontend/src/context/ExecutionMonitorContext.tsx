@@ -5,6 +5,7 @@ import { refreshUnreadSoon } from '../services/notifications/unreadNotifications
 import { BackendExecutionReportResponse, BackendExecutionStatus, BackendExecutionStatusResponse } from '../types/backendContracts'
 import { TERMINAL_EXECUTION_STATUSES, executionStatusMeta } from '../utils/executionStatus'
 import './executionMonitor.css'
+import { stressProgressLabel } from '../utils/stressResult'
 
 // Suivi en direct des exécutions lancées depuis l'interface, conservé d'une page à l'autre.
 
@@ -49,6 +50,8 @@ export function progressOf(s: BackendExecutionStatusResponse | null): { percent:
   if (live && live.startedVirtualUsers > 0 && live.activeVirtualUsers === 0) {
     return { percent: 99, label: 'Finalisation des résultats…' }
   }
+  // Test de stress : fin inconnue à l'avance, phase de la montée.
+  if (s.stressLive) return { percent: null, label: stressProgressLabel(s.stressLive) }
   // Temps de travail (pauses exclues).
   const workedMs = s.activeElapsedMs ?? live?.elapsedMs ?? 0
   const prefix = s.status === 'PAUSED' ? 'En pause · ' : ''

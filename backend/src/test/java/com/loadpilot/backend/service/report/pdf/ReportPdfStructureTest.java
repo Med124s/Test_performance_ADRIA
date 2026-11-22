@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** Exemple de rapport PDF ecrit si -Dpdf.sample=chemin est donne (aucun effet sinon). */
+/** Exemples de rapport PDF ecrits si -Dpdf.sample=chemin ou -Dpdf.stressSample=chemin est donne (aucun effet sinon). */
 class ReportPdfStructureTest {
 
     @Test
@@ -13,5 +13,12 @@ class ReportPdfStructureTest {
         String target = System.getProperty("pdf.sample");
         if (target == null || target.isBlank()) return;
         assertThat(ReportPdfSampleExport.write(Path.of(target))).exists();
+    }
+
+    @Test
+    void writesAStressSampleWhenAsked() throws Exception {
+        String target = System.getProperty("pdf.stressSample");
+        if (target == null || target.isBlank()) return;
+        assertThat(ReportPdfSampleExport.writeStress(Path.of(target))).exists();
     }
 }

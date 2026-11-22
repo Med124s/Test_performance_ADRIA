@@ -21,8 +21,13 @@ public final class ReportConclusion {
         ExecutionStatistics s = r.statistics();
         ExecutionReportResponse.Thresholds th = r.thresholds();
 
-        out.add(resultLine(r, th));
-        if (s != null && s.totalRequests() > 0) {
+        out.add(r.stress() != null ? stressLine(r) : resultLine(r, th));
+        if (s != null && s.totalRequests() > 0 && r.stress() != null) {
+            out.add(PdfText.integer(s.totalRequests()) + " requêtes en " + PdfText.duration(r.duration()) + ", montée jusqu’à "
+                    + (r.stress().peakVirtualUsers() == null ? "?" : PdfText.integer(r.stress().peakVirtualUsers()))
+                    + " utilisateur(s) virtuel(s) et " + PdfText.rps(r.stress().peakOfferedRps()) + " offertes : P95 global " + PdfText.ms(s.p95())
+                    + " (sur toute la montée, à lire avec le graphique).");
+        } else if (s != null && s.totalRequests() > 0) {
             out.add(PdfText.integer(s.totalRequests()) + " requêtes en " + PdfText.duration(r.duration()) + " avec "
                     + (r.virtualUsers() == null ? "?" : PdfText.integer(r.virtualUsers())) + " utilisateur(s) virtuel(s) : débit moyen "
                     + PdfText.rps(s.throughput() == null ? null : s.throughput().doubleValue()) + ", P95 " + PdfText.ms(s.p95())
@@ -55,6 +60,19 @@ public final class ReportConclusion {
             out.add("Application testée : CPU maximal " + PdfText.decimal(cpu, 1) + " % d’un cœur, mémoire maximale " + PdfText.decimal(mem, 1) + " Mo.");
         }
         return out;
+    }
+
+    /** Test de stress : point de rupture, aucune rupture jusqu'aux limites, ou raison de l'absence de resultat. */
+    private static String stressLine(ExecutionReportResponse r) {
+        var stress = r.stress();
+        if (stress.outcome() == null) return "Test de stress interrompu avant une conclusion : les résultats sont partiels.";
+        return switch (stress.outcome()) {
+            case BREAKPOINT -> "Point de rupture atteint vers " + PdfText.rps(stress.offeredRps()) + " offertes et "
+                    + (stress.virtualUsers() == null ? "?" : PdfText.integer(stress.virtualUsers())) + " utilisateur(s) virtuel(s) : "
+                    + String.join(", ", stress.criteria().stream().map(ReportPdfWriter::criterionLabel).toList()) + ".";
+            case NO_BREAKPOINT, BASELINE_UNUSABLE, INCONCLUSIVE -> stress.message() != null ? stress.message()
+                    : "Test de stress terminé : " + ReportPdfWriter.stressEnd(stress) + ".";
+        };
     }
 
     private static String resultLine(ExecutionReportResponse r, ExecutionReportResponse.Thresholds th) {

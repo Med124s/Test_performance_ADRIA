@@ -83,7 +83,7 @@ public class ExecutionComparisonService {
             columns.add(new Column(e.getId().toString(), e.getScenario().getId().toString(), e.getScenario().getName(),
                     e.getScenario().getApplication().getName(), e.getStartedAt(), e.getStatus(), e.getVirtualUsers(), e.getRampUpSeconds(),
                     e.getDurationSeconds(), e.getIterations(), activeMs, s.totalRequests(), s.throughput(), s.p95(), s.p99(), s.errorRate(),
-                    e.getCpuMaxPercent(), e.getMemoryMaxMb()));
+                    e.getCpuMaxPercent(), e.getMemoryMaxMb(), e.getLoadMode(), e.getBreakpointOfferedRps()));
             for (StepReportEntry step : frozen != null ? frozen.steps() : statisticsService.computeStepBreakdown(results)) {
                 String method = step.method() == null ? null : step.method().name();
                 String key = method + " " + step.stepName();
@@ -95,10 +95,17 @@ public class ExecutionComparisonService {
         stepP95.forEach((key, values) -> steps.add(new StepRow(stepInfo.get(key)[0], stepInfo.get(key)[1], java.util.Arrays.asList(values))));
 
         long scenarios = columns.stream().map(Column::scenarioId).distinct().count();
-        String warning = scenarios > 1
-                ? "Ces exécutions n'utilisent pas le même scénario (" + scenarios + " scénarios différents) : les étapes et la charge "
-                        + "ne sont pas identiques, la comparaison est à interpréter avec prudence."
-                : null;
+        boolean anyStress = columns.stream().anyMatch(c -> c.loadMode() == com.loadpilot.backend.enums.LoadMode.STRESS);
+        List<String> warnings = new ArrayList<>();
+        if (scenarios > 1) {
+            warnings.add("Ces exécutions n'utilisent pas le même scénario (" + scenarios + " scénarios différents) : les étapes et la charge "
+                    + "ne sont pas identiques, la comparaison est à interpréter avec prudence.");
+        }
+        if (anyStress) {
+            warnings.add("Comparaison avec un test de stress : son P95 et son débit couvrent toute la montée automatique, "
+                    + "comparez plutôt les points de rupture.");
+        }
+        String warning = warnings.isEmpty() ? null : String.join(" ", warnings);
         return new ExecutionComparisonResponse(scenarios == 1, warning, columns, steps);
     }
 }

@@ -564,6 +564,9 @@ export interface BackendExecutionResponse {
   failedSteps: number
   duration: number | null
   errorMessage: string | null
+  /** Mode de charge et résultat du test de stress (null en mode manuel). */
+  loadMode?: BackendLoadMode
+  stress?: BackendStressResult | null
 }
 
 /** LoadPilot lui-même (l'injecteur) : CPU en % de la machine (null si indisponible), mémoire en Mo. */
@@ -611,6 +614,50 @@ export interface BackendExecutionStatusResponse {
   resources?: BackendExecutionResources | null
   /** LoadPilot lui-même pendant le test (CPU, mémoire, threads, saturation) ; null hors exécution en cours. */
   injector?: BackendInjectorStatus | null
+  /** Mode de charge ; montée du test de stress en cours (null sinon) ; résultat du stress une fois terminé. */
+  loadMode?: BackendLoadMode
+  stressLive?: BackendStressLive | null
+  stress?: BackendStressResult | null
+}
+
+/** Résultat d'un test de stress (outcome null : test arrêté autrement). Champs du point de rupture : début de l'anomalie. */
+export type BackendStressOutcome = 'BREAKPOINT' | 'NO_BREAKPOINT' | 'INCONCLUSIVE' | 'BASELINE_UNUSABLE'
+export type BackendBreakpointCriterion = 'RESPONSE_TIME' | 'REFUSALS' | 'THROUGHPUT'
+
+export interface BackendStressResult {
+  outcome: BackendStressOutcome | null
+  /** NO_BREAKPOINT : limite de LoadPilot atteinte. */
+  limit: 'TARGET_RPS' | 'VIRTUAL_USERS' | 'DURATION' | null
+  message: string | null
+  peakVirtualUsers: number | null
+  peakOfferedRps: number | null
+  criteria: BackendBreakpointCriterion[]
+  /** Début de l'anomalie et confirmation, en secondes depuis le début du test. */
+  onsetSeconds: number | null
+  detectedSeconds: number | null
+  virtualUsers: number | null
+  offeredRps: number | null
+  throughputRps: number | null
+  p95Ms: number | null
+  baselineP95Ms: number | null
+  refusalPercent: number | null
+}
+
+/** Montée d'un test de stress en cours. */
+export interface BackendStressLive {
+  phase: 'WARMUP' | 'BASELINE' | 'RAMP' | 'HOLD'
+  elapsedSeconds: number
+  warmupEndSeconds: number
+  baselineEndSeconds: number
+  offeredRps: number
+  peakOfferedRps: number
+  virtualUsers: number
+  /** P95 de la mesure de référence, null tant qu'elle n'est pas faite. */
+  baselineP95Ms: number | null
+  holdingLimit: 'TARGET_RPS' | 'VIRTUAL_USERS' | null
+  maxVirtualUsers: number
+  maxRps: number
+  maxDurationSeconds: number
 }
 
 /** CPU (% d'un cœur) et RAM (Mo) du processus de l'application testée. */
@@ -804,6 +851,9 @@ export interface BackendExecutionReportResponse {
   /** Seuils de réussite et leur résultat ; null = exécution antérieure aux seuils. */
   thresholds?: BackendReportThresholds | null
   retention?: BackendResultsRetention | null
+  /** Mode de charge et résultat du test de stress (point de rupture), gardé après la purge ; null en mode manuel. */
+  loadMode?: BackendLoadMode
+  stress?: BackendStressResult | null
 }
 
 export interface BackendExecutionStepResultResponse {
@@ -1150,6 +1200,9 @@ export interface BackendComparisonColumn {
   errorRate: number | null
   cpuMaxPercent: number | null
   memoryMaxMb: number | null
+  /** Mode de charge ; test de stress : débit offert au point de rupture (null sans rupture). */
+  loadMode?: BackendLoadMode
+  breakpointOfferedRps?: number | null
 }
 
 export interface BackendDashboardResponse {

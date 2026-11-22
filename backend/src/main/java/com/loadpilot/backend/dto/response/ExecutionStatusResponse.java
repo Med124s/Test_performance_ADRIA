@@ -34,6 +34,10 @@ public record ExecutionStatusResponse(
         /** CPU / RAM de l'application testee ; null si aucun monitoring n'est configure. */
         ExecutionResourcesResponse resources,
         /** LoadPilot lui-meme pendant le test (CPU, memoire, threads, saturation) ; null hors execution en cours. */
-        InjectorStatusResponse injector
+        InjectorStatusResponse injector,
+        /** Mode de charge ; montee du test de stress en cours (null sinon) ; resultat du stress une fois termine. */
+        com.loadpilot.backend.enums.LoadMode loadMode,
+        StressLiveResponse stressLive,
+        StressResultResponse stress
 ) {
 }

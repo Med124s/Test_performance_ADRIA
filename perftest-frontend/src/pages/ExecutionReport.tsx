@@ -10,6 +10,7 @@ import { formatPause } from './ExecutionLive'
 import { executionStatusMeta } from '../utils/executionStatus'
 import { formatNumber, formatPercent } from '../utils/numberFormat'
 import TimelineAnalysis from './execution-report/TimelineAnalysis'
+import StressResultCard from '../components/StressResultCard'
 import ExtremesPanel from './execution-report/ExtremesPanel'
 import { KeepToggle, RetentionNotice } from './execution-report/Retention'
 import { saveBlob } from '../utils/download'
@@ -167,11 +168,13 @@ function SpringExecutionReport({ id }: { id: string }) {
         </div>
       </div>
 
-      {/* Configuration de charge copiée au lancement. */}
+      {/* Configuration de charge copiée au lancement ; test de stress : montée automatique et son résultat. */}
       <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)' }}>
-        <i className="bi bi-sliders" style={{ color: 'var(--pt-primary)' }}></i> CONFIGURATION DE CHARGE (figée au lancement)
+        <i className="bi bi-sliders" style={{ color: 'var(--pt-primary)' }}></i> {report.stress ? 'POINT DE RUPTURE (montée automatique)' : 'CONFIGURATION DE CHARGE (figée au lancement)'}
       </div>
+      <StressResultCard stress={report.stress} />
       <div className="d-flex flex-wrap gap-2 mb-4">
+        {!report.stress && <>
         <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-people me-1"></i>{report.virtualUsers} utilisateur(s) virtuel(s)</span>
         <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-graph-up-arrow me-1"></i>Ramp-up {report.rampUpSeconds}s</span>
         {report.durationSeconds != null && (
@@ -180,6 +183,7 @@ function SpringExecutionReport({ id }: { id: string }) {
         {report.iterations != null && (
           <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-arrow-repeat me-1"></i>{report.iterations} itération(s)</span>
         )}
+        </>}
         {/* Utilisateur qui a lancé l'exécution. */}
         {report.triggeredByUsername && (
           <span className="pt-pill info" style={{ fontSize: '11.5px' }}><i className="bi bi-person-fill me-1"></i>Lancée par {report.triggeredByUsername}</span>
@@ -302,7 +306,7 @@ function SpringExecutionReport({ id }: { id: string }) {
       </div>
 
       {/* Analyse dans le temps : points clés, utilisateurs / débit / P95, par étape, erreurs. */}
-      <TimelineAnalysis executionId={id} />
+      <TimelineAnalysis executionId={id} stress={report.stress} />
 
       {extreme && <ExtremesPanel executionId={id} kind={extreme} onClose={() => setExtreme(null)} />}
     </div>

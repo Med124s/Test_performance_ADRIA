@@ -2,8 +2,11 @@ package com.loadpilot.backend.service.report.pdf;
 
 import com.loadpilot.backend.dto.response.ExecutionReportResponse;
 import com.loadpilot.backend.dto.response.ExecutionTimelineResponse;
+import com.loadpilot.backend.dto.response.StressResultResponse;
 import com.loadpilot.backend.enums.ExecutionStatus;
+import com.loadpilot.backend.enums.StressOutcome;
 import com.loadpilot.backend.service.audit.AuditSanitizer;
+import com.loadpilot.backend.service.execution.StressSettings;
 import com.loadpilot.backend.service.execution.TestRunMasking;
 import com.loadpilot.backend.service.report.ExecutionStatistics;
 import com.loadpilot.backend.service.report.ReportErrorEntry;
@@ -55,6 +58,8 @@ public final class ReportPdfWriter {
     static final Color DANGER = new Color(0xDC, 0x26, 0x26);
     static final Color NEUTRAL = new Color(0x6B, 0x72, 0x80);
     static final Color CYAN = new Color(0x08, 0x91, 0xB2);
+    /** Zone de la baseline d'un test de stress (vert tres clair, sous les courbes). */
+    static final Color BASELINE_BAND = new Color(0xDC, 0xFC, 0xE7);
 
     /** Document et redacteur de l'export en cours. */
     private Document doc;
@@ -106,7 +111,7 @@ public final class ReportPdfWriter {
                         + PdfText.dateTime(r.retention().requestDetailsPurgedAt() != null ? r.retention().requestDetailsPurgedAt()
                         : r.retention().resultsPurgedAt(), data.zone()) + ". Le résumé enregistré à la fin du test est conservé."));
             }
-            timeline(doc, writer, data.timeline());
+            timeline(doc, writer, data.timeline(), stressMarkers(r.stress()));
             stepEvolution(doc, data.timeline());
             steps(doc, r.steps());
             errors(doc, r.errors(), r.statistics());
@@ -136,11 +141,46 @@ public final class ReportPdfWriter {
                 + (r.pausedDurationMs() > 0 ? " (dont pause " + PdfText.duration(r.pausedDurationMs()) + ")" : "")));
         info.addCell(fact("Lancé par", r.triggeredByUsername() != null ? r.triggeredByUsername() : "Planification"));
         info.addCell(fact("Fuseau horaire", data.zone().getId()));
-        info.addCell(fact("Utilisateurs virtuels", r.virtualUsers() == null ? "—" : PdfText.integer(r.virtualUsers())));
-        info.addCell(fact("Ramp-up", r.rampUpSeconds() == null ? "—" : PdfText.integer(r.rampUpSeconds()) + " s"));
-        info.addCell(fact("Durée prévue", r.durationSeconds() == null ? "Sans limite de temps" : PdfText.integer(r.durationSeconds()) + " s"));
-        info.addCell(fact("Itérations", r.iterations() == null ? "Sans limite" : PdfText.integer(r.iterations()) + " par utilisateur"));
+        StressResultResponse stress = r.stress();
+        if (stress != null) {
+            // Mode stress : pas de charge saisie, mais le plus haut niveau atteint par la montee automatique.
+            info.addCell(fact("Mode de charge", "Point de rupture (montée automatique)"));
+            info.addCell(fact("Utilisateurs virtuels (pic)", stress.peakVirtualUsers() == null ? "—" : PdfText.integer(stress.peakVirtualUsers())));
+            info.addCell(fact("Débit offert (pic)", PdfText.rps(stress.peakOfferedRps())));
+            info.addCell(fact("Fin de la montée", stressEnd(stress)));
+        } else {
+            info.addCell(fact("Utilisateurs virtuels", r.virtualUsers() == null ? "—" : PdfText.integer(r.virtualUsers())));
+            info.addCell(fact("Ramp-up", r.rampUpSeconds() == null ? "—" : PdfText.integer(r.rampUpSeconds()) + " s"));
+            info.addCell(fact("Durée prévue", r.durationSeconds() == null ? "Sans limite de temps" : PdfText.integer(r.durationSeconds()) + " s"));
+            info.addCell(fact("Itérations", r.iterations() == null ? "Sans limite" : PdfText.integer(r.iterations()) + " par utilisateur"));
+        }
         doc.add(info);
+    }
+
+    /** Ce qui a mis fin a un test de stress. */
+    static String stressEnd(StressResultResponse stress) {
+        if (stress.outcome() == null) return "Interrompue";
+        return switch (stress.outcome()) {
+            case BREAKPOINT -> "Point de rupture";
+            case NO_BREAKPOINT -> stress.limit() == null ? "Limite de LoadPilot" : switch (stress.limit()) {
+                case "TARGET_RPS" -> "Débit cible maximal";
+                case "VIRTUAL_USERS" -> "Utilisateurs virtuels maximum";
+                case "DURATION" -> "Durée maximale";
+                default -> "Limite de LoadPilot";
+            };
+            case BASELINE_UNUSABLE -> "Mesure de référence impossible";
+            case INCONCLUSIVE -> "LoadPilot saturé";
+        };
+    }
+
+    /** Libelles des criteres de rupture. */
+    static String criterionLabel(String criterion) {
+        return switch (criterion) {
+            case "RESPONSE_TIME" -> "temps de réponse (P95)";
+            case "REFUSALS" -> "refus (délais, connexions refusées, 429, 502/503/504)";
+            case "THROUGHPUT" -> "débit obtenu sous le débit offert";
+            default -> criterion;
+        };
     }
 
     private void result(Document doc, Data data) throws Exception {
@@ -168,6 +208,24 @@ public final class ReportPdfWriter {
         text.setVerticalAlignment(Element.ALIGN_MIDDLE);
         box.addCell(text);
         doc.add(box);
+
+        StressResultResponse stress = r.stress();
+        if (stress != null && stress.message() != null) {
+            doc.add(note(AuditSanitizer.clean(stress.message())));
+        }
+        if (stress != null && stress.outcome() == StressOutcome.BREAKPOINT) {
+            PdfPTable t = table(new float[] {2.2f, 3});
+            header(t, "Point de rupture", "Mesure au début de l’anomalie");
+            row(t, "Critère(s) confirmé(s)", String.join(" ; ", stress.criteria().stream().map(ReportPdfWriter::criterionLabel).toList()));
+            row(t, "Début de l’anomalie", stress.onsetSeconds() == null ? "—" : "à " + PdfText.axisSeconds(stress.onsetSeconds())
+                    + (stress.detectedSeconds() == null ? "" : " (confirmée à " + PdfText.axisSeconds(stress.detectedSeconds()) + ")"));
+            row(t, "Charge", (stress.virtualUsers() == null ? "—" : PdfText.integer(stress.virtualUsers())) + " utilisateur(s) virtuel(s), "
+                    + PdfText.rps(stress.offeredRps()) + " offertes");
+            row(t, "Débit obtenu", PdfText.rps(stress.throughputRps()));
+            row(t, "P95", PdfText.ms(stress.p95Ms()) + " (référence " + PdfText.ms(stress.baselineP95Ms()) + ")");
+            row(t, "Refus", PdfText.percent(stress.refusalPercent()));
+            doc.add(t);
+        }
 
         ExecutionReportResponse.Thresholds th = r.thresholds();
         if (th != null) {
@@ -200,11 +258,31 @@ public final class ReportPdfWriter {
         doc.add(cards);
     }
 
-    private void timeline(Document doc, PdfWriter writer, ExecutionTimelineResponse tl) throws Exception {
+    /** Test de stress : zone de la baseline, debut de l'anomalie et confirmation de la rupture ; vide sinon. */
+    static List<PdfCharts.Marker> stressMarkers(StressResultResponse stress) {
+        if (stress == null) return List.of();
+        List<PdfCharts.Marker> markers = new ArrayList<>();
+        markers.add(new PdfCharts.Marker(StressSettings.WARMUP_SECONDS, StressSettings.WARMUP_SECONDS + StressSettings.BASELINE_SECONDS,
+                "Mesure de référence", BASELINE_BAND));
+        if (stress.outcome() == StressOutcome.BREAKPOINT && stress.onsetSeconds() != null) {
+            markers.add(new PdfCharts.Marker(stress.onsetSeconds(), stress.onsetSeconds(),
+                    "Début de la rupture (" + PdfText.rps(stress.offeredRps()) + ")", WARNING));
+            if (stress.detectedSeconds() != null) {
+                markers.add(new PdfCharts.Marker(stress.detectedSeconds(), stress.detectedSeconds(), "Rupture confirmée", DANGER));
+            }
+        }
+        return markers;
+    }
+
+    private void timeline(Document doc, PdfWriter writer, ExecutionTimelineResponse tl, List<PdfCharts.Marker> markers) throws Exception {
         section(doc, "Analyse dans le temps");
         if (tl == null || tl.t() == null || tl.t().isEmpty()) {
             doc.add(note("Analyse dans le temps indisponible pour cette exécution."));
             return;
+        }
+        if (!markers.isEmpty()) {
+            doc.add(note("Zone verte : mesure de référence (" + StressSettings.BASELINE_SECONDS + " s à " + StressSettings.BASELINE_RPS
+                    + " req/s). Lignes pointillées : début de l’anomalie et confirmation de la rupture."));
         }
         List<Double> x = tl.t().stream().map(Integer::doubleValue).toList();
         float w = PageSize.A4.getWidth() - 80;
@@ -214,11 +292,11 @@ public final class ReportPdfWriter {
             load.add(new PdfCharts.Series("Utilisateurs actifs (axe de droite)", CYAN, tl.activeVirtualUsers(), PdfCharts.Axis.RIGHT));
         }
         doc.add(chart("Charge : débit et utilisateurs actifs",
-                PdfCharts.lines(writer, regular, w, 130, x, load, v -> PdfText.decimal(v, 1), v -> PdfText.integer(Math.round(v))), w));
+                PdfCharts.lines(writer, regular, w, 130, x, load, v -> PdfText.decimal(v, 1), v -> PdfText.integer(Math.round(v)), markers), w));
         doc.add(chart("Temps de réponse", PdfCharts.lines(writer, regular, w, 130, x, List.of(
                 new PdfCharts.Series("Temps moyen", CYAN, tl.avgMs(), PdfCharts.Axis.LEFT),
                 new PdfCharts.Series("P95", WARNING, tl.p95Ms(), PdfCharts.Axis.LEFT)),
-                v -> PdfText.integer(Math.round(v)) + " ms", null), w));
+                v -> PdfText.integer(Math.round(v)) + " ms", null, markers), w));
 
         long totalErrors = tl.errors() == null ? 0 : tl.errors().stream().filter(Objects::nonNull).mapToLong(Integer::longValue).sum();
         if (totalErrors > 0) {

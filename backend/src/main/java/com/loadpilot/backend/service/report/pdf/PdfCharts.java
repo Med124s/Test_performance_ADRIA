@@ -24,6 +24,16 @@ final class PdfCharts {
         }
     }
 
+    /**
+     * Repere sur l'axe du temps : zone [fromSeconds, toSeconds] coloree en clair, ou ligne verticale pointillee si
+     * toSeconds <= fromSeconds ; libelle en haut du graphique.
+     */
+    record Marker(double fromSeconds, double toSeconds, String label, Color color) {
+        boolean band() {
+            return toSeconds > fromSeconds;
+        }
+    }
+
     private static final Color GRID = new Color(0xE5, 0xE7, 0xEB);
     private static final Color AXIS_TEXT = new Color(0x6B, 0x72, 0x80);
     private static final float LEFT = 42;
@@ -34,6 +44,12 @@ final class PdfCharts {
     /** Courbes sur un axe du temps ; xSeconds[i] = seconde du point i ; les series RIGHT ont leur propre echelle. */
     static Image lines(PdfWriter writer, BaseFont font, float width, float height, List<Double> xSeconds, List<Series> series,
                        DoubleFunction<String> leftLabel, DoubleFunction<String> rightLabel) throws Exception {
+        return lines(writer, font, width, height, xSeconds, series, leftLabel, rightLabel, List.of());
+    }
+
+    /** "markers" : zones et lignes verticales (ex. baseline et point de rupture d'un test de stress). */
+    static Image lines(PdfWriter writer, BaseFont font, float width, float height, List<Double> xSeconds, List<Series> series,
+                       DoubleFunction<String> leftLabel, DoubleFunction<String> rightLabel, List<Marker> markers) throws Exception {
         PdfTemplate t = writer.getDirectContent().createTemplate(width, height);
         boolean hasRight = series.stream().anyMatch(s -> s.axis() == Axis.RIGHT);
         float right = hasRight ? 40 : RIGHT_PAD;
@@ -43,6 +59,15 @@ final class PdfCharts {
         double rightMax = niceMax(series.stream().filter(s -> s.axis() == Axis.RIGHT).flatMap(s -> s.values().stream()));
         double xMax = xSeconds.isEmpty() ? 1 : Math.max(1, xSeconds.get(xSeconds.size() - 1));
 
+        // Zones sous la grille et les courbes.
+        for (Marker m : markers) {
+            if (!m.band() || m.fromSeconds() > xMax) continue;
+            float x0 = LEFT + (float) (m.fromSeconds() / xMax * plotW);
+            float x1 = LEFT + (float) (Math.min(m.toSeconds(), xMax) / xMax * plotW);
+            t.setColorFill(m.color());
+            t.rectangle(x0, BOTTOM, Math.max(0.5f, x1 - x0), plotH);
+            t.fill();
+        }
         grid(t, font, plotW, plotH, right, leftMax, hasRight ? rightMax : -1, leftLabel, rightLabel);
         xAxis(t, font, plotW, xMax);
 
@@ -70,6 +95,30 @@ final class PdfCharts {
                 for (float[] p : points) t.circle(p[0], p[1], 1.6f);
                 t.fill();
             }
+        }
+        // Lignes verticales pointillees par-dessus les courbes, libelle en haut de la zone de trace.
+        int line = 0;
+        for (Marker m : markers) {
+            if (m.band() || m.fromSeconds() > xMax) continue;
+            float x = LEFT + (float) (m.fromSeconds() / xMax * plotW);
+            t.setColorStroke(m.color());
+            t.setLineWidth(1.1f);
+            t.setLineDash(3, 2, 0);
+            t.moveTo(x, BOTTOM);
+            t.lineTo(x, BOTTOM + plotH);
+            t.stroke();
+            t.setLineDash(0);
+            String label = PdfText.safe(m.label());
+            float labelW = font.getWidthPoint(label, 7.5f);
+            // Premiere ligne : libelle a sa gauche, les suivantes a leur droite (lignes proches : pas de chevauchement) ;
+            // a l'oppose si le libelle sortait du graphique.
+            boolean leftSide = line == 0 ? x - 3 - labelW >= LEFT : x + 4 + labelW > LEFT + plotW;
+            t.beginText();
+            t.setFontAndSize(font, 7.5f);
+            t.setColorFill(m.color());
+            t.showTextAligned(leftSide ? PdfContentByte.ALIGN_RIGHT : PdfContentByte.ALIGN_LEFT, label, leftSide ? x - 3 : x + 3,
+                    BOTTOM + plotH - 9 - 9 * line++, 0);
+            t.endText();
         }
         legend(t, font, series.stream().map(s -> new Object[] {s.name(), s.color()}).toList());
         return Image.getInstance(t);

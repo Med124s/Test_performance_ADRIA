@@ -60,6 +60,7 @@ public final class BreakpointWatcher {
             BreakpointDetector.Baseline baseline = BreakpointDetector.baselineOf(window);
             if (baseline == null) return new BaselineUnusable(BreakpointDetector.baselineUnusableMessage(window));
             detector = new BreakpointDetector(baseline);
+            handle.stressBaselineP95Ms(baseline.p95Ms());
             log.info("Test de stress : baseline P95 {} ms sur {} réponses.", baseline.p95Ms(), baseline.responses());
         }
         while (detector != null && nextWindowStart + StressSettings.WINDOW_SECONDS <= now) {
