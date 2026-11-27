@@ -93,7 +93,7 @@ export default function LaunchTestModal({ onClose }: { onClose: () => void }) {
           )}
           {selected && selected.loadMode === 'STRESS' && (
             <div className="lt-load" aria-label="Charge du scénario">
-              <span><strong>Point de rupture</strong> : montée automatique, test seul sur le serveur</span>
+              <span><strong>Point de rupture</strong> : montée automatique (+{selected.stressRampStep ?? 1} req/s par seconde), test seul sur le serveur</span>
               <span>· {selected.applicationName}</span>
             </div>
           )}

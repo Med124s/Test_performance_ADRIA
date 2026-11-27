@@ -497,7 +497,8 @@ public class ExecutionServiceImpl implements ExecutionService {
         String phase = holding != null ? "HOLD" : elapsed < warmupEnd ? "WARMUP" : elapsed < baselineEnd ? "BASELINE" : "RAMP";
         return new com.loadpilot.backend.dto.response.StressLiveResponse(phase, elapsed, warmupEnd, baselineEnd, ramp.offeredRps(),
                 ramp.peakOfferedRps(), ramp.virtualUsers(), handle.stressBaselineP95Ms(), holding != null ? holding.name() : null,
-                ramp.limits().maxVirtualUsers(), ramp.limits().maxRps(), ramp.limits().maxDurationSeconds());
+                ramp.limits().maxVirtualUsers(), ramp.limits().maxRps(), ramp.limits().maxDurationSeconds(),
+                ramp.limits().rampRpsPerSecond());
     }
 
     /** Mesures de LoadPilot pendant le test ; null hors execution en cours. */

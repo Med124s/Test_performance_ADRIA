@@ -144,7 +144,8 @@ public final class ReportPdfWriter {
         StressResultResponse stress = r.stress();
         if (stress != null) {
             // Mode stress : pas de charge saisie, mais le plus haut niveau atteint par la montee automatique.
-            info.addCell(fact("Mode de charge", "Point de rupture (montée automatique)"));
+            info.addCell(fact("Mode de charge", "Point de rupture (montée automatique"
+                    + (stress.rampRpsPerSecond() == null ? ")" : ", +" + PdfText.integer(stress.rampRpsPerSecond()) + " req/s par seconde)")));
             info.addCell(fact("Utilisateurs virtuels (pic)", stress.peakVirtualUsers() == null ? "—" : PdfText.integer(stress.peakVirtualUsers())));
             info.addCell(fact("Débit offert (pic)", PdfText.rps(stress.peakOfferedRps())));
             info.addCell(fact("Fin de la montée", stressEnd(stress)));
@@ -171,6 +172,12 @@ public final class ReportPdfWriter {
             case BASELINE_UNUSABLE -> "Mesure de référence impossible";
             case INCONCLUSIVE -> "LoadPilot saturé";
         };
+    }
+
+    /** Precision du debut de la rupture : la montee pendant une fenetre. */
+    static String precision(int rampRpsPerSecond) {
+        return "± " + PdfText.rps((double) StressSettings.precisionRps(rampRpsPerSecond)) + " (montée de +" + PdfText.integer(rampRpsPerSecond)
+                + " req/s par seconde, fenêtres de " + StressSettings.WINDOW_SECONDS + " s)";
     }
 
     /** Libelles des criteres de rupture. */
@@ -221,6 +228,7 @@ public final class ReportPdfWriter {
                     + (stress.detectedSeconds() == null ? "" : " (confirmée à " + PdfText.axisSeconds(stress.detectedSeconds()) + ")"));
             row(t, "Charge", (stress.virtualUsers() == null ? "—" : PdfText.integer(stress.virtualUsers())) + " utilisateur(s) virtuel(s), "
                     + PdfText.rps(stress.offeredRps()) + " offertes");
+            if (stress.rampRpsPerSecond() != null) row(t, "Précision", precision(stress.rampRpsPerSecond()));
             row(t, "Débit obtenu", PdfText.rps(stress.throughputRps()));
             row(t, "P95", PdfText.ms(stress.p95Ms()) + " (référence " + PdfText.ms(stress.baselineP95Ms()) + ")");
             row(t, "Refus", PdfText.percent(stress.refusalPercent()));

@@ -43,7 +43,7 @@ public final class MapperSupport {
                 e.getStressMessage(), e.getStressPeakVirtualUsers(), e.getStressPeakOfferedRps(), criteria,
                 e.getBreakpointOnsetSeconds(), e.getBreakpointDetectedSeconds(), e.getBreakpointVirtualUsers(),
                 e.getBreakpointOfferedRps(), e.getBreakpointThroughputRps(), e.getBreakpointP95Ms(), e.getBaselineP95Ms(),
-                e.getBreakpointRefusalPercent());
+                e.getBreakpointRefusalPercent(), e.getStressRampStep());
     }
 
     @Named("executionThroughput")

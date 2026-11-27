@@ -181,6 +181,10 @@ public class Execution {
     @Builder.Default
     private com.loadpilot.backend.enums.LoadMode loadMode = com.loadpilot.backend.enums.LoadMode.MANUAL;
 
+    /** Mode stress : vitesse de montee utilisee (req/s gagnees chaque seconde), copiee au lancement ; null en mode manuel. */
+    @Column(name = "stress_ramp_step")
+    private Integer stressRampStep;
+
     // ---- Resultat d'un test de stress (null en mode manuel), garde apres la purge des resultats ----
 
     @Enumerated(EnumType.STRING)

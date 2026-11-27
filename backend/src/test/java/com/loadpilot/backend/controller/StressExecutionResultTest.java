@@ -132,6 +132,7 @@ class StressExecutionResultTest {
         assertThat(e.get("errorMessage").asText()).startsWith("Point de rupture vers ");
         JsonNode stress = e.get("stress");
         assertThat(stress.get("outcome").asText()).isEqualTo("BREAKPOINT");
+        assertThat(stress.get("rampRpsPerSecond").asInt()).as("vitesse par defaut, copiee au lancement").isEqualTo(1);
         // Reponses 100 fois plus lentes : le P95 explose et, chaque VU servant moins de requetes, le debit decroche ;
         // l'un ou l'autre confirme la rupture en premier.
         java.util.List<String> criteria = new java.util.ArrayList<>();

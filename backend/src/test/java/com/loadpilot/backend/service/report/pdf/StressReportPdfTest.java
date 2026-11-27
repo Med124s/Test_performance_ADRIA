@@ -23,7 +23,9 @@ class StressReportPdfTest {
     void stressReport_showsTheModeTheBreakpointAndItsMarkers() throws Exception {
         String text = text(new ReportPdfWriter().write(ReportPdfSamples.stressData()));
 
-        assertThat(text).contains("Point de rupture (montée automatique)");
+        assertThat(text).contains("Point de rupture (montée automatique, +1 req/s par seconde)");
+        // Precision du debut de la rupture : la montee pendant une fenetre de 5 s.
+        assertThat(text).contains("Précision").contains("± 5 req/s (montée de +1 req/s par seconde, fenêtres de 5 s)");
         assertThat(text).contains("Utilisateurs virtuels (pic)").doesNotContain("Ramp-up");
         assertThat(text).contains("Point de rupture vers 182 req/s offertes");
         assertThat(text).contains("Mesure au début de l’anomalie").contains("temps de réponse (P95)");

@@ -6,7 +6,7 @@ import { withDefaults } from '../../utils/thresholds'
 import { analyzeCsv } from './csvModel'
 import { QueryParamRow, parseQueryString, splitUrl, urlWithQuery, variablesFromJson, variablesToJson } from './variablesModel'
 import {
-  DEFAULT_LOAD, DraftStep, LoadConfig, ScenarioInfo, loadPartForRequest, loadSettingsToRequest, newStep, stepToRequest, thresholdsFromScenario, errorBrakeFromScenario, throttleFromScenario, thinkVariationFromScenario,
+  DEFAULT_LOAD, DraftStep, LoadConfig, ScenarioInfo, loadPartForRequest, loadSettingsToRequest, newStep, stepToRequest, thresholdsFromScenario, errorBrakeFromScenario, throttleFromScenario, thinkVariationFromScenario, stressRampFromScenario,
 } from './wizardModel'
 
 export interface WizardDraftState {
@@ -96,6 +96,7 @@ export function stateFromBackend(scenario: BackendScenarioResponse, steps: Backe
       ...throttleFromScenario(scenario),
       ...thinkVariationFromScenario(scenario),
       loadMode: scenario.loadMode ?? 'MANUAL',
+      ...stressRampFromScenario(scenario),
     },
     steps: steps.map(stepFromBackend),
     load: loadFromScenario(scenario),
@@ -149,6 +150,7 @@ export function savedInfo(scenario: BackendScenarioResponse): ScenarioInfo {
     ...throttleFromScenario(scenario),
     ...thinkVariationFromScenario(scenario),
     loadMode: scenario.loadMode ?? 'MANUAL',
+    ...stressRampFromScenario(scenario),
   }
 }
 
@@ -202,7 +204,7 @@ export function applySuggestions(info: ScenarioInfo, suggested: Partial<Scenario
   return next
 }
 
-export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', maxErrorRatePercent: '1', maxP95Ms: '', errorBrakeRatePercent: '', errorBrakeWindowSeconds: '30', throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3', thinkTimeVariationPercent: '', loadMode: 'MANUAL' }
+export const EMPTY_INFO: ScenarioInfo = { applicationId: '', name: '', description: '', csvData: '', variables: [], csvDistribution: 'PER_VIRTUAL_USER', requestDetailMode: 'FAILURES_AND_SAMPLE', maxErrorRatePercent: '1', maxP95Ms: '', errorBrakeRatePercent: '', errorBrakeWindowSeconds: '30', throttleOn429: true, throttleDefaultDelaySeconds: '5', throttleMaxRetries: '3', thinkTimeVariationPercent: '', loadMode: 'MANUAL', stressRampStep: '' }
 
 function parseJson<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback

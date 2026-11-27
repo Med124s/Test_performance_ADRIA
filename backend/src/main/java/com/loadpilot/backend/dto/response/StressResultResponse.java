@@ -24,6 +24,8 @@ public record StressResultResponse(
         Double throughputRps,
         Long p95Ms,
         Long baselineP95Ms,
-        Double refusalPercent
+        Double refusalPercent,
+        /** Vitesse de montee utilisee (req/s gagnees chaque seconde) ; le debut de la rupture est connu a 5 x cette vitesse pres. */
+        Integer rampRpsPerSecond
 ) {
 }

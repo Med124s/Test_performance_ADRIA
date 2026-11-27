@@ -128,6 +128,28 @@ class ScenarioStressModeTest {
     }
 
     @Test
+    void rampStep_isOptional_bounded_andKeptWhenNotSent() throws Exception {
+        String appId = createApplication("stress-ramp-app");
+        String byDefault = create(scenarioBeyondLimits(appId, "vitesse-defaut", "STRESS"));
+        mockMvc.perform(get("/api/scenarios/" + byDefault).with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.stressRampStep").value(1));
+
+        String fast = create(scenarioBeyondLimits(appId, "vitesse-20", "STRESS").put("stressRampStep", 20));
+        mockMvc.perform(put("/api/scenarios/" + fast).with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON)
+                        .content(scenarioBeyondLimits(appId, "vitesse-20-renomme", null).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stressRampStep").value(20));
+
+        for (int outOfBounds : new int[] {0, 51}) {
+            mockMvc.perform(put("/api/scenarios/" + fast).with(AS_SUPER_ADMIN).contentType(MediaType.APPLICATION_JSON)
+                            .content(scenarioBeyondLimits(appId, "vitesse-hors-bornes", null).put("stressRampStep", outOfBounds).toString()))
+                    .andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(get("/api/scenarios/" + fast).with(AS_SUPER_ADMIN))
+                .andExpect(jsonPath("$.stressRampStep").value(20));
+    }
+
+    @Test
     void stressScenario_cannotBeScheduled() throws Exception {
         String appId = createApplication("stress-schedule-app");
         String id = create(scenarioBeyondLimits(appId, "stress-planif", "STRESS"));

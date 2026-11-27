@@ -51,14 +51,16 @@ public record ScenarioResponse(
         /** Avertissements de charge, jamais bloquants (ex. beaucoup d'utilisateurs sans debit cible, voir LoadRules.warnings). */
         java.util.List<String> loadWarnings,
         /** Mode de charge : MANUAL ou STRESS (reglages de charge ignores). */
-        com.loadpilot.backend.enums.LoadMode loadMode
+        com.loadpilot.backend.enums.LoadMode loadMode,
+        /** Mode stress : vitesse de montee (req/s gagnees chaque seconde), vitesse par defaut si elle n'a pas ete reglee. */
+        int stressRampStep
 ) {
     public ScenarioResponse withPausedSchedules(long count) {
         return new ScenarioResponse(id, applicationId, applicationName, name, description, status, virtualUsers,
                 rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData, targetRps, createdBy, createdAt,
                 updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, count, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms,
                 errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries, thinkTimeVariationPercent, loadWarnings,
-                loadMode);
+                loadMode, stressRampStep);
     }
 
     public ScenarioResponse withLoadWarnings(java.util.List<String> warnings) {
@@ -66,6 +68,6 @@ public record ScenarioResponse(
                 rampUpSeconds, durationSeconds, iterations, thinkTimeMs, csvData, targetRps, createdBy, createdAt,
                 updatedAt, archived, archivedAt, applicationArchived, wizardStep, draftState, pausedSchedules, variables, csvDistribution, requestDetailMode, maxErrorRatePercent, maxP95Ms,
                 errorBrakeRatePercent, errorBrakeWindowSeconds, throttleOn429, throttleDefaultDelaySeconds, throttleMaxRetries, thinkTimeVariationPercent, warnings,
-                loadMode);
+                loadMode, stressRampStep);
     }
 }

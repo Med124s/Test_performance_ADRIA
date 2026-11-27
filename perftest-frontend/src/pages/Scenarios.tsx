@@ -443,7 +443,7 @@ function Scenarios() {
                     <div className="d-flex flex-wrap gap-2">
                       {selectedScenarioDetail.loadMode === 'STRESS' ? (
                       <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}>
-                        <i className="bi bi-graph-up-arrow me-1"></i>Point de rupture : montée automatique
+                        <i className="bi bi-graph-up-arrow me-1"></i>Point de rupture : montée automatique, +{selectedScenarioDetail.stressRampStep ?? 1} req/s par seconde
                       </span>
                       ) : (<>
                       <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}>

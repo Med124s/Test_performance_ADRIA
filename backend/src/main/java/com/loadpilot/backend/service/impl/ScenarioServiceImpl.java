@@ -442,13 +442,17 @@ public class ScenarioServiceImpl implements ScenarioService {
                 s.getDurationSeconds(), s.getIterations(), s.getTargetRps(), executionLimits.loadLimits());
     }
 
-    /** Mode de charge : null = inchange (MANUAL a la creation) ; STRESS refuse tant que le scenario a des planifications. */
+    /**
+     * Mode de charge et vitesse de montee du mode stress : null = inchanges (MANUAL et vitesse par defaut a la creation) ;
+     * STRESS refuse tant que le scenario a des planifications.
+     */
     private void applyLoadMode(Scenario scenario, ScenarioRequest request) {
         if (request.loadMode() != null) {
             scenario.setLoadMode(request.loadMode());
         } else if (scenario.getLoadMode() == null) {
             scenario.setLoadMode(LoadMode.MANUAL);
         }
+        if (request.stressRampStep() != null) scenario.setStressRampStep(request.stressRampStep());
         if (scenario.getLoadMode() == LoadMode.STRESS && scenario.getId() != null) {
             long schedules = scheduledExecutionRepository.countByScenarioId(scenario.getId());
             if (schedules > 0) throw new ConflictException(stressScheduledMessage(schedules));

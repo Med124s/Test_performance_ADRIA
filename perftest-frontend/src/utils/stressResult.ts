@@ -7,6 +7,16 @@ const nf = (v: number, digits = 1) => v.toLocaleString('fr-FR', { maximumFractio
 export const formatRps = (v: number | null | undefined) => (v == null ? '—' : `${nf(v)} req/s`)
 export const formatMsValue = (v: number | null | undefined) => (v == null ? '—' : `${nf(v, 0)} ms`)
 
+/** Fenêtre d'évaluation de la rupture (StressSettings.WINDOW_SECONDS). */
+const WINDOW_SECONDS = 5
+
+/** Vitesse de montée et précision qui en découle : « +20 req/s par seconde · rupture à ± 100 req/s près ». */
+export function stressRampLabel(rampRpsPerSecond: number | null | undefined, withPrecision = true): string | null {
+  if (rampRpsPerSecond == null) return null
+  const ramp = `+${nf(rampRpsPerSecond, 0)} req/s par seconde`
+  return withPrecision ? `${ramp} · rupture située à ± ${nf(WINDOW_SECONDS * rampRpsPerSecond, 0)} req/s près` : ramp
+}
+
 /** « 3 min 42 s » ou « 42 s ». */
 export function formatElapsed(seconds: number | null | undefined): string {
   if (seconds == null) return '—'

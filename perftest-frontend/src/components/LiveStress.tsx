@@ -1,6 +1,6 @@
 import { BackendStressLive } from '../types/backendContracts'
 import InfoTip from './InfoTip'
-import { LIMIT_LABELS, STRESS_PHASES, formatElapsed, formatMsValue, formatRps } from '../utils/stressResult'
+import { LIMIT_LABELS, STRESS_PHASES, formatElapsed, formatMsValue, formatRps, stressRampLabel } from '../utils/stressResult'
 
 // Suivi en direct de la montée d'un test de stress : phase, débit offert, utilisateurs virtuels, mesure de référence.
 
@@ -22,6 +22,7 @@ export default function LiveStress({ live }: { live?: BackendStressLive | null }
       </div>
       <div className="d-flex align-items-center flex-wrap gap-3" style={{ fontSize: '13px' }}>
         <span>Débit offert <strong>{formatRps(live.offeredRps)}</strong> <span className="text-muted">(jusqu’à {formatRps(live.maxRps)})</span></span>
+        {live.rampRpsPerSecond != null && <span>Montée <strong>{stressRampLabel(live.rampRpsPerSecond, false)}</strong></span>}
         <span>Utilisateurs virtuels <strong>{live.virtualUsers.toLocaleString('fr-FR')}</strong> <span className="text-muted">(jusqu’à {live.maxVirtualUsers.toLocaleString('fr-FR')})</span></span>
         <span>P95 de référence <strong>{live.baselineP95Ms == null ? 'en cours de mesure' : formatMsValue(live.baselineP95Ms)}</strong></span>
         <span className="text-muted">{formatElapsed(live.elapsedSeconds)} écoulées sur {formatElapsed(live.maxDurationSeconds)} au plus</span>

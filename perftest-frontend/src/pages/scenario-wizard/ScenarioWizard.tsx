@@ -1033,6 +1033,7 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
               onRequestDetailModeChange={(requestDetailMode) => setInfo((p) => ({ ...p, requestDetailMode }))}
               onThresholdsChange={(patch) => setInfo((p) => ({ ...p, ...patch }))}
               onLoadModeChange={(loadMode) => setInfo((p) => ({ ...p, loadMode }))}
+              onStressRampChange={(stressRampStep) => setInfo((p) => ({ ...p, stressRampStep }))}
             />
             {!isEdit && finalError && <div className="sw-inline-alert ko mt-3"><i className="bi bi-exclamation-octagon"></i><span>{finalError}</span></div>}
           </>

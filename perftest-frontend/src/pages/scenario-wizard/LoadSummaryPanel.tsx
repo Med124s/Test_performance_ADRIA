@@ -22,6 +22,9 @@ import {
   measuredRequestMs,
   presetBlockedReason,
   STRESS_RAMP,
+  stressPrecisionRps,
+  stressRampOf,
+  stressSecondsToReach,
 } from './wizardModel'
 
 interface LoadSummaryPanelProps {
@@ -48,6 +51,8 @@ interface LoadSummaryPanelProps {
   limits?: LoadLimits | null
   /** Mode de charge (enregistré avec les informations du scénario). */
   onLoadModeChange?: (mode: BackendLoadMode) => void
+  /** Mode stress : vitesse de montée (enregistrée avec les informations du scénario). */
+  onStressRampChange?: (stressRampStep: string) => void
 }
 
 /** Icône ⓘ avec une explication courte, au survol et au clavier. */
@@ -59,7 +64,7 @@ function InfoTip({ text }: { text: string }) {
   )
 }
 
-function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange, onThresholdsChange, limits, onLoadModeChange }: LoadSummaryPanelProps) {
+function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, testRun, testStale, testPassed, csvRows, onChange, onGoTo, onRequestDetailModeChange, onThresholdsChange, limits, onLoadModeChange, onStressRampChange }: LoadSummaryPanelProps) {
   const err = (field: string) => (showErrors ? errors[field] : undefined)
   const setField = (patch: Partial<LoadConfig>) => onChange({ ...patch, presetId: 'custom' })
 
@@ -100,6 +105,9 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
     ? String(systemDefaults.errorBrakeRatePercent).replace('.', ',') : ERROR_BRAKE_DEFAULT_RATE
   const throttleOn = info.throttleOn429 !== false
   const stress = info.loadMode === 'STRESS'
+  const rampStep = stressRampOf(info)
+  // Réglage avancé replié, sauf si une vitesse a déjà été saisie.
+  const [rampOpen, setRampOpen] = useState(() => !!info.stressRampStep?.trim())
   const stressLimitsLabel = limits
     ? `${formatInt(limits.maxTargetRps)} req/s, ${formatInt(limits.maxVirtualUsers)} utilisateurs virtuels ou ${formatApproxSeconds(limits.maxDurationSeconds)} de test`
     : 'aux limites de charge du serveur'
@@ -148,7 +156,7 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
             <ul className="sw-stress-list">
               <li>
                 <strong>Montée</strong> : {STRESS_RAMP.warmupSeconds} s d’échauffement puis {STRESS_RAMP.baselineSeconds} s de mesure de référence
-                à {STRESS_RAMP.baselineRps} req/s, puis +{STRESS_RAMP.rampRpsPerSecond} req/s chaque seconde, jusqu’à {stressLimitsLabel}.
+                à {STRESS_RAMP.baselineRps} req/s, puis +{rampStep} req/s chaque seconde, jusqu’à {stressLimitsLabel}.
                 Les utilisateurs virtuels sont ajoutés au besoin.
               </li>
               <li>
@@ -168,6 +176,38 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
                 Les pauses des étapes sont conservées ; les seuils de réussite et le frein automatique ne s’appliquent pas.
               </li>
             </ul>
+            {onStressRampChange && (
+              <div className="mb-2">
+                <button type="button" className="btn btn-link p-0 sw-advanced-toggle" aria-expanded={rampOpen} aria-controls="stress-ramp-settings"
+                  onClick={() => setRampOpen((o) => !o)}>
+                  <i className={`bi ${rampOpen ? 'bi-chevron-down' : 'bi-chevron-right'} me-1`} aria-hidden="true"></i>
+                  Réglage avancé : vitesse de montée
+                </button>
+                {rampOpen && (
+                  <div className="row g-3 mt-0" id="stress-ramp-settings">
+                    <div className="col-12 col-sm-6">
+                      <label className="pt-form-label" htmlFor="load-stress-ramp">
+                        Vitesse de montée (req/s par seconde) <span className="sw-optional">optionnel</span>
+                      </label>
+                      <input id="load-stress-ramp" className={`pt-form-control ${errors.stressRampStep ? 'is-invalid' : ''}`} inputMode="numeric"
+                        placeholder={String(STRESS_RAMP.defaultRampRpsPerSecond)} value={info.stressRampStep ?? ''}
+                        onChange={(e) => onStressRampChange(e.target.value)} />
+                      {errors.stressRampStep
+                        ? <div className="sw-field-error">{errors.stressRampStep}</div>
+                        : <div className="sw-field-hint">De {STRESS_RAMP.minRampRpsPerSecond} à {STRESS_RAMP.maxRampRpsPerSecond}, par défaut {STRESS_RAMP.defaultRampRpsPerSecond}.</div>}
+                    </div>
+                    <div className="col-12">
+                      <div className="sw-field-hint" data-testid="stress-ramp-effect">
+                        À +{rampStep} req/s par seconde
+                        {limits ? <>, {formatInt(limits.maxTargetRps)} req/s sont atteints en ≈ {formatApproxSeconds(stressSecondsToReach(limits.maxTargetRps, rampStep))}</> : null}
+                        {' '}; le point de rupture est situé à ± {formatInt(stressPrecisionRps(rampStep))} req/s près.
+                        Plus rapide pour une application robuste, moins précis : gardez {STRESS_RAMP.defaultRampRpsPerSecond} pour une application fragile.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {requestDetailField && <div className="row g-3 mt-1">{requestDetailField}</div>}
           </div>
         ) : (
@@ -408,7 +448,7 @@ function LoadSummaryPanel({ info, application, steps, load, errors, showErrors, 
             <div className="sw-summary-stats" data-testid="stress-summary">
               <div><strong>Auto</strong><span>utilisateurs</span></div>
               <div><strong>Rupture</strong><span>arrêt</span></div>
-              <div><strong>+{STRESS_RAMP.rampRpsPerSecond} req/s</strong><span>par seconde</span></div>
+              <div><strong>+{rampStep} req/s</strong><span>par seconde</span></div>
             </div>
           ) : (
           <div className="sw-summary-stats">

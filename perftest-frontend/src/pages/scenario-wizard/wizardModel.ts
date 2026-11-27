@@ -78,6 +78,8 @@ export interface ScenarioInfo {
   thinkTimeVariationPercent?: string
   /** Mode de charge : MANUAL (réglages ci-dessous) ou STRESS (montée automatique) ; absent (ancien brouillon) = MANUAL. */
   loadMode?: BackendLoadMode
+  /** Mode stress : vitesse de montée en req/s gagnées chaque seconde (saisie texte) ; vide = vitesse par défaut. */
+  stressRampStep?: string
 }
 
 /** Paramètres de charge : durée et itérations optionnelles ; les deux = arrêt à la première atteinte, aucun = une itération par utilisateur. */
@@ -657,12 +659,17 @@ export const hasErrors = (errors: FieldErrors) => Object.values(errors).some(Boo
 
 // ---- Mode stress ----
 
-/** Montée automatique du mode stress : mêmes constantes que le serveur (StressSettings), affichées à titre d'information. */
+/**
+ * Montée automatique du mode stress : mêmes constantes que le serveur (StressSettings), affichées à titre d'information ;
+ * seule la vitesse de montée se règle (bornes min/max).
+ */
 export const STRESS_RAMP = {
   warmupSeconds: 10,
   baselineSeconds: 30,
   baselineRps: 2,
-  rampRpsPerSecond: 1,
+  defaultRampRpsPerSecond: 1,
+  minRampRpsPerSecond: 1,
+  maxRampRpsPerSecond: 50,
   windowSeconds: 5,
   confirmationWindows: 3,
   responseTimeFactor: 3,
@@ -673,9 +680,41 @@ export const STRESS_RAMP = {
 
 export const isStress = (info: Pick<ScenarioInfo, 'loadMode'>) => info.loadMode === 'STRESS'
 
-/** Erreurs de l'étape « Charge & résumé » : aucune en mode stress (aucun réglage saisi). */
+type StressRampField = Pick<ScenarioInfo, 'stressRampStep'>
+
+/** Vitesse de montée : vide = vitesse par défaut ; sinon entier de 1 à 50 (mêmes bornes que le serveur). */
+export function validateStressRamp(info: StressRampField): FieldErrors {
+  const e = intField((info.stressRampStep ?? '').trim(), {
+    min: STRESS_RAMP.minRampRpsPerSecond, max: STRESS_RAMP.maxRampRpsPerSecond, label: 'La vitesse de montée',
+  })
+  return e ? { stressRampStep: e } : {}
+}
+
+/** Vitesse de montée retenue : saisie valide, sinon vitesse par défaut. */
+export function stressRampOf(info: StressRampField): number {
+  const raw = (info.stressRampStep ?? '').trim()
+  return raw && !validateStressRamp(info).stressRampStep ? Number(raw) : STRESS_RAMP.defaultRampRpsPerSecond
+}
+
+/** Précision du début de la rupture (± req/s) : la montée pendant une fenêtre. */
+export const stressPrecisionRps = (rampRpsPerSecond: number) => STRESS_RAMP.windowSeconds * rampRpsPerSecond
+
+/** Durée pour atteindre "maxRps" : échauffement, mesure de référence, puis montée. */
+export const stressSecondsToReach = (maxRps: number, rampRpsPerSecond: number) =>
+  STRESS_RAMP.warmupSeconds + STRESS_RAMP.baselineSeconds + Math.max(0, Math.ceil((maxRps - STRESS_RAMP.baselineRps) / rampRpsPerSecond))
+
+/** Pour le serveur : toujours envoyée (vide = vitesse par défaut), le serveur gardant sinon l'ancienne valeur. */
+export function stressRampToRequest(info: StressRampField): { stressRampStep: number } {
+  return { stressRampStep: stressRampOf(info) }
+}
+
+export function stressRampFromScenario(s: { stressRampStep?: number | null }): StressRampField {
+  return { stressRampStep: s.stressRampStep && s.stressRampStep !== STRESS_RAMP.defaultRampRpsPerSecond ? String(s.stressRampStep) : '' }
+}
+
+/** Erreurs de l'étape « Charge & résumé » ; mode stress : seule la vitesse de montée, optionnelle. */
 export function loadStepErrors(info: ScenarioInfo, load: LoadConfig, limits?: Partial<LoadLimits> | null): FieldErrors {
-  if (isStress(info)) return {}
+  if (isStress(info)) return validateStressRamp(info)
   return { ...validateLoad(load, limits), ...validateThresholds(info), ...validateErrorBrake(info), ...validateThrottle(info), ...validateThinkVariation(info) }
 }
 
@@ -688,13 +727,13 @@ export function loadPartForRequest(info: ScenarioInfo, load: LoadConfig): typeof
 }
 
 /**
- * Mode de charge et réglages associés. Mode stress : seuils, frein, 429 et variation non envoyés (inchangés côté serveur,
- * sans objet pour un test de stress).
+ * Mode de charge et réglages associés. Mode stress : vitesse de montée ; seuils, frein, 429 et variation non envoyés
+ * (inchangés côté serveur, sans objet pour un test de stress). Mode manuel : vitesse non envoyée (inchangée).
  */
 export function loadSettingsToRequest(info: ScenarioInfo): Pick<BackendScenarioRequest, 'loadMode' | 'maxErrorRatePercent' | 'maxP95Ms'
   | 'errorBrakeRatePercent' | 'errorBrakeWindowSeconds' | 'throttleOn429' | 'throttleDefaultDelaySeconds' | 'throttleMaxRetries'
-  | 'thinkTimeVariationPercent'> {
-  if (isStress(info)) return { loadMode: 'STRESS' }
+  | 'thinkTimeVariationPercent' | 'stressRampStep'> {
+  if (isStress(info)) return { loadMode: 'STRESS', ...stressRampToRequest(info) }
   return { loadMode: 'MANUAL', ...thresholdsToRequest(info), ...errorBrakeToRequest(info), ...throttleToRequest(info), ...thinkVariationToRequest(info) }
 }
 

@@ -333,6 +333,8 @@ export interface BackendScenarioRequest {
   thinkTimeVariationPercent?: number | null
   /** Mode de charge ; null/absent = inchangé (MANUAL à la création). */
   loadMode?: BackendLoadMode | null
+  /** Mode stress : vitesse de montée (req/s gagnées chaque seconde, 1 à 50) ; null/absent = inchangée (1 à la création). */
+  stressRampStep?: number | null
 }
 
 /** Mode de charge : MANUAL (charge saisie) ou STRESS (montée automatique jusqu'au point de rupture, réglages de charge ignorés). */
@@ -401,6 +403,8 @@ export interface BackendScenarioResponse {
   loadWarnings?: string[]
   /** Mode de charge (absent : réponse antérieure, MANUAL). */
   loadMode?: BackendLoadMode
+  /** Mode stress : vitesse de montée (req/s gagnées chaque seconde) ; absent : réponse antérieure, 1. */
+  stressRampStep?: number
 }
 
 // ---- Steps ----
@@ -641,6 +645,8 @@ export interface BackendStressResult {
   p95Ms: number | null
   baselineP95Ms: number | null
   refusalPercent: number | null
+  /** Vitesse de montée utilisée (req/s gagnées chaque seconde) ; le début de la rupture est connu à 5 × cette vitesse près. */
+  rampRpsPerSecond?: number | null
 }
 
 /** Montée d'un test de stress en cours. */
@@ -658,6 +664,8 @@ export interface BackendStressLive {
   maxVirtualUsers: number
   maxRps: number
   maxDurationSeconds: number
+  /** Vitesse de montée (req/s gagnées chaque seconde). */
+  rampRpsPerSecond?: number
 }
 
 /** CPU (% d'un cœur) et RAM (Mo) du processus de l'application testée. */

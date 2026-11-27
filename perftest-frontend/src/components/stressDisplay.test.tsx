@@ -70,4 +70,19 @@ describe('Mode stress — affichage du résultat et de la montée', () => {
     expect(nbsp(screen.getByTestId('stress-result').textContent))
       .toContain('Montée jusqu’à 120 utilisateur(s) virtuel(s) et 500 req/s offertes, arrêtée à la limite du serveur (débit cible maximal).')
   })
+
+  it('vitesse de montée : dans le suivi en direct, et dans le résultat avec la précision du point de rupture', () => {
+    const { unmount } = render(<LiveStress live={{ ...LIVE, rampRpsPerSecond: 20 }} />)
+    expect(nbsp(screen.getByTestId('live-stress').textContent)).toContain('Montée +20 req/s par seconde')
+    unmount()
+
+    const second = render(<StressResultCard stress={{ ...BREAKPOINT, rampRpsPerSecond: 20 }} />)
+    expect(nbsp(screen.getByTestId('stress-result').textContent))
+      .toContain('Vitesse de montée+20 req/s par seconde · rupture située à ± 100 req/s près')
+    second.unmount()
+
+    render(<StressResultCard stress={{ ...BREAKPOINT, outcome: 'NO_BREAKPOINT', limit: 'TARGET_RPS', peakVirtualUsers: 120, peakOfferedRps: 500, message: null, rampRpsPerSecond: 20 }} />)
+    expect(nbsp(screen.getByTestId('stress-result').textContent))
+      .toContain('500 req/s offertes (+20 req/s par seconde), arrêtée à la limite du serveur')
+  })
 })

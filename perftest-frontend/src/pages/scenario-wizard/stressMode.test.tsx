@@ -5,7 +5,7 @@ import { EMPTY_INFO, fullRequest, stateFromBackend } from './draftModel'
 import { INITIAL_TEST_RUN } from './TestRunPanel'
 import {
   DEFAULT_LOAD, LoadConfig, ScenarioInfo, TEST_RUN_LOAD, isStress, loadPartForRequest, loadSettingsToRequest, loadStepErrors, loadToRequest,
-  newStep,
+  newStep, stressPrecisionRps, stressSecondsToReach,
 } from './wizardModel'
 import { BackendScenarioResponse } from '../../types/backendContracts'
 
@@ -13,11 +13,12 @@ const load = (patch: Partial<LoadConfig> = {}): LoadConfig => ({ ...DEFAULT_LOAD
 const LIMITS = { maxVirtualUsers: 200, maxDurationSeconds: 3600, maxIterations: 10000, maxTargetRps: 500 }
 const STRESS: ScenarioInfo = { ...EMPTY_INFO, applicationId: 'app', name: 'Stress', loadMode: 'STRESS' }
 
-const panel = (info: ScenarioInfo, onLoadModeChange = vi.fn()) => render(
-  <LoadSummaryPanel info={info} application={undefined} steps={[newStep()]} errors={{}} showErrors limits={LIMITS}
+const panel = (info: ScenarioInfo, onLoadModeChange = vi.fn(), onStressRampChange = vi.fn()) => render(
+  <LoadSummaryPanel info={info} application={undefined} steps={[newStep()]} errors={loadStepErrors(info, load({ virtualUsers: '5' }), LIMITS)}
+    showErrors limits={LIMITS}
     load={load({ virtualUsers: '5' })} testRun={INITIAL_TEST_RUN} testStale={false} testPassed={false} csvRows={null}
     onChange={() => {}} onGoTo={() => {}} onRequestDetailModeChange={() => {}} onThresholdsChange={() => {}}
-    onLoadModeChange={onLoadModeChange} />)
+    onLoadModeChange={onLoadModeChange} onStressRampChange={onStressRampChange} />)
 
 describe('Mode stress — aucun réglage de charge saisi', () => {
   it('nouveau scénario : mode manuel par défaut', () => {
@@ -34,7 +35,7 @@ describe('Mode stress — aucun réglage de charge saisi', () => {
   })
 
   it('requête : mode envoyé, seuils, frein, 429 et variation omis en stress (inchangés côté serveur)', () => {
-    expect(loadSettingsToRequest(STRESS)).toEqual({ loadMode: 'STRESS' })
+    expect(loadSettingsToRequest(STRESS)).toEqual({ loadMode: 'STRESS', stressRampStep: 1 })
     expect(loadSettingsToRequest({ ...STRESS, loadMode: 'MANUAL' })).toMatchObject({ loadMode: 'MANUAL', maxErrorRatePercent: 1, throttleOn429: true })
     // Ancien brouillon sans mode : manuel.
     expect(loadSettingsToRequest({ ...STRESS, loadMode: undefined }).loadMode).toBe('MANUAL')
@@ -78,5 +79,53 @@ describe('Mode stress — aucun réglage de charge saisi', () => {
     // Le détail des requêtes reste réglable.
     expect(screen.getByLabelText(/Détail des requêtes/)).toBeTruthy()
     expect(screen.getByTestId('stress-summary').textContent).toContain('Auto')
+  })
+})
+
+describe('Mode stress — vitesse de montée, seul réglage optionnel', () => {
+  it('vide = vitesse par défaut, sinon entier de 1 à 50 ; toujours envoyée en stress, jamais en manuel', () => {
+    expect(loadStepErrors(STRESS, load(), LIMITS)).toEqual({})
+    expect(loadSettingsToRequest({ ...STRESS, stressRampStep: '20' })).toEqual({ loadMode: 'STRESS', stressRampStep: 20 })
+    for (const bad of ['0', '51', '2,5', 'vite']) {
+      expect(loadStepErrors({ ...STRESS, stressRampStep: bad }, load(), LIMITS)).toHaveProperty('stressRampStep')
+    }
+    expect(loadSettingsToRequest({ ...STRESS, loadMode: 'MANUAL', stressRampStep: '20' })).not.toHaveProperty('stressRampStep')
+    expect(fullRequest('id', { ...STRESS, stressRampStep: ' ' }, [], load()).scenario).toMatchObject({ stressRampStep: 1 })
+  })
+
+  it('scénario enregistré : vitesse relue, vide si c’est la vitesse par défaut', () => {
+    const base = { applicationId: 'app', name: 'S', virtualUsers: 1, rampUpSeconds: 0, thinkTimeMs: 0, loadMode: 'STRESS' } as BackendScenarioResponse
+    expect(stateFromBackend({ ...base, stressRampStep: 20 }, []).info.stressRampStep).toBe('20')
+    expect(stateFromBackend({ ...base, stressRampStep: 1 }, []).info.stressRampStep).toBe('')
+    expect(stateFromBackend(base, []).info.stressRampStep).toBe('')
+  })
+
+  it('précision et durée pour atteindre le débit maximal', () => {
+    expect(stressPrecisionRps(1)).toBe(5)
+    expect(stressPrecisionRps(20)).toBe(100)
+    // 40 s d'échauffement et de référence, puis (500 − 2) / 20 = 25 s de montée.
+    expect(stressSecondsToReach(500, 20)).toBe(65)
+    expect(stressSecondsToReach(500, 1)).toBe(538)
+  })
+
+  it('écran : réglage avancé replié, puis champ, effet de la vitesse et résumé', () => {
+    const onStressRampChange = vi.fn()
+    const { unmount } = panel(STRESS, vi.fn(), onStressRampChange)
+    expect(screen.queryByLabelText(/Vitesse de montée/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Réglage avancé : vitesse de montée/ }))
+    fireEvent.change(screen.getByLabelText(/Vitesse de montée/), { target: { value: '20' } })
+    expect(onStressRampChange).toHaveBeenCalledWith('20')
+    unmount()
+
+    panel({ ...STRESS, stressRampStep: '20' })
+    expect(screen.getByLabelText(/Vitesse de montée/)).toBeTruthy()
+    expect(screen.getByTestId('stress-ramp-effect').textContent?.replace(/[  ]/g, ' ')).toContain('± 100 req/s près')
+    expect(screen.getByTestId('stress-mode').textContent).toContain('+20 req/s chaque seconde')
+    expect(screen.getByTestId('stress-summary').textContent).toContain('+20 req/s')
+  })
+
+  it('écran : vitesse hors bornes signalée', () => {
+    panel({ ...STRESS, stressRampStep: '80' })
+    expect(screen.getByText('La vitesse de montée ne doit pas dépasser 50.')).toBeTruthy()
   })
 })

@@ -69,7 +69,7 @@ final class ReportPdfSamples {
                 com.loadpilot.backend.enums.StressOutcome.BREAKPOINT, null,
                 "Point de rupture vers 182 req/s offertes et 57 utilisateur(s) virtuel(s), à 3 min 42 s du début : P95 de 1 240 ms, "
                         + "4,1 × la baseline (300 ms) (confirmé sur 3 fenêtres de 5 s consécutives).",
-                64, 197.0, List.of("RESPONSE_TIME"), 222, 237, 57, 182.0, 171.5, 1240L, 300L, 1.2);
+                64, 197.0, List.of("RESPONSE_TIME"), 222, 237, 57, 182.0, 171.5, 1240L, 300L, 1.2, 1);
         ExecutionReportResponse r = new ExecutionReportResponse(base.id(), base.scenarioId(), base.scenarioName(), base.applicationId(),
                 base.applicationName(), base.status(), base.startedAt(), base.finishedAt(), base.duration(), stress.message(), 64, 0, null, null,
                 base.triggeredByUsername(), 0, base.statistics(), base.steps(), base.errors(), null, base.retention(),

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Vitesse de montee d'un test de stress (req/s gagnees chaque seconde apres la baseline, de 1 a 50).
+
+        scenario.stress_ramp_step  : reglage optionnel du mode stress ; NULL = vitesse par defaut (1 req/s par seconde).
+        execution.stress_ramp_step : vitesse reellement utilisee, copiee au lancement ; NULL en mode manuel. Les tests de
+                                     stress deja passes ont tous tourne a la vitesse par defaut.
+    -->
+    <changeSet id="044-stress-ramp-step" author="loadpilot">
+        <addColumn tableName="scenario">
+            <column name="stress_ramp_step" type="INT"/>
+        </addColumn>
+        <addColumn tableName="execution">
+            <column name="stress_ramp_step" type="INT"/>
+        </addColumn>
+        <update tableName="execution">
+            <column name="stress_ramp_step" valueNumeric="1"/>
+            <where>load_mode = 'STRESS'</where>
+        </update>
+    </changeSet>
+
+</databaseChangeLog>

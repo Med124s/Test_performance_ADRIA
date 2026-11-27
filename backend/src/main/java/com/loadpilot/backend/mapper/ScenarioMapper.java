@@ -38,6 +38,7 @@ public interface ScenarioMapper {
     @Mapping(target = "throttleMaxRetries", ignore = true)
     @Mapping(target = "thinkTimeVariationPercent", ignore = true)
     @Mapping(target = "loadMode", ignore = true)
+    @Mapping(target = "stressRampStep", ignore = true)
     Scenario toEntity(ScenarioRequest request);
 
     @Mapping(target = "id", ignore = true)
@@ -67,6 +68,7 @@ public interface ScenarioMapper {
     @Mapping(target = "throttleMaxRetries", ignore = true)
     @Mapping(target = "thinkTimeVariationPercent", ignore = true)
     @Mapping(target = "loadMode", ignore = true)
+    @Mapping(target = "stressRampStep", ignore = true)
     void updateEntityFromRequest(ScenarioRequest request, @MappingTarget Scenario scenario);
 
     @Mapping(target = "id", source = "id", qualifiedByName = "uuidToString")
@@ -76,6 +78,8 @@ public interface ScenarioMapper {
     @Mapping(target = "createdBy", source = "createdBy", qualifiedByName = "appUserDisplayName")
     @Mapping(target = "pausedSchedules", ignore = true)
     @Mapping(target = "loadWarnings", expression = "java(java.util.List.of())")
+    @Mapping(target = "stressRampStep",
+            expression = "java(com.loadpilot.backend.service.execution.StressSettings.rampOrDefault(scenario.getStressRampStep()))")
     ScenarioResponse toResponse(Scenario scenario);
 
     List<ScenarioResponse> toResponseList(List<Scenario> scenarios);

@@ -105,10 +105,11 @@ public class ExecutionTransactionHelper {
 
         AppUser triggeredByRef = triggeredByAppUserId != null
                 ? appUserRepository.getReferenceById(triggeredByAppUserId) : null;
-        // Limites de la montee automatique, copiees au lancement ; null = mode manuel.
+        // Limites et vitesse de la montee automatique, copiees au lancement ; null = mode manuel.
         com.loadpilot.backend.service.execution.StressRamp.Limits stressLimits = stress
                 ? new com.loadpilot.backend.service.execution.StressRamp.Limits(limits.maxVirtualUsers(), limits.maxTargetRps(),
-                        limits.maxDurationSeconds())
+                        limits.maxDurationSeconds(),
+                        com.loadpilot.backend.service.execution.StressSettings.rampOrDefault(scenario.getStressRampStep()))
                 : null;
 
         Execution execution = Execution.builder()
@@ -130,6 +131,7 @@ public class ExecutionTransactionHelper {
                 .maxErrorRatePercent(stressLimits != null ? null : scenario.getMaxErrorRatePercent())
                 .maxP95Ms(stressLimits != null ? null : scenario.getMaxP95Ms())
                 .loadMode(scenario.getLoadMode())
+                .stressRampStep(stressLimits != null ? stressLimits.rampRpsPerSecond() : null)
                 .build();
         Execution saved = executionRepository.saveAndFlush(execution);
 

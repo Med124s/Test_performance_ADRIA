@@ -19,6 +19,8 @@ public record StressLiveResponse(
         String holdingLimit,
         int maxVirtualUsers,
         int maxRps,
-        int maxDurationSeconds
+        int maxDurationSeconds,
+        /** Vitesse de montee (req/s gagnees chaque seconde). */
+        int rampRpsPerSecond
 ) {
 }

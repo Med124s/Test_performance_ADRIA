@@ -105,6 +105,10 @@ public class Scenario {
     @Builder.Default
     private com.loadpilot.backend.enums.LoadMode loadMode = com.loadpilot.backend.enums.LoadMode.MANUAL;
 
+    /** Mode stress : vitesse de montee (req/s gagnees chaque seconde, 1 a 50) ; null = vitesse par defaut. */
+    @Column(name = "stress_ramp_step")
+    private Integer stressRampStep;
+
     /** Debit cible optionnel (requetes/s, partage entre les utilisateurs virtuels) ; null = aucun pacing. */
     @Column(name = "target_rps")
     private Integer targetRps;
