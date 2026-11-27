@@ -73,7 +73,8 @@ Choisir le mode **« Point de rupture »**. Points à montrer :
 
 - ✔ plus aucun champ de charge : ni profil, ni utilisateurs, ni durée, ni débit, ni seuil de réussite ;
 - ✔ l'encadré explique la montée (jusqu'aux limites réelles du serveur, ex. « jusqu'à 500 req/s, 200 utilisateurs virtuels ou 1 h de test »), les critères de rupture et les résultats possibles ;
-- ✔ le résumé à droite affiche « Auto / Rupture / +1 req/s par seconde ».
+- ✔ le résumé à droite affiche « Auto / Rupture / +1 req/s par seconde » ;
+- ✔ « Réglage avancé : vitesse de montée » reste replié et vide : +1 req/s par seconde, la vitesse la plus précise (rupture située à ± 5 req/s près). Une vitesse plus haute (jusqu'à 50) sert aux applications robustes, pour atteindre plus vite un débit élevé.
 
 Enregistrer le scénario. Dans la liste des scénarios, le détail affiche « Point de rupture : montée automatique ».
 
@@ -95,7 +96,7 @@ Enregistrer le scénario. Dans la liste des scénarios, le détail affiche « Po
 - pas de bouton **Pause** (voir E3) ;
 - le bloc « Injecteur (LoadPilot) » : si LoadPilot saturait avant la cible, le test finirait en « Annulée — non concluant » au lieu d'une fausse rupture.
 
-Mesure de référence de ce guide (une répétition, capacité 50 req/s) : rupture détectée **vers 63 req/s offertes et 17 utilisateurs virtuels**, à 1 min 40 s, confirmée à 1 min 55 s, critère « débit obtenu sous le débit offert ». Les chiffres varient d'une répétition à l'autre : à confirmer avant la démo.
+Mesure de référence de ce guide (une répétition, capacité 50 req/s) : rupture détectée **vers 63 req/s offertes et 33 utilisateurs virtuels**, à 1 min 40 s, confirmée à 1 min 55 s, critère « temps de réponse (P95) » (942 ms, 3,1 × la référence de 308 ms). Les chiffres varient d'une répétition à l'autre : à confirmer avant la démo.
 
 ## Partie D — Lire le résultat
 
@@ -103,7 +104,7 @@ Fin du test : statut **« Seuils dépassés »**, raison sous le badge « Point 
 
 **Voir le rapport** :
 
-- encadré **POINT DE RUPTURE** : critère(s), début de l'anomalie et confirmation, utilisateurs virtuels, débit offert et obtenu, P95 comparé à la référence, taux de refus ;
+- encadré **POINT DE RUPTURE** : critère(s), début de l'anomalie et confirmation, utilisateurs virtuels, débit offert et obtenu, vitesse de montée et précision (± 5 req/s), P95 comparé à la référence, taux de refus ;
 - le niveau de charge rapporté est celui du **début** de l'anomalie, pas celui du moment où le test s'est arrêté ;
 - graphique « Utilisateurs, débit et temps de réponse » : **zone verte** = mesure de référence, **ligne orange** = début de la rupture, **ligne rouge** = confirmation ;
 - export **PDF** : mêmes informations, repères sur les graphiques, conclusion qui commence par le point de rupture.

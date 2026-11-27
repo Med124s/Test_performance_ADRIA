@@ -47,10 +47,12 @@ cd perftest-frontend; npm test; npm run build   # tests et build frontend
   - un rapport figé est gardé après la purge ;
   - l'option « Conserver » exclut une exécution de la purge.
 - **Mode stress** (`loadMode = STRESS`, « Point de rupture » dans l'interface ; le mode manuel reste inchangé ; démo : `docs/demo/GUIDE_DEMO_STRESS.md`) :
-  - aucun réglage de charge saisi : le débit offert monte seul, le réservoir de VUs suit (quand tous sont occupés et que des créneaux sont manqués, on ajoute autant de VUs que le déficit l'exige, loi de Little, croissance bornée) ;
+  - aucun réglage de charge saisi : le débit offert monte seul, le réservoir de VUs suit (chaque seconde, le plus grand du besoin de la loi de Little sur le débit de la seconde suivante, +20 %, et du déficit mesuré ; croissance au plus ×2 par seconde, 10 VUs au moins) ;
+  - seul réglage, optionnel : la vitesse de montée (1 à 50 req/s par seconde, 1 par défaut), copiée sur l'exécution ; précision du début de la rupture ± 5 × la vitesse ;
+  - critère de débit suspendu sur une fenêtre où le réservoir manquait de VUs (limite ou retard sur le besoin) : sans cela, une montée rapide sur une cible saine donnait une fausse rupture ;
   - pas de pause pendant un stress test (elle fausserait la comparaison à la baseline) : il se termine ou s'annule ;
   - montée bornée par les limites applicatives en vigueur (VUs par test, débit cible maximal, durée maximale) ;
-  - rupture détectée sans seuil saisi, par comparaison à une baseline ; constantes internes dans `StressSettings`, jamais exposées ;
+  - rupture détectée sans seuil saisi, par comparaison à une baseline ; constantes internes dans `StressSettings`, jamais exposées, sauf la vitesse de montée ;
   - rupture → « Seuils dépassés », motif détaillé, niveau de charge enregistré (VUs, débit, temps de réponse, critère) ;
   - aucune rupture avant les limites → « Réussie », note « aucune rupture détectée jusqu'à X VU / Y req/s » ;
   - LoadPilot saturé avant la cible → « Annulée », motif « Non concluant — LoadPilot a atteint sa propre limite technique avant la cible » ; une anomalie de la cible commencée avant la saturation l'emporte si elle se confirme ;

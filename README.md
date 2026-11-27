@@ -452,9 +452,16 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
   - Utile sur un serveur Linux avec une limite de descripteurs basse (`ulimit -n`, souvent 1024 hors Docker) : prévoir au moins 4 096 pour 200 utilisateurs virtuels avec marge.
 - **Pacing approximatif** : le débit cible (`targetRps`) est un mécanisme de répartition simple par créneaux, partagé entre tous les utilisateurs virtuels d'une exécution, pas un contrôleur de débit avancé.
 - **Mode « Point de rupture » (stress automatique)** : choisi dans l'étape « Charge & résumé » d'un scénario, il ne demande aucun réglage de charge. LoadPilot augmente la charge tout seul et s'arrête quand l'application cède.
-  - **Montée** : 10 s d'échauffement, puis 30 s de mesure de référence à 2 req/s, puis +1 req/s chaque seconde. Des utilisateurs virtuels sont ajoutés au besoin, selon le déficit de débit (loi de Little).
+  - **Montée** : 10 s d'échauffement, puis 30 s de mesure de référence à 2 req/s, puis +1 req/s chaque seconde.
+  - **Utilisateurs virtuels** : ajoutés chaque seconde selon le plus grand de deux besoins, au plus en doublant (10 au moins) :
+    - la loi de Little sur le débit de la seconde suivante et le temps de réponse moyen, avec 20 % de marge ;
+    - le déficit mesuré (créneaux de débit manqués).
+  - **Vitesse de montée** : seul réglage du mode, optionnel (« Réglage avancé » de l'étape « Charge & résumé »), de 1 à 50 req/s gagnées chaque seconde, 1 par défaut.
+    - La vitesse est copiée sur l'exécution au lancement et affichée dans le suivi, le rapport et le PDF.
+    - Le début de la rupture est connu à une fenêtre près, soit ± 5 × la vitesse : ± 5 req/s à +1, ± 100 req/s à +20. Garder +1 pour une application fragile.
   - **Rupture** : vérifiée sur 3 fenêtres de 5 s consécutives, par rapport à la mesure de référence. Elle est retenue si le P95 est plus de 3 fois plus lent (et d'au moins 200 ms), si au moins 5 % des requêtes sont refusées (délais dépassés, connexions refusées, 429, 502/503/504), ou si le débit obtenu tombe sous 80 % du débit envoyé pendant la montée.
-  - **Constantes internes** : elles sont dans `StressSettings` et ne sont jamais exposées à l'utilisateur.
+    - Le critère de débit est suspendu sur une fenêtre où LoadPilot manquait d'utilisateurs virtuels (limite atteinte, ou besoin plus rapide que la croissance permise) : le déficit viendrait alors de LoadPilot, pas de l'application.
+  - **Constantes internes** : elles sont dans `StressSettings` et ne sont jamais exposées à l'utilisateur, sauf la vitesse de montée.
   - **Résultat** :
     - « Seuils dépassés » avec le niveau de charge au **début** de l'anomalie (utilisateurs virtuels, débit offert et obtenu, P95, critère) ;
     - « Réussie » avec la note « aucune rupture détectée jusqu'à X VU / Y req/s » si une limite du serveur est atteinte d'abord ;
@@ -463,7 +470,7 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
   - **Conservation** : le résultat est enregistré avec l'exécution (gardé après la purge), marqué sur le graphique et dans le PDF.
   - **Conditions** : un test de stress tourne **seul** sur le serveur, ne se met pas en pause et ne se planifie pas. Les seuils de réussite et le frein automatique du scénario ne s'appliquent pas.
   - **Portée** : la montée s'arrête aux limites en vigueur (Paramètres > Système, plafonnées par `LOADPILOT_MAX_VUS_PER_EXECUTION`, `LOADPILOT_MAX_TARGET_RPS` et `LOADPILOT_MAX_DURATION_SECONDS`). Pour chercher la rupture plus haut sur un serveur plus puissant, il faut relever ces plafonds **et** la limite dans Paramètres > Système, et augmenter `LOADPILOT_JVM_MAX_MEMORY`.
-  - **Durée** : à +1 req/s par seconde, atteindre 500 req/s prend environ 8 minutes ; 3 000 req/s dépasseraient la durée maximale de 1 h.
+  - **Durée** : à +1 req/s par seconde, atteindre 500 req/s prend environ 9 minutes et 3 000 req/s dépasseraient la durée maximale de 1 h ; à +20, 5 000 req/s sont atteints en environ 5 minutes.
   - **Banc de capacité** : chaque utilisateur virtuel a ses propres clients HTTP. Un banc de capacité est recommandé avant de relever fortement le plafond d'utilisateurs virtuels.
 - **HTTPS non fourni** (voir section 13).
 - **Docker non validé en exécution réelle** dans l'environnement de développement de ce projet (voir section 12).
