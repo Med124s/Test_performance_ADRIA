@@ -59,6 +59,10 @@ cd perftest-frontend; npm test; npm run build   # tests et build frontend
   - baseline inexploitable (moins de 30 réponses en 30 s à 2 req/s) → « Échouée » ;
   - les 429 et 502/503/504 de la cible comptent comme des refus, au même titre que les timeouts et les connexions refusées ;
   - un stress test tourne seul sur le serveur, ne se planifie pas ; think time des étapes conservé, think time global ignoré.
+- **Série d'essais de stress** (`StressSeriesService`, table `stress_series`) :
+  - 1 (test seul), 3 ou 5 essais au lancement ; pause de 30 s entre deux essais, serveur réservé pendant la pause (`RunningExecutionRegistry.unregisterKeepingReservation`) ;
+  - un essai non concluant interrompt la série ; scénario non modifiable pendant la série ; redémarrage du serveur → série interrompue ;
+  - consolidé (`StressSeriesSummary`, essais concluants seulement) : « confirmé » si au moins 2 essais, tous en rupture, écart (max − min) / moyenne ≤ 20 % ; même calcul dans la comparaison de tests de stress d'un même scénario.
 - **Journal d'audit** : 365 jours ; événements Keycloak : 365 jours.
 - **Migration de Keycloak vers PostgreSQL** :
   - validée mais pas encore faite : Keycloak tourne en `start-dev` avec H2 dans son conteneur ;

@@ -7,8 +7,9 @@ Démonstration guidée, à dérouler dans LoadPilot : un scénario en mode « Po
 - **Partie C** : lancer et suivre la montée en direct.
 - **Partie D** : lire le résultat (rapport, graphique, PDF).
 - **Partie E** : variantes et règles du mode (aucune rupture, test seul, pas de pause, pas de planification).
+- **Partie F** : confirmer le point de rupture par une série de 3 essais (facultatif, environ 8 minutes de plus).
 
-Durée : environ 20 minutes, dont 2 à 3 minutes de test. Toutes les données sont fictives.
+Durée : environ 20 minutes, dont 2 à 3 minutes de test (30 minutes avec la partie F). Toutes les données sont fictives.
 
 ## Prérequis
 
@@ -133,6 +134,35 @@ Le bouton Pause n'apparaît pas. Une pause fausserait la comparaison à la mesur
 
 **Planification > Nouvelle planification** : les scénarios en mode « Point de rupture » ne sont pas proposés. Un scénario déjà planifié ne peut pas passer en mode stress tant qu'il a des planifications.
 
+## Partie F — Confirmer le point de rupture : série de 3 essais
+
+Un seul essai peut varier avec la charge du poste ou le réseau. La série relance le même test et donne un chiffre consolidé.
+
+**Lancer un test** → `Démo — point de rupture` → **Nombre d'essais : 3 essais** → **Lancer**.
+
+| Moment | Ce qu'on voit |
+|---|---|
+| essai 1 (≈ 2 min) | suivi en direct habituel ; encadré « Série de 3 essais · essai 1/3 en cours » |
+| pause de 30 s | « pause : essai 2/3 dans 25 s (le serveur reste réservé à la série) », résultat provisoire ; le suivi passe seul sur l'essai suivant |
+| essais 2 et 3 | même montée ; le tableau de la série se remplit |
+| fin | « Série de 3 essais · Terminée », point de rupture consolidé, bouton **Rapport de la série (PDF)** |
+
+À montrer :
+
+- pendant la pause, lancer un autre scénario : refus « Une série d'essais de stress est en pause entre deux essais : le serveur lui reste réservé » ;
+- le scénario ne se modifie pas pendant la série ;
+- **Annuler la série** arrête l'essai en cours ou la pause (variante, à faire sur une autre série) ;
+- dans **Exécutions**, chaque essai porte le badge « Essai n » ; **Comparer** deux essais donne le même résultat consolidé ;
+- le **PDF de la série** : verdict, moyenne, minimum, maximum, écart, précision, tableau des essais et méthode.
+
+Mesure de référence de ce guide (une série de 3 essais, capacité 50 req/s, +1 req/s par seconde) : les 3 essais rompent **vers 63 req/s offertes** (33 à 35 utilisateurs virtuels), à 1 min 40 s, critère « temps de réponse (P95) », P95 942 ms pour une référence de 308 ms. Résultat : « **Point de rupture confirmé à 63 req/s sur les 3 essais** (même valeur à chaque essai, précision ± 5 req/s) ».
+
+À dire à l'encadrant :
+
+- le début de la rupture tombe au début d'une fenêtre de 5 s : à +1 req/s par seconde, les valeurs vont par paliers de 5 req/s ;
+- trois essais identiques montrent que le point de rupture est **reproductible**, mais pas plus précis que ± 5 req/s ;
+- ce n'est pas un intervalle de confiance statistique : la règle est « au moins 2 essais, tous en rupture, écart (max − min) / moyenne ≤ 20 % ».
+
 ## Fin de la démo
 
 ```powershell
@@ -146,3 +176,4 @@ Remove-Item Env:CAPACITY_RPS; Remove-Item Env:ERROR_RATE; npm start
 | « Réussie », aucune rupture, alors qu'une rupture était attendue | banking-test-api lancé sans `CAPACITY_RPS` |
 | Lancement refusé (429) | une autre exécution tourne encore : attendre sa fin |
 | « Annulée — non concluant » | LoadPilot a saturé avant la cible : fermer les applications gourmandes du poste, ou baisser `CAPACITY_RPS` |
+| Série « Interrompue » | un essai n'a pas abouti (raison sous « Série de 3 essais ») : les essais terminés restent dans le consolidé |
