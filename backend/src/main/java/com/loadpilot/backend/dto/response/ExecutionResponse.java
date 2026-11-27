@@ -21,6 +21,8 @@ public record ExecutionResponse(
         String errorMessage,
         /** Mode de charge copie au lancement, et resultat du test de stress (null en mode manuel). */
         com.loadpilot.backend.enums.LoadMode loadMode,
-        StressResultResponse stress
+        StressResultResponse stress,
+        /** Serie d'essais de stress de l'execution ; null hors serie. */
+        StressSeriesRefResponse series
 ) {
 }

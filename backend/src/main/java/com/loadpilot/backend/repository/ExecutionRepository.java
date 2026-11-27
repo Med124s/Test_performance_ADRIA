@@ -20,6 +20,11 @@ public interface ExecutionRepository extends JpaRepository<Execution, UUID>, Jpa
 
     List<Execution> findByScenarioId(UUID scenarioId, Sort sort);
 
+    /** Essais d'une serie de stress, dans l'ordre. */
+    List<Execution> findBySeriesIdOrderBySeriesIndexAsc(UUID seriesId);
+
+    long countBySeriesId(UUID seriesId);
+
     /** Execution avec son scenario et son application deja charges. */
     @Query("SELECT e FROM Execution e JOIN FETCH e.scenario s JOIN FETCH s.application LEFT JOIN FETCH e.triggeredBy WHERE e.id = :id")
     Optional<Execution> findByIdWithScenarioAndApplication(@Param("id") UUID id);

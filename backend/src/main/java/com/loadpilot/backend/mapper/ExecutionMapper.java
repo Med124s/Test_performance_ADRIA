@@ -14,6 +14,7 @@ public interface ExecutionMapper {
     @Mapping(target = "scenarioId", source = "scenario.id", qualifiedByName = "uuidToString")
     @Mapping(target = "scenarioName", source = "scenario.name")
     @Mapping(target = "stress", source = ".", qualifiedByName = "executionStress")
+    @Mapping(target = "series", source = ".", qualifiedByName = "executionSeries")
     ExecutionResponse toResponse(Execution execution);
 
     List<ExecutionResponse> toResponseList(List<Execution> executions);
@@ -28,6 +29,7 @@ public interface ExecutionMapper {
     @Mapping(target = "statusReason", source = ".", qualifiedByName = "executionStatusReason")
     @Mapping(target = "previousP95Ms", ignore = true)
     @Mapping(target = "previousStartedAt", ignore = true)
+    @Mapping(target = "series", source = ".", qualifiedByName = "executionSeries")
     ExecutionHistoryResponse toHistoryResponse(Execution execution);
 
     List<ExecutionHistoryResponse> toHistoryResponseList(List<Execution> executions);

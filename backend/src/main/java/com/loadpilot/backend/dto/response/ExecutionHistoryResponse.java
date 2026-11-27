@@ -43,12 +43,14 @@ public record ExecutionHistoryResponse(
         /** Option « Conserver » : resultats jamais purges. */
         boolean keepResults,
         /** Date de suppression du detail des requetes (rapport fige conserve) ; null = detail present. */
-        Instant resultsPurgedAt
+        Instant resultsPurgedAt,
+        /** Serie d'essais de stress de l'execution ; null hors serie. */
+        StressSeriesRefResponse series
 ) {
     public ExecutionHistoryResponse withPrevious(Long p95, Instant startedAt) {
         return new ExecutionHistoryResponse(id, scenarioId, scenarioName, applicationId, applicationName, status, this.startedAt,
                 finishedAt, duration, virtualUsers, rampUpSeconds, durationSeconds, iterations, totalSteps, successfulSteps,
                 failedSteps, triggeredByUsername, throughput, cpuAvgPercent, cpuMaxPercent, memoryMaxMb, p95Ms, statusReason,
-                maxErrorRatePercent, maxP95Ms, p95, startedAt, keepResults, resultsPurgedAt);
+                maxErrorRatePercent, maxP95Ms, p95, startedAt, keepResults, resultsPurgedAt, series);
     }
 }

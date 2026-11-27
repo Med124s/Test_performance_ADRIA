@@ -73,7 +73,7 @@ final class ReportPdfSamples {
         ExecutionReportResponse r = new ExecutionReportResponse(base.id(), base.scenarioId(), base.scenarioName(), base.applicationId(),
                 base.applicationName(), base.status(), base.startedAt(), base.finishedAt(), base.duration(), stress.message(), 64, 0, null, null,
                 base.triggeredByUsername(), 0, base.statistics(), base.steps(), base.errors(), null, base.retention(),
-                com.loadpilot.backend.enums.LoadMode.STRESS, stress);
+                com.loadpilot.backend.enums.LoadMode.STRESS, stress, null);
         return new ReportPdfWriter.Data(r, timeline(), "Point de rupture : 182 req/s", ZONE, Instant.parse("2026-10-21T10:15:00Z"));
     }
 

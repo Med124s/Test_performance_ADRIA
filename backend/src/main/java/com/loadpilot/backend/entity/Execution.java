@@ -181,6 +181,13 @@ public class Execution {
     @Builder.Default
     private com.loadpilot.backend.enums.LoadMode loadMode = com.loadpilot.backend.enums.LoadMode.MANUAL;
 
+    /** Serie d'essais de stress de l'execution (null hors serie) et rang de l'essai (1..n). */
+    @Column(name = "series_id", updatable = false)
+    private UUID seriesId;
+
+    @Column(name = "series_index", updatable = false)
+    private Integer seriesIndex;
+
     /** Mode stress : vitesse de montee utilisee (req/s gagnees chaque seconde), copiee au lancement ; null en mode manuel. */
     @Column(name = "stress_ramp_step")
     private Integer stressRampStep;

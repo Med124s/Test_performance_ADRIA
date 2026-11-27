@@ -23,8 +23,18 @@ public record PreparedExecution(
         /** Frein automatique ; null = desactive. */
         ErrorRateBrake.Config errorBrake,
         /** Reglages reseau pour joindre l'application ; null = proxy du serveur. */
-        com.loadpilot.backend.service.http.NetworkProfile network
+        com.loadpilot.backend.service.http.NetworkProfile network,
+        /** Serie d'essais de stress de l'execution ; null hors serie. */
+        UUID seriesId
 ) {
+    public PreparedExecution(UUID executionId, List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
+            LoadTestSpec loadSpec, List<Map<String, String>> vuVariableRows, VariableSources variableSources, String scenarioName,
+            UUID triggeredByAppUserId, UUID scheduleId, RequestDetailMode requestDetailMode, ErrorRateBrake.Config errorBrake,
+            com.loadpilot.backend.service.http.NetworkProfile network) {
+        this(executionId, steps, applicationBaseUrl, auth, loadSpec, vuVariableRows, variableSources, scenarioName,
+                triggeredByAppUserId, scheduleId, requestDetailMode, errorBrake, network, null);
+    }
+
     public PreparedExecution(UUID executionId, List<StepExecutionSpec> steps, String applicationBaseUrl, ApplicationAuthSpec auth,
             LoadTestSpec loadSpec, List<Map<String, String>> vuVariableRows, VariableSources variableSources, String scenarioName,
             UUID triggeredByAppUserId, UUID scheduleId, RequestDetailMode requestDetailMode, ErrorRateBrake.Config errorBrake) {

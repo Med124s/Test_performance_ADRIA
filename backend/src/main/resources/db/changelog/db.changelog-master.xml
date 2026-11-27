@@ -223,4 +223,7 @@
     <!-- Vitesse de montee d'un test de stress (scenario et execution) - voir changes/044-stress-ramp-step.xml. -->
     <include file="db/changelog/changes/044-stress-ramp-step.xml"/>
 
+    <!-- Serie d'essais d'un test de stress (point de rupture consolide) - voir changes/045-stress-series.xml. -->
+    <include file="db/changelog/changes/045-stress-series.xml"/>
+
 </databaseChangeLog>

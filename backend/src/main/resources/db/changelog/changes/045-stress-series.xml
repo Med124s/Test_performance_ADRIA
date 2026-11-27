@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!--
+        Serie d'essais d'un test de stress (voir entity.StressSeries) : le meme scenario en mode stress enchaine
+        3 ou 5 fois, avec une pause entre deux essais, pour consolider le point de rupture.
+
+        stress_series.requested_runs : essais demandes (3 ou 5).
+        stress_series.status         : RUNNING, COMPLETED, INTERRUPTED ou CANCELLED.
+        stress_series.stop_reason    : INTERRUPTED / CANCELLED - pourquoi la serie s'est arretee avant la fin.
+        stress_series.next_run_at    : pendant une pause, lancement prevu de l'essai suivant ; NULL sinon.
+        execution.series_id          : serie de l'execution (NULL hors serie) ; execution.series_index : rang de l'essai (1..n).
+    -->
+    <changeSet id="045-stress-series" author="loadpilot">
+        <createTable tableName="stress_series">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="scenario_id" type="UUID">
+                <constraints nullable="false" foreignKeyName="fk_stress_series_scenario" references="scenario(id)"/>
+            </column>
+            <column name="requested_runs" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="stop_reason" type="VARCHAR(500)"/>
+            <column name="triggered_by_app_user_id" type="UUID">
+                <constraints foreignKeyName="fk_stress_series_triggered_by" references="app_user(id)"/>
+            </column>
+            <column name="started_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="finished_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="next_run_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </createTable>
+        <createIndex indexName="idx_stress_series_scenario" tableName="stress_series">
+            <column name="scenario_id"/>
+        </createIndex>
+        <addColumn tableName="execution">
+            <column name="series_id" type="UUID">
+                <constraints foreignKeyName="fk_execution_stress_series" references="stress_series(id)"/>
+            </column>
+            <column name="series_index" type="INT"/>
+        </addColumn>
+        <createIndex indexName="idx_execution_series" tableName="execution">
+            <column name="series_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

@@ -67,6 +67,15 @@ public final class StressSettings {
     /** Intervalle de lecture du CPU de LoadPilot en mode stress (5 s sinon). */
     public static final int INJECTOR_INTERVAL_SECONDS = 2;
 
+    // Serie d'essais : le meme test de stress enchaine plusieurs fois, point de rupture consolide.
+
+    /** Nombres d'essais proposes au lancement (1 = test seul, sans serie). */
+    public static final java.util.List<Integer> SERIES_RUNS = java.util.List.of(1, 3, 5);
+    /** Pause entre deux essais, pour que l'application testee recupere ; le serveur reste reserve a la serie. */
+    public static final int SERIES_PAUSE_SECONDS = 30;
+    /** Ecart maximal entre essais, (max - min) / moyenne, pour un point de rupture « confirme ». */
+    public static final double SERIES_MAX_SPREAD_PERCENT = 20.0;
+
     /** Vitesse de montee du scenario ; null = DEFAULT_RAMP_RPS_PER_SECOND. */
     public static int rampOrDefault(Integer rampRpsPerSecond) {
         return rampRpsPerSecond != null ? rampRpsPerSecond : DEFAULT_RAMP_RPS_PER_SECOND;

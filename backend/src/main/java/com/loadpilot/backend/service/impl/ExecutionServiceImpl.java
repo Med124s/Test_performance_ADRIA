@@ -104,6 +104,8 @@ public class ExecutionServiceImpl implements ExecutionService {
     private final ResultLoadGuard resultLoadGuard;
     private final com.loadpilot.backend.service.monitoring.InjectorMonitor injectorMonitor;
     private final com.loadpilot.backend.service.ExecutionLimitsService executionLimits;
+    // Fourni a la demande : StressSeriesService depend lui-meme de ce service.
+    private final org.springframework.beans.factory.ObjectProvider<StressSeriesService> stressSeries;
 
     // Plafond memoire du detail des requetes par execution (Mo).
     @org.springframework.beans.factory.annotation.Value("${app.execution.request-detail.max-memory-mb:50}")
@@ -119,8 +121,19 @@ public class ExecutionServiceImpl implements ExecutionService {
         return doExecute(scenarioId, triggeredByAppUserId, scheduleId);
     }
 
+    @Override
+    public ExecutionResponse executeSeriesRun(UUID scenarioId, UUID triggeredByAppUserId, UUID seriesId, int seriesIndex) {
+        return doExecute(scenarioId, triggeredByAppUserId, null, seriesId, seriesIndex);
+    }
+
     private ExecutionResponse doExecute(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId) {
+        return doExecute(scenarioId, triggeredByAppUserId, scheduleId, null, null);
+    }
+
+    /** "seriesId" / "seriesIndex" : essai d'une serie de stress ; apres le premier, reprend la reservation gardee. */
+    private ExecutionResponse doExecute(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId, UUID seriesId, Integer seriesIndex) {
         boolean capacityReserved = false;
+        boolean heldReservation = seriesId != null && seriesIndex != null && seriesIndex > 1;
         int virtualUsers = 0;
         boolean stress = false;
         try {
@@ -132,13 +145,26 @@ public class ExecutionServiceImpl implements ExecutionService {
             virtualUsers = stress ? executionLimits.maxVirtualUsersPerTest() : scenario.getVirtualUsers();
 
             // Refus avant toute ecriture si une limite de capacite serait depassee ; un test de stress tourne seul.
-            registry.reserveCapacity(virtualUsers, stress);
-            capacityReserved = true;
+            // Essai suivant d'une serie : le serveur lui est deja reserve.
+            if (heldReservation) {
+                if (!registry.holds(seriesId)) throw new ConflictException(StressSeriesService.CANCELLED_DURING_PAUSE);
+            } else {
+                registry.reserveCapacity(virtualUsers, stress);
+                capacityReserved = true;
+            }
 
             // Valide le scenario et cree l'execution QUEUED avec ses parametres de charge.
-            PreparedExecution prepared = transactionHelper.prepareAndStart(scenarioId, triggeredByAppUserId, scheduleId);
+            PreparedExecution prepared = transactionHelper.prepareAndStart(scenarioId, triggeredByAppUserId, scheduleId,
+                    seriesId, seriesIndex);
 
-            RunningExecutionHandle handle = registry.registerReserved(prepared.executionId(), virtualUsers, stress);
+            RunningExecutionHandle handle = heldReservation ? registry.registerHeld(seriesId, prepared.executionId())
+                    : registry.registerReserved(prepared.executionId(), virtualUsers, stress);
+            if (handle == null) {
+                // Serie annulee pendant la preparation : l'essai ne demarre pas.
+                transactionHelper.markFailedIfActive(prepared.executionId(), StressSeriesService.CANCELLED_DURING_PAUSE);
+                throw new ConflictException(StressSeriesService.CANCELLED_DURING_PAUSE);
+            }
+            heldReservation = false;
             handle.detailRecorder(new RequestDetailRecorder(prepared.requestDetailMode(), requestDetailMaxMemoryMb * 1024L * 1024L));
             // Desormais, la capacite est liberee par registry.unregister() (runAsync, bloc finally).
             capacityReserved = false;
@@ -150,9 +176,13 @@ public class ExecutionServiceImpl implements ExecutionService {
             Execution queued = executionRepository.findByIdWithScenarioAndApplication(prepared.executionId())
                     .orElseThrow(() -> new ResourceNotFoundException("Execution introuvable : " + prepared.executionId()));
             if (scheduleId == null) {
-                auditLogService.record(AuditEvent.of(AuditAction.EXECUTE, AuditModule.EXECUTION)
+                AuditEvent launched = AuditEvent.of(AuditAction.EXECUTE, AuditModule.EXECUTION)
                         .target(AuditTargetType.EXECUTION, queued.getId(), AuditTargets.executionLabel(queued.getScenario().getName(), queued.getStartedAt() != null ? queued.getStartedAt() : Instant.now()))
-                        .description("Exécution lancée (" + virtualUsers + " utilisateur" + (virtualUsers > 1 ? "s" : "") + " virtuel" + (virtualUsers > 1 ? "s" : "") + ")"));
+                        .description((seriesIndex != null ? "Essai " + seriesIndex + " d'une série de stress lancé (" : "Exécution lancée (")
+                                + virtualUsers + " utilisateur" + (virtualUsers > 1 ? "s" : "") + " virtuel" + (virtualUsers > 1 ? "s" : "") + ")");
+                // Essais suivants d'une serie : lances apres la pause, sans utilisateur connecte.
+                if (seriesIndex != null && seriesIndex > 1) launched.system("Série d'essais de stress");
+                auditLogService.record(launched);
             }
             return executionMapper.toResponse(queued);
         } catch (RuntimeException e) {
@@ -160,6 +190,7 @@ public class ExecutionServiceImpl implements ExecutionService {
             if (capacityReserved) {
                 registry.releaseReservationWithoutRegistering(virtualUsers, stress);
             }
+            if (heldReservation) registry.releaseHeld(seriesId);
             auditLogService.record(launchAudit(AuditEvent.of(AuditAction.EXECUTE, AuditModule.EXECUTION), scenarioId, scheduleId)
                     .description("Exécution non lancée").failed(e));
             throw e;
@@ -184,6 +215,7 @@ public class ExecutionServiceImpl implements ExecutionService {
         com.loadpilot.backend.service.monitoring.InjectorMonitor.Session injectorSession = null;
         com.loadpilot.backend.service.execution.ResultStream resultStream = null;
         UUID finishedId = null;
+        boolean seriesContinues = false;
         try {
             ScenarioExecutionOutcome outcome;
             // Execution deja annulee avant son demarrage : aucune requete n'est envoyee.
@@ -273,8 +305,12 @@ public class ExecutionServiceImpl implements ExecutionService {
             if (injectorSession != null) injectorSession.stop();
             if (monitoringSession != null) monitoringSession.stop();
             closeResultStream(resultStream, prepared.executionId());
-            registry.unregister(prepared.executionId());
+            // Essai d'une serie suivi d'un autre : le serveur reste reserve a la serie pendant la pause.
+            seriesContinues = prepared.seriesId() != null && seriesContinues(prepared);
+            if (seriesContinues) registry.unregisterKeepingReservation(prepared.executionId(), prepared.seriesId());
+            else registry.unregister(prepared.executionId());
         }
+        if (seriesContinues) stressSeries.getObject().scheduleNext(prepared.seriesId());
         // Rapport fige, calcule apres la liberation de la capacite.
         if (finishedId != null) {
             try {
@@ -282,6 +318,22 @@ public class ExecutionServiceImpl implements ExecutionService {
             } catch (Throwable e) {
                 logBackgroundFailure("Rapport fige", finishedId, e);
             }
+        }
+    }
+
+    /** Fin d'un essai de serie : true si l'essai suivant doit suivre ; ne leve jamais d'exception (serie alors arretee). */
+    private boolean seriesContinues(PreparedExecution prepared) {
+        try {
+            return stressSeries.getObject().onRunFinished(prepared.seriesId(), prepared.executionId());
+        } catch (Throwable e) {
+            logBackgroundFailure("Suite de la serie d'essais", prepared.executionId(), e);
+            try {
+                stressSeries.getObject().interrupt(prepared.seriesId(), "Erreur inattendue du serveur LoadPilot ("
+                        + e.getClass().getSimpleName() + ") après l'essai.");
+            } catch (Throwable ignored) {
+                // Serie laissee en cours : passee en INTERRUPTED au prochain demarrage.
+            }
+            return false;
         }
     }
 
@@ -414,7 +466,8 @@ public class ExecutionServiceImpl implements ExecutionService {
                 execution.isDetailSampleCapReached(), requestDetailRepository.countByExecutionIdAndKind(id, "FAILURE"),
                 requestDetailRepository.countByExecutionIdAndKind(id, "SAMPLE"), reportSnapshots.retention(execution, false, false),
                 toDouble(ThroughputCalculator.compute(executed(execution), execution.activeDurationMs())),
-                toDouble(PerformanceAggregates.errorRate(failed(execution), executed(execution))), base.loadMode(), base.stress());
+                toDouble(PerformanceAggregates.errorRate(failed(execution), executed(execution))), base.loadMode(), base.stress(),
+                base.series());
     }
 
     private static int executed(Execution e) {
@@ -482,7 +535,8 @@ public class ExecutionServiceImpl implements ExecutionService {
                 injector(handle, live),
                 execution.getLoadMode(),
                 stressLive(handle),
-                com.loadpilot.backend.mapper.MapperSupport.executionStress(execution));
+                com.loadpilot.backend.mapper.MapperSupport.executionStress(execution),
+                com.loadpilot.backend.mapper.MapperSupport.executionSeries(execution));
     }
 
     /** Montee du test de stress en cours ; null hors mode stress ou tant que le moteur n'a pas demarre. */
@@ -892,7 +946,8 @@ public class ExecutionServiceImpl implements ExecutionService {
                 thresholds,
                 retention,
                 execution.getLoadMode(),
-                com.loadpilot.backend.mapper.MapperSupport.executionStress(execution));
+                com.loadpilot.backend.mapper.MapperSupport.executionStress(execution),
+                com.loadpilot.backend.mapper.MapperSupport.executionSeries(execution));
     }
 
     /** Seuils copies au lancement et leur resultat ; null pour une execution sans seuils. */

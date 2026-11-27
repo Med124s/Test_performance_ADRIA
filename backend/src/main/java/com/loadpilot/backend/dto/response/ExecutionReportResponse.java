@@ -36,7 +36,9 @@ public record ExecutionReportResponse(
         ResultsRetentionResponse retention,
         /** Mode de charge, et resultat du test de stress (point de rupture), garde avec l'execution apres la purge. */
         com.loadpilot.backend.enums.LoadMode loadMode,
-        StressResultResponse stress
+        StressResultResponse stress,
+        /** Serie d'essais de stress de l'execution ; null hors serie. */
+        StressSeriesRefResponse series
 ) {
     /** Execution en mode manuel. */
     public ExecutionReportResponse(String id, String scenarioId, String scenarioName, String applicationId, String applicationName,
@@ -46,7 +48,7 @@ public record ExecutionReportResponse(
             ResultsRetentionResponse retention) {
         this(id, scenarioId, scenarioName, applicationId, applicationName, status, startedAt, finishedAt, duration, errorMessage,
                 virtualUsers, rampUpSeconds, durationSeconds, iterations, triggeredByUsername, pausedDurationMs, statistics, steps,
-                errors, thresholds, retention, com.loadpilot.backend.enums.LoadMode.MANUAL, null);
+                errors, thresholds, retention, com.loadpilot.backend.enums.LoadMode.MANUAL, null, null);
     }
 
     /** Seuil de taux d'erreurs (toujours present) et seuil de P95 (null = aucun) ; ok = seuil respecte. */

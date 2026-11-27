@@ -10,8 +10,17 @@ public record ExecutionComparisonResponse(
         boolean sameScenario,
         String warning,
         List<Column> executions,
-        List<StepRow> steps
+        List<StepRow> steps,
+        /**
+         * Tests de stress du meme scenario uniquement : point de rupture consolide (meme calcul qu'une serie d'essais) ;
+         * null sinon.
+         */
+        com.loadpilot.backend.service.execution.StressSeriesSummary stressSummary
 ) {
+    public ExecutionComparisonResponse(boolean sameScenario, String warning, List<Column> executions, List<StepRow> steps) {
+        this(sameScenario, warning, executions, steps, null);
+    }
+
     public record Column(String executionId, String scenarioId, String scenarioName, String applicationName, Instant startedAt,
             ExecutionStatus status, Integer virtualUsers, Integer rampUpSeconds, Integer durationSeconds, Integer iterations,
             /** Duree de travail reelle (ms), pauses exclues. */

@@ -16,6 +16,8 @@ public class RunningExecutionRegistry {
 
     static final String STRESS_RUNNING = "Un test de stress est en cours : il tourne seul sur le serveur. "
             + "Réessayez quand il sera terminé.";
+    static final String STRESS_SERIES_PAUSE = "Une série d'essais de stress est en pause entre deux essais : le serveur lui reste "
+            + "réservé. Réessayez quand la série sera terminée.";
 
     private final Map<UUID, ActiveEntry> active = new ConcurrentHashMap<>();
 
@@ -25,6 +27,8 @@ public class RunningExecutionRegistry {
     /** Un test de stress est reserve ou en cours. */
     private boolean stressReserved = false;
     private int reservedExecutionSlots = 0;
+    /** Series d'essais en pause : reservation gardee entre deux essais (utilisateurs virtuels reserves), par serie. */
+    private final Map<UUID, Integer> held = new java.util.HashMap<>();
 
     /** Limites en vigueur, relues a chaque reservation. */
     private final java.util.function.IntSupplier maxGlobalVirtualUsersSupplier;
@@ -53,7 +57,7 @@ public class RunningExecutionRegistry {
         int maxGlobalVirtualUsers = maxGlobalVirtualUsersSupplier.getAsInt();
         int maxConcurrentExecutions = maxConcurrentExecutionsSupplier.getAsInt();
         synchronized (capacityLock) {
-            if (stressReserved) throw new ExecutionLimitExceededException(STRESS_RUNNING);
+            if (stressReserved) throw new ExecutionLimitExceededException(held.isEmpty() ? STRESS_RUNNING : STRESS_SERIES_PAUSE);
             if (stress && reservedExecutionSlots > 0) {
                 throw new ExecutionLimitExceededException("Un test de stress tourne seul sur le serveur : " + reservedExecutionSlots
                         + " exécution(s) en cours. Réessayez quand elles seront terminées.");
@@ -120,6 +124,45 @@ public class RunningExecutionRegistry {
                 reservedVirtualUsers -= removed.virtualUsers();
                 if (removed.stress()) stressReserved = false;
             }
+        }
+    }
+
+    /**
+     * Fin d'un essai de serie suivi d'un autre : l'execution quitte le registre mais sa reservation (test de stress
+     * seul sur le serveur) est gardee pour l'essai suivant, sous la cle "seriesId".
+     */
+    public void unregisterKeepingReservation(UUID executionId, UUID seriesId) {
+        ActiveEntry removed = active.remove(executionId);
+        if (removed == null) return;
+        synchronized (capacityLock) {
+            held.put(seriesId, removed.virtualUsers());
+        }
+    }
+
+    /** Essai suivant d'une serie : reprend la reservation gardee ; null si aucune (serie annulee pendant la pause). */
+    public RunningExecutionHandle registerHeld(UUID seriesId, UUID executionId) {
+        Integer virtualUsers;
+        synchronized (capacityLock) {
+            virtualUsers = held.remove(seriesId);
+        }
+        return virtualUsers == null ? null : registerReserved(executionId, virtualUsers, true);
+    }
+
+    /** Une reservation est gardee pour cette serie. */
+    public boolean holds(UUID seriesId) {
+        synchronized (capacityLock) {
+            return held.containsKey(seriesId);
+        }
+    }
+
+    /** Libere la reservation gardee pour cette serie (serie terminee ou annulee pendant la pause) ; sans effet sinon. */
+    public void releaseHeld(UUID seriesId) {
+        synchronized (capacityLock) {
+            Integer virtualUsers = held.remove(seriesId);
+            if (virtualUsers == null) return;
+            reservedExecutionSlots--;
+            reservedVirtualUsers -= virtualUsers;
+            stressReserved = false;
         }
     }
 

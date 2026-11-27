@@ -130,6 +130,7 @@ class ExecutionComparisonTest {
         JsonNode c = json(get("/api/executions/compare").param("ids", run2 + "," + run1), null);
         assertThat(c.get("sameScenario").asBoolean()).isTrue();
         assertThat(c.get("warning").isNull()).isTrue();
+        assertThat(c.get("stressSummary").isNull()).as("pas de point de rupture consolide en mode manuel").isTrue();
         JsonNode cols = c.get("executions");
         assertThat(cols.get(0).get("executionId").asText()).as("ordre chronologique").isEqualTo(run1);
         assertThat(cols.get(1).get("virtualUsers").asInt()).isEqualTo(3);
@@ -173,6 +174,28 @@ class ExecutionComparisonTest {
         assertThat(p0.get("stepErrorRate").asDouble()).isPositive();
         JsonNode noStep = json(get("/api/dashboard/scenario-trend").param("scenarioId", s1).param("from", start.toString()), null);
         assertThat(noStep.get("points").get(0).get("stepP95Ms").isNull()).isTrue();
+    }
+
+    @Test
+    void compare_stressRunsOfTheSameScenario_consolidateTheBreakpoint() throws Exception {
+        String appId = json(post("/api/applications"), Map.of("name", "compare-s-" + UUID.randomUUID(), "url", targetUrl)).get("id").asText();
+        String sc = scenario(appId, "Stress-" + UUID.randomUUID().toString().substring(0, 6));
+        List<String> ids = new java.util.ArrayList<>();
+        for (double rps : new double[] {63, 66}) {
+            ids.add(executionRepository.save(Execution.builder().scenario(scenarioRepository.findById(UUID.fromString(sc)).orElseThrow())
+                    .startedAt(Instant.now().minusSeconds(120)).finishedAt(Instant.now()).status(ExecutionStatus.THRESHOLDS_EXCEEDED)
+                    .totalSteps(2).successfulSteps(0).failedSteps(0).duration(115_000L)
+                    .loadMode(com.loadpilot.backend.enums.LoadMode.STRESS).stressRampStep(1)
+                    .stressOutcome(com.loadpilot.backend.enums.StressOutcome.BREAKPOINT).breakpointOfferedRps(rps)
+                    .stressPeakOfferedRps(rps + 15).build()).getId().toString());
+        }
+
+        JsonNode c = json(get("/api/executions/compare").param("ids", String.join(",", ids)), null);
+        JsonNode summary = c.get("stressSummary");
+        assertThat(summary.get("verdict").asText()).isEqualTo("CONFIRMED");
+        assertThat(summary.get("ruptures").asInt()).isEqualTo(2);
+        assertThat(summary.get("message").asText().replaceAll("[\u00A0\u202F]", " "))
+                .startsWith("Point de rupture confirmé autour de 64,5 req/s, entre 63 et 66 req/s sur 2 essais");
     }
 
     @Test

@@ -46,6 +46,14 @@ public final class MapperSupport {
                 e.getBreakpointRefusalPercent(), e.getStressRampStep());
     }
 
+    /** Serie d'essais de stress de l'execution ; null hors serie. */
+    @Named("executionSeries")
+    public static com.loadpilot.backend.dto.response.StressSeriesRefResponse executionSeries(Execution e) {
+        if (e.getSeriesId() == null) return null;
+        return new com.loadpilot.backend.dto.response.StressSeriesRefResponse(e.getSeriesId().toString(),
+                e.getSeriesIndex() != null ? e.getSeriesIndex() : 1);
+    }
+
     @Named("executionThroughput")
     public static BigDecimal executionThroughput(Execution execution) {
         int executed = execution.getSuccessfulSteps() + execution.getFailedSteps();

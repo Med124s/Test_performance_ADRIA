@@ -60,8 +60,11 @@ public class DeletionServiceImpl {
         if (existing == 0) {
             throw new ResourceNotFoundException("Application introuvable.");
         }
+        // Serie d'essais de stress en cours (pause comprise) : comptee comme une execution en cours.
         long running = count("SELECT COUNT(e) FROM Execution e WHERE e.scenario.application.id IN :ids "
-                + "AND e.status IN (com.loadpilot.backend.enums.ExecutionStatus.QUEUED, com.loadpilot.backend.enums.ExecutionStatus.RUNNING, com.loadpilot.backend.enums.ExecutionStatus.PAUSED)", ids);
+                + "AND e.status IN (com.loadpilot.backend.enums.ExecutionStatus.QUEUED, com.loadpilot.backend.enums.ExecutionStatus.RUNNING, com.loadpilot.backend.enums.ExecutionStatus.PAUSED)", ids)
+                + count("SELECT COUNT(ss) FROM StressSeries ss WHERE ss.scenario.application.id IN :ids "
+                + "AND ss.status = com.loadpilot.backend.enums.StressSeriesStatus.RUNNING", ids);
         return new DeletionImpactResponse(
                 existing,
                 count("SELECT COUNT(s) FROM Scenario s WHERE s.application.id IN :ids", ids),
@@ -96,7 +99,9 @@ public class DeletionServiceImpl {
             throw new ResourceNotFoundException("Scenario introuvable.");
         }
         long running = count("SELECT COUNT(e) FROM Execution e WHERE e.scenario.id IN :ids "
-                + "AND e.status IN (com.loadpilot.backend.enums.ExecutionStatus.QUEUED, com.loadpilot.backend.enums.ExecutionStatus.RUNNING, com.loadpilot.backend.enums.ExecutionStatus.PAUSED)", ids);
+                + "AND e.status IN (com.loadpilot.backend.enums.ExecutionStatus.QUEUED, com.loadpilot.backend.enums.ExecutionStatus.RUNNING, com.loadpilot.backend.enums.ExecutionStatus.PAUSED)", ids)
+                + count("SELECT COUNT(ss) FROM StressSeries ss WHERE ss.scenario.id IN :ids "
+                + "AND ss.status = com.loadpilot.backend.enums.StressSeriesStatus.RUNNING", ids);
         return new DeletionImpactResponse(
                 0,
                 existing,
@@ -107,12 +112,17 @@ public class DeletionServiceImpl {
                 running > 0);
     }
 
-    /** Nombre d'executions en attente ou en cours d'un scenario. */
+    /**
+     * Nombre d'executions en attente ou en cours d'un scenario, series d'essais de stress en cours comprises (pause
+     * entre deux essais) : le scenario ne se modifie, ne s'archive ni ne se supprime pendant une serie.
+     */
     @Transactional(readOnly = true)
     public long runningForScenario(UUID scenarioId) {
         return count("SELECT COUNT(e) FROM Execution e WHERE e.scenario.id IN :ids "
                 + "AND e.status IN (com.loadpilot.backend.enums.ExecutionStatus.QUEUED, com.loadpilot.backend.enums.ExecutionStatus.RUNNING, com.loadpilot.backend.enums.ExecutionStatus.PAUSED)",
-                List.of(scenarioId));
+                List.of(scenarioId))
+                + count("SELECT COUNT(ss) FROM StressSeries ss WHERE ss.scenario.id IN :ids "
+                + "AND ss.status = com.loadpilot.backend.enums.StressSeriesStatus.RUNNING", List.of(scenarioId));
     }
 
     // ---- Application ----
@@ -168,6 +178,7 @@ public class DeletionServiceImpl {
                     + ") OR execution_id IN (" + executions + ") OR step_id IN (" + steps + ")", id);
             nativeDelete("DELETE FROM execution_step_result WHERE execution_id IN (" + executions + ")", id);
             nativeDelete("DELETE FROM execution WHERE scenario_id IN (" + scenarios + ")", id);
+            nativeDelete("DELETE FROM stress_series WHERE scenario_id IN (" + scenarios + ")", id);
             nativeDelete("DELETE FROM scheduled_execution WHERE scenario_id IN (" + scenarios + ")", id);
             nativeDelete("DELETE FROM step WHERE scenario_id IN (" + scenarios + ")", id);
             nativeDelete("DELETE FROM scenario WHERE application_id = :id", id);
@@ -241,6 +252,7 @@ public class DeletionServiceImpl {
                     + ") OR step_id IN (" + steps + ")", id);
             nativeDelete("DELETE FROM execution_step_result WHERE execution_id IN (" + executions + ")", id);
             nativeDelete("DELETE FROM execution WHERE scenario_id = :id", id);
+            nativeDelete("DELETE FROM stress_series WHERE scenario_id = :id", id);
             nativeDelete("DELETE FROM scheduled_execution WHERE scenario_id = :id", id);
             nativeDelete("DELETE FROM step WHERE scenario_id = :id", id);
             nativeDelete("DELETE FROM scenario WHERE id = :id", id);

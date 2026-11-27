@@ -38,6 +38,8 @@ public record ExecutionStatusResponse(
         /** Mode de charge ; montee du test de stress en cours (null sinon) ; resultat du stress une fois termine. */
         com.loadpilot.backend.enums.LoadMode loadMode,
         StressLiveResponse stressLive,
-        StressResultResponse stress
+        StressResultResponse stress,
+        /** Serie d'essais de stress de l'execution ; null hors serie. */
+        StressSeriesRefResponse series
 ) {
 }

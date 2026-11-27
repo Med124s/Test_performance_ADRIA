@@ -106,6 +106,10 @@ public class ExecutionComparisonService {
                     + "comparez plutôt les points de rupture.");
         }
         String warning = warnings.isEmpty() ? null : String.join(" ", warnings);
-        return new ExecutionComparisonResponse(scenarios == 1, warning, columns, steps);
+        // Tests de stress du meme scenario : point de rupture consolide, comme pour une serie d'essais.
+        boolean allStress = columns.stream().allMatch(c -> c.loadMode() == com.loadpilot.backend.enums.LoadMode.STRESS);
+        com.loadpilot.backend.service.execution.StressSeriesSummary stressSummary = scenarios == 1 && allStress
+                ? StressSeriesService.summaryOf(executions) : null;
+        return new ExecutionComparisonResponse(scenarios == 1, warning, columns, steps, stressSummary);
     }
 }

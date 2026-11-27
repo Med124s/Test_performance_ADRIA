@@ -65,6 +65,13 @@ public class ExecutionTransactionHelper {
     /** Cree l'execution (QUEUED) et copie tout ce qu'il faut pour la lancer hors transaction. */
     @Transactional
     public PreparedExecution prepareAndStart(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId) {
+        return prepareAndStart(scenarioId, triggeredByAppUserId, scheduleId, null, null);
+    }
+
+    /** "seriesId" / "seriesIndex" : essai d'une serie de stress (null hors serie). */
+    @Transactional
+    public PreparedExecution prepareAndStart(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId, UUID seriesId,
+            Integer seriesIndex) {
         Scenario scenario = scenarioRepository.findById(scenarioId)
                 .orElseThrow(() -> new ResourceNotFoundException("Scenario introuvable : " + scenarioId));
 
@@ -88,6 +95,10 @@ public class ExecutionTransactionHelper {
         // Une planification ne declenche jamais un test de stress.
         if (stress && scheduleId != null) {
             throw new BadRequestException(ScheduledExecutionServiceImpl.STRESS_NOT_SCHEDULABLE);
+        }
+        // Une serie d'essais ne repete qu'un test de stress.
+        if (!stress && seriesId != null) {
+            throw new BadRequestException(StressSeriesService.STRESS_ONLY);
         }
         // Scenario au-dela des regles ou limites actuelles : non modifie, mais pas lance (mode stress : reglages ignores).
         com.loadpilot.backend.service.validation.LoadLimits limits = executionLimits.loadLimits();
@@ -132,6 +143,8 @@ public class ExecutionTransactionHelper {
                 .maxP95Ms(stressLimits != null ? null : scenario.getMaxP95Ms())
                 .loadMode(scenario.getLoadMode())
                 .stressRampStep(stressLimits != null ? stressLimits.rampRpsPerSecond() : null)
+                .seriesId(seriesId)
+                .seriesIndex(seriesIndex)
                 .build();
         Execution saved = executionRepository.saveAndFlush(execution);
 
@@ -163,7 +176,7 @@ public class ExecutionTransactionHelper {
                 // Mode stress : pas de frein sur seuil saisi, la rupture est detectee par rapport a la baseline.
                 stressLimits != null ? null : com.loadpilot.backend.service.execution.ErrorRateBrake.Config.of(
                         scenario.getErrorBrakeRatePercent(), scenario.getErrorBrakeWindowSeconds()),
-                com.loadpilot.backend.service.http.NetworkProfile.of(scenario.getApplication()));
+                com.loadpilot.backend.service.http.NetworkProfile.of(scenario.getApplication()), seriesId);
     }
 
     /** QUEUED -> RUNNING sous verrou ; false si l'execution a ete annulee entre-temps. */

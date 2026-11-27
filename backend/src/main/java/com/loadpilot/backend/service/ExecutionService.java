@@ -20,6 +20,12 @@ public interface ExecutionService {
     /** Lancement d'une execution par une planification. */
     ExecutionResponse executeScheduled(UUID scenarioId, UUID triggeredByAppUserId, UUID scheduleId);
 
+    /**
+     * Essai "seriesIndex" d'une serie de stress (voir StressSeriesService). Le premier reserve le serveur, les suivants
+     * reprennent la reservation gardee pendant la pause.
+     */
+    ExecutionResponse executeSeriesRun(UUID scenarioId, UUID triggeredByAppUserId, UUID seriesId, int seriesIndex);
+
     ExecutionDetailResponse getById(UUID id);
 
     /** includeResults = false : sans la liste des requetes. */
