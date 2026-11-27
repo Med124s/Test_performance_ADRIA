@@ -87,4 +87,23 @@ describe('page « Comparer des exécutions »', () => {
     expect(api.compare).toHaveBeenCalledTimes(1)
     u2()
   })
+
+  it('tests de stress du même scénario : point de rupture consolidé', async () => {
+    api.compare.mockResolvedValue(comparison({ stressSummary: {
+      verdict: 'CONFIRMED', conclusiveRuns: 2, ruptures: 2, meanRps: 64.5, minRps: 63, maxRps: 66, spreadPercent: 4.7, rampRpsPerSecond: 1,
+      precisionRps: 5, message: 'Point de rupture confirmé autour de 64,5 req/s, entre 63 et 66 req/s sur 2 essais (écart de 4,7 %, précision ± 5 req/s).',
+    } }))
+    renderPage('ex-5,ex-10')
+    const block = await screen.findByTestId('compare-stress-summary')
+    expect(block.textContent).toContain('Point de rupture confirmé')
+    expect(block.textContent).toContain('entre 63 et 66 req/s sur 2 essais')
+    expect(block.className).toContain('rp-stress-warning')
+  })
+
+  it('sans tests de stress : aucun point de rupture consolidé', async () => {
+    api.compare.mockResolvedValue(comparison())
+    renderPage('ex-5,ex-10')
+    await screen.findByTestId('compare-table')
+    expect(screen.queryByTestId('compare-stress-summary')).toBeNull()
+  })
 })

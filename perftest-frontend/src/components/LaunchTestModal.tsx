@@ -4,6 +4,8 @@ import SearchSelect from './SearchSelect'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
 import { stepsBackendApi } from '../services/api/stepsBackend'
 import { executionsBackendApi } from '../services/api/executionsBackend'
+import { stressSeriesBackendApi } from '../services/api/stressSeriesBackend'
+import SeriesRunsChoice from './SeriesRunsChoice'
 import { ApiError } from '../services/api/httpClient'
 import { BackendScenarioResponse } from '../types/backendContracts'
 import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
@@ -28,6 +30,8 @@ export default function LaunchTestModal({ onClose }: { onClose: () => void }) {
   const [scenarios, setScenarios] = useState<BackendScenarioResponse[] | null>(null)
   const [stepCounts, setStepCounts] = useState<Map<string, number>>(new Map())
   const [scenarioId, setScenarioId] = useState('')
+  // Test de stress : un essai, ou une série de 3 ou 5.
+  const [runs, setRuns] = useState(1)
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -62,6 +66,17 @@ export default function LaunchTestModal({ onClose }: { onClose: () => void }) {
     setLaunching(true)
     setError(null)
     try {
+      if (selected.loadMode === 'STRESS' && runs > 1) {
+        const series = await stressSeriesBackendApi.start(selected.id, runs)
+        const first = series.currentExecutionId ?? series.runs[0]?.executionId
+        showToast(`Série de ${runs} essais de « ${series.scenarioName} » lancée.`, 'success')
+        onClose()
+        if (first) {
+          monitor.track(first, series.scenarioName)
+          navigate(`/executions/live/${first}`)
+        }
+        return
+      }
       const result = await executionsBackendApi.execute({ scenarioId: selected.id })
       monitor.track(result.id, result.scenarioName)
       showToast(`Exécution de « ${result.scenarioName} » lancée.`, 'success')
@@ -85,7 +100,7 @@ export default function LaunchTestModal({ onClose }: { onClose: () => void }) {
           {scenarios == null ? (
             <p className="lt-muted">Chargement des scénarios…</p>
           ) : (
-            <SearchSelect options={options} value={scenarioId} onChange={setScenarioId} allLabel="Rechercher un scénario…"
+            <SearchSelect options={options} value={scenarioId} onChange={(v) => { setScenarioId(v); setRuns(1) }} allLabel="Rechercher un scénario…"
               ariaLabel="Scénario à lancer" width="100%" />
           )}
           {scenarios != null && launchable.length === 0 && !error && (
@@ -97,6 +112,7 @@ export default function LaunchTestModal({ onClose }: { onClose: () => void }) {
               <span>· {selected.applicationName}</span>
             </div>
           )}
+          {selected && selected.loadMode === 'STRESS' && <SeriesRunsChoice value={runs} onChange={setRuns} disabled={launching} />}
           {selected && selected.loadMode !== 'STRESS' && (
             <div className="lt-load" aria-label="Charge du scénario">
               <span><strong>{selected.virtualUsers}</strong> utilisateurs virtuels</span>

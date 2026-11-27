@@ -14,6 +14,8 @@ import {
   BackendStepResponse,
 } from '../types/backendContracts'
 import { executionsBackendApi } from '../services/api/executionsBackend'
+import { stressSeriesBackendApi } from '../services/api/stressSeriesBackend'
+import SeriesRunsChoice from '../components/SeriesRunsChoice'
 import { scenariosBackendApi } from '../services/api/scenariosBackend'
 import { applicationsBackendApi } from '../services/api/applicationsBackend'
 import { stepsBackendApi } from '../services/api/stepsBackend'
@@ -296,6 +298,8 @@ function Executions() {
   // ---- Nouvelle exécution ----
   const [showLaunchModal, setShowLaunchModal] = useState(false)
   const [selectedScenarioId, setSelectedScenarioId] = useState('')
+  // Test de stress : un essai, ou une série de 3 ou 5.
+  const [launchRuns, setLaunchRuns] = useState(1)
   const [launching, setLaunching] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
   const launchableScenarios = scenarios.filter((s) => s.status === 'ACTIVE' && (stepCountByScenario.get(s.id) ?? 0) > 0)
@@ -303,6 +307,7 @@ function Executions() {
   const openLaunchModal = () => {
     if (!canWrite) return
     setSelectedScenarioId('')
+    setLaunchRuns(1)
     setLaunchError(null)
     setShowLaunchModal(true)
   }
@@ -317,6 +322,15 @@ function Executions() {
     setLaunching(true)
     setLaunchError(null)
     try {
+      if (scenarioById.get(selectedScenarioId)?.loadMode === 'STRESS' && launchRuns > 1) {
+        const series = await stressSeriesBackendApi.start(selectedScenarioId, launchRuns)
+        const first = series.currentExecutionId ?? series.runs[0]?.executionId
+        if (first) monitor.track(first, series.scenarioName)
+        await loadPage(true)
+        setShowLaunchModal(false)
+        showToast(`Série de ${launchRuns} essais de « ${series.scenarioName} » lancée.`, 'success')
+        return
+      }
       const payload: BackendExecutionRequest = { scenarioId: selectedScenarioId }
       const result = await executionsBackendApi.execute(payload)
       monitor.track(result.id, result.scenarioName)
@@ -509,6 +523,8 @@ function Executions() {
                     </td>
                     <td data-label="Scénario" className="ex-scenario">
                       <span className="ex-scenario-name" title={exec.scenarioName}>{exec.scenarioName}</span>
+                      {exec.series && <span className="pt-pill neutral ms-1" style={{ fontSize: '11px' }} title="Essai d’une série de stress">
+                        <i className="bi bi-collection me-1" aria-hidden="true"></i>Essai {exec.series.index}</span>}
                       <span className="ex-scenario-app">
                         {exec.applicationName}
                         {exec.keepResults && <span className="ex-retention" title="Conservée : résultats détaillés jamais supprimés">
@@ -662,7 +678,7 @@ function Executions() {
             )}
 
             <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pt-text)', marginBottom: '6px', display: 'block' }}>Scénario *</label>
-            <select className="pt-form-control" style={{ width: '100%' }} value={selectedScenarioId} disabled={launching} onChange={e => setSelectedScenarioId(e.target.value)}>
+            <select className="pt-form-control" style={{ width: '100%' }} value={selectedScenarioId} disabled={launching} onChange={e => { setSelectedScenarioId(e.target.value); setLaunchRuns(1) }}>
               <option value="" disabled>Sélectionner un scénario…</option>
               {launchableScenarios.map(s => (
                 <option key={s.id} value={s.id}>{s.name} ({s.applicationName})</option>
@@ -680,6 +696,7 @@ function Executions() {
                 return (
                   <div className="d-flex flex-wrap gap-2 mt-2">
                     <span className="pt-pill neutral" style={{ fontSize: '11px' }}><i className="bi bi-graph-up-arrow me-1"></i>Point de rupture : montée automatique, test seul sur le serveur</span>
+                    <SeriesRunsChoice value={launchRuns} onChange={setLaunchRuns} disabled={launching} />
                   </div>
                 )
               }

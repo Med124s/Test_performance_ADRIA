@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { useAuth } from '../context/AuthContext'
@@ -11,6 +11,7 @@ import LiveResources from '../components/application-monitoring/LiveResources'
 import LiveInjector from '../components/LiveInjector'
 import LiveStress from '../components/LiveStress'
 import StressResultCard from '../components/StressResultCard'
+import StressSeriesPanel from '../components/StressSeriesPanel'
 
 // Suivi en direct d'une exécution (/executions/live/:id).
 
@@ -52,6 +53,7 @@ interface LiveStepRow {
 function ExecutionLive() {
   const { id = '' } = useParams()
   const { executions, track } = useExecutionMonitor()
+  const navigate = useNavigate()
   const { rawRoles } = useAuth()
   const { showToast } = useToast()
   const [confirmCancel, setConfirmCancel] = useState(false)
@@ -119,7 +121,7 @@ function ExecutionLive() {
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>{execution?.scenarioName || status?.scenarioName || 'Exécution'}</h1>
           <div className="em-muted mt-1" aria-live="polite">
             {status ? <span className={paused ? 'em-status-paused' : undefined}>{liveStatusLabel(status.status)}</span> : 'Connexion…'}
-            {status && status.loadMode === 'STRESS' && <> · point de rupture : montée automatique</>}
+            {status && status.loadMode === 'STRESS' && <> · point de rupture : montée automatique{status.series ? ` · essai ${status.series.index} d’une série` : ''}</>}
             {status && status.loadMode !== 'STRESS' && <> · {status.virtualUsers} utilisateur(s) · ramp-up {status.rampUpSeconds ?? 0} s
               {status.durationSeconds ? ` · durée ${status.durationSeconds} s` : ''}{status.iterations ? ` · ${status.iterations} itération(s)` : ''}</>}
           </div>
@@ -183,6 +185,10 @@ function ExecutionLive() {
         <div className="em-kpi"><strong>{avg != null ? `${Math.round(avg)} ms` : '—'}</strong><span>temps de réponse moyen</span></div>
       </div>
 
+      {status?.series && (
+        <StressSeriesPanel seriesId={status.series.id} executionId={id} canWrite={canWrite}
+          onRunStarted={(next) => { track(next); navigate(`/executions/live/${next}`, { replace: true }) }} />
+      )}
       {!finished && <LiveStress live={status?.stressLive} />}
       {finished && <StressResultCard stress={status?.stress} />}
       {!finished && <LiveInjector injector={status?.injector} />}

@@ -22,6 +22,7 @@ import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
 import StepRequestsExplorer from './execution-detail/StepRequestsExplorer'
 import { RetentionNotice } from './execution-report/Retention'
 import StressResultCard from '../components/StressResultCard'
+import StressSeriesPanel from '../components/StressSeriesPanel'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { executionStatusMeta } from '../utils/executionStatus'
@@ -239,6 +240,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
         )}
       </div>
       <StressResultCard stress={execution.stress} />
+      {execution.series && <StressSeriesPanel seriesId={execution.series.id} executionId={execution.id} canWrite={canWrite} />}
 
       <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--pt-text-muted)' }}>
         <i className="bi bi-speedometer2" style={{ color: 'var(--pt-primary)' }}></i> PERFORMANCE

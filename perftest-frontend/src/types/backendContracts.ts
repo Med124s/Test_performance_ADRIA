@@ -571,6 +571,8 @@ export interface BackendExecutionResponse {
   /** Mode de charge et résultat du test de stress (null en mode manuel). */
   loadMode?: BackendLoadMode
   stress?: BackendStressResult | null
+  /** Série d'essais de stress de l'exécution ; null/absent hors série. */
+  series?: BackendStressSeriesRef | null
 }
 
 /** LoadPilot lui-même (l'injecteur) : CPU en % de la machine (null si indisponible), mémoire en Mo. */
@@ -622,6 +624,8 @@ export interface BackendExecutionStatusResponse {
   loadMode?: BackendLoadMode
   stressLive?: BackendStressLive | null
   stress?: BackendStressResult | null
+  /** Série d'essais de stress de l'exécution ; null/absent hors série. */
+  series?: BackendStressSeriesRef | null
 }
 
 /** Résultat d'un test de stress (outcome null : test arrêté autrement). Champs du point de rupture : début de l'anomalie. */
@@ -647,6 +651,61 @@ export interface BackendStressResult {
   refusalPercent: number | null
   /** Vitesse de montée utilisée (req/s gagnées chaque seconde) ; le début de la rupture est connu à 5 × cette vitesse près. */
   rampRpsPerSecond?: number | null
+}
+
+/** Exécution lancée dans une série d'essais de stress : la série et le rang de l'essai (1..n). */
+export interface BackendStressSeriesRef {
+  id: string
+  index: number
+}
+
+export type BackendStressSeriesStatus = 'RUNNING' | 'COMPLETED' | 'INTERRUPTED' | 'CANCELLED'
+export type BackendStressSeriesVerdict = 'CONFIRMED' | 'DISPERSED' | 'NOT_CONFIRMED' | 'NO_BREAKPOINT' | 'NOT_COMPARABLE' | 'NONE'
+
+/** Point de rupture consolidé sur plusieurs essais (série, ou exécutions comparées). */
+export interface BackendStressSeriesSummary {
+  verdict: BackendStressSeriesVerdict
+  /** Essais concluants (rupture, ou aucune rupture jusqu'à une limite) et essais en rupture. */
+  conclusiveRuns: number
+  ruptures: number
+  /** Débit offert au début de la rupture : moyenne, minimum, maximum ; écart (max − min) / moyenne en %. */
+  meanRps: number | null
+  minRps: number | null
+  maxRps: number | null
+  spreadPercent: number | null
+  rampRpsPerSecond: number | null
+  /** Précision du début de la rupture (± req/s). */
+  precisionRps: number | null
+  message: string
+}
+
+/** Série d'essais de stress : le même test enchaîné 3 ou 5 fois, pause entre deux essais, point de rupture consolidé. */
+export interface BackendStressSeriesResponse {
+  id: string
+  scenarioId: string
+  scenarioName: string
+  applicationName: string
+  requestedRuns: number
+  status: BackendStressSeriesStatus
+  /** Série arrêtée avant la fin : pourquoi. */
+  stopReason: string | null
+  triggeredByUsername: string | null
+  startedAt: string
+  finishedAt: string | null
+  /** Pause entre deux essais : lancement prévu de l'essai suivant ; null sinon. */
+  nextRunAt: string | null
+  pauseSeconds: number
+  /** Essai en attente ou en cours ; null pendant une pause ou une fois la série terminée. */
+  currentExecutionId: string | null
+  runs: {
+    index: number
+    executionId: string
+    status: BackendExecutionStatus
+    startedAt: string
+    duration: number | null
+    stress: BackendStressResult | null
+  }[]
+  summary: BackendStressSeriesSummary
 }
 
 /** Montée d'un test de stress en cours. */
@@ -747,6 +806,8 @@ export interface BackendExecutionHistoryResponse {
   keepResults?: boolean
   /** Date de suppression du détail des requêtes (le rapport figé reste) ; null = détail présent. */
   resultsPurgedAt?: string | null
+  /** Série d'essais de stress de l'exécution ; null/absent hors série. */
+  series?: BackendStressSeriesRef | null
 }
 
 /** Conservation du détail d'une exécution (rapport, détail). `notice` : phrase à afficher, null si rien n'a été supprimé. */
@@ -862,6 +923,8 @@ export interface BackendExecutionReportResponse {
   /** Mode de charge et résultat du test de stress (point de rupture), gardé après la purge ; null en mode manuel. */
   loadMode?: BackendLoadMode
   stress?: BackendStressResult | null
+  /** Série d'essais de stress de l'exécution ; null/absent hors série. */
+  series?: BackendStressSeriesRef | null
 }
 
 export interface BackendExecutionStepResultResponse {
@@ -1187,6 +1250,8 @@ export interface BackendExecutionComparison {
   executions: BackendComparisonColumn[]
   /** P95 de chaque étape (même nom et méthode) dans chaque exécution, null si absente. */
   steps: { name: string; method: string | null; p95Ms: (number | null)[] }[]
+  /** Tests de stress du même scénario : point de rupture consolidé (même calcul qu'une série d'essais) ; null sinon. */
+  stressSummary?: BackendStressSeriesSummary | null
 }
 
 export interface BackendComparisonColumn {

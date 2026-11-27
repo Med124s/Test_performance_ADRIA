@@ -11,6 +11,7 @@ import { executionStatusMeta } from '../utils/executionStatus'
 import { formatNumber, formatPercent } from '../utils/numberFormat'
 import TimelineAnalysis from './execution-report/TimelineAnalysis'
 import StressResultCard from '../components/StressResultCard'
+import StressSeriesPanel from '../components/StressSeriesPanel'
 import ExtremesPanel from './execution-report/ExtremesPanel'
 import { KeepToggle, RetentionNotice } from './execution-report/Retention'
 import { saveBlob } from '../utils/download'
@@ -173,6 +174,7 @@ function SpringExecutionReport({ id }: { id: string }) {
         <i className="bi bi-sliders" style={{ color: 'var(--pt-primary)' }}></i> {report.stress ? 'POINT DE RUPTURE (montée automatique)' : 'CONFIGURATION DE CHARGE (figée au lancement)'}
       </div>
       <StressResultCard stress={report.stress} />
+      {report.series && <StressSeriesPanel seriesId={report.series.id} executionId={report.id} />}
       <div className="d-flex flex-wrap gap-2 mb-4">
         {!report.stress && <>
         <span className="pt-pill neutral" style={{ fontSize: '11.5px' }}><i className="bi bi-people me-1"></i>{report.virtualUsers} utilisateur(s) virtuel(s)</span>

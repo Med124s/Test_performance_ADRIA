@@ -104,13 +104,18 @@ export const executionsBackendApi = {
 }
 
 /** Fichier d'export d'un rapport (nom donné par le serveur) ; message du serveur en cas de refus. */
-async function downloadReport(id: string, path: string): Promise<{ blob: Blob; fileName: string }> {
+function downloadReport(id: string, path: string): Promise<{ blob: Blob; fileName: string }> {
+  return downloadFromApi(`${RESOURCE}/${id}/${path}`, `rapport-${id}`)
+}
+
+/** Fichier téléchargé depuis l'API ("resource" : chemin depuis la racine du serveur) ; message du serveur en cas de refus. */
+export async function downloadFromApi(resource: string, fallbackName: string): Promise<{ blob: Blob; fileName: string }> {
   const token = await getAccessToken()
   const headers: Record<string, string> = {}
   if (token) headers['Authorization'] = `Bearer ${token}`
   let response: Response
   try {
-    response = await fetch(`${SPRING_API_URL}${RESOURCE}/${id}/${path}`, { headers })
+    response = await fetch(`${SPRING_API_URL}${resource}`, { headers })
   } catch {
     throw new ApiError('Impossible de joindre le serveur LoadPilot (Spring Boot) pour l\'export.', 0)
   }
@@ -125,6 +130,6 @@ async function downloadReport(id: string, path: string): Promise<{ blob: Blob; f
     throw new ApiError(message, response.status)
   }
   const disposition = response.headers.get('Content-Disposition') ?? ''
-  const fileName = /filename="([^"]+)"/.exec(disposition)?.[1] ?? `rapport-${id}`
+  const fileName = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallbackName
   return { blob: await response.blob(), fileName }
 }

@@ -10,6 +10,9 @@ import { formatMs, formatNumber, formatPercent, formatRps } from '../utils/numbe
 import { Direction, bestWorst, plateauReading } from './execution-compare/compareModel'
 import { executionStatusMeta, formatDateTime } from './dashboard/dashboardModel'
 import './execution-compare/compare.css'
+import './execution-report/timelineAnalysis.css'
+import { VERDICT_TITLES, VERDICT_TONE } from '../utils/stressSeries'
+import { stressRampLabel } from '../utils/stressResult'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
 
@@ -113,6 +116,17 @@ export default function ExecutionCompare() {
         <>
           {data.warning && (
             <div className="pt-alert-banner warning mb-3" role="alert" data-testid="scenario-warning"><i className="bi bi-exclamation-triangle"></i>{data.warning}</div>
+          )}
+          {data.stressSummary && (
+            <div className={`pt-card mb-3 rp-stress rp-stress-${VERDICT_TONE[data.stressSummary.verdict]}`} data-testid="compare-stress-summary"
+              style={{ fontSize: '13px' }}>
+              <i className="bi bi-graph-up-arrow me-1" aria-hidden="true"></i>
+              <strong>{VERDICT_TITLES[data.stressSummary.verdict]}</strong>
+              <div>{data.stressSummary.message}</div>
+              {data.stressSummary.rampRpsPerSecond != null && (
+                <div className="text-muted">Montée : {stressRampLabel(data.stressSummary.rampRpsPerSecond)}.</div>
+              )}
+            </div>
           )}
 
           <div className="pt-card mb-3" style={{ padding: 0 }}>
