@@ -14,11 +14,16 @@ class BreakpointDetectorTest {
     /** Fenetre synthetique : "achievedRps" req/s terminees, dont "refusals" timeouts ; niveau de charge note a son debut. */
     private static BreakpointDetector.WindowView window(long start, double achievedRps, Long p95, long refusals, double offeredRps,
             boolean rising, boolean poolAtLimit) {
+        return window(start, achievedRps, p95, refusals, offeredRps, rising, poolAtLimit, false);
+    }
+
+    private static BreakpointDetector.WindowView window(long start, double achievedRps, Long p95, long refusals, double offeredRps,
+            boolean rising, boolean poolAtLimit, boolean poolBehind) {
         long requests = Math.round(achievedRps * W);
         LiveStats.Window stats = new LiveStats.Window(requests, refusals, 0, requests - refusals, p95 == null ? 0 : p95 * requests,
                 p95, refusals, 0, 0, 0, W);
         return new BreakpointDetector.WindowView(start, stats, offeredRps, rising, poolAtLimit,
-                new LiveStats.LoadLevel(start, (int) start, offeredRps));
+                new LiveStats.LoadLevel(start, (int) start, offeredRps), poolBehind);
     }
 
     private static BreakpointDetector.WindowView normal(long start) {
@@ -117,10 +122,19 @@ class BreakpointDetectorTest {
 
         BreakpointDetector poolFull = new BreakpointDetector(BASELINE);
         BreakpointDetector held = new BreakpointDetector(BASELINE);
+        BreakpointDetector poolBehind = new BreakpointDetector(BASELINE);
         for (int i = 0; i < 5; i++) {
             assertThat(poolFull.onWindow(window(40 + i * W, 14, 110L, 0, 20, true, true))).isNull();
             assertThat(held.onWindow(window(40 + i * W, 14, 110L, 0, 20, false, false))).isNull();
+            assertThat(poolBehind.onWindow(window(40 + i * W, 14, 110L, 0, 20, true, false, true)))
+                    .as("deficit venu du retard du reservoir de LoadPilot").isNull();
         }
+        // Une fenetre en retard ne casse pas la serie : la rupture se confirme sur les fenetres jugees.
+        BreakpointDetector mixed = new BreakpointDetector(BASELINE);
+        assertThat(mixed.onWindow(window(40, 14, 110L, 0, 20, true, false))).isNull();
+        assertThat(mixed.onWindow(window(45, 14, 110L, 0, 20, true, false, true))).isNull();
+        assertThat(mixed.onWindow(window(50, 14, 110L, 0, 20, true, false))).isNull();
+        assertThat(mixed.onWindow(window(55, 14, 110L, 0, 20, true, false))).isNotNull();
     }
 
     @Test

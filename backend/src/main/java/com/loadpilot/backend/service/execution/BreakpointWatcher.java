@@ -92,7 +92,8 @@ public final class BreakpointWatcher {
             }
         }
         return new BreakpointDetector.WindowView(start, live.window(start, start + StressSettings.WINDOW_SECONDS),
-                noted == 0 ? ramp.offeredRps() : offered / noted, ramp.rising(), ramp.poolAtLimit(), live.loadLevelAt(start));
+                noted == 0 ? ramp.offeredRps() : offered / noted, ramp.rising(), ramp.poolAtLimit(), live.loadLevelAt(start),
+                ramp.poolBehind(start, start + StressSettings.WINDOW_SECONDS));
     }
 
     static String inconclusiveMessage(InjectorTrack injector, long saturationStartSecond) {

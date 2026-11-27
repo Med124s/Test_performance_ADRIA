@@ -18,7 +18,7 @@ public final class BreakpointDetector {
         RESPONSE_TIME,
         /** Timeouts, connexions refusees, 429 et 502/503/504 en masse. */
         REFUSALS,
-        /** Debit obtenu tres en dessous du debit offert, alors que la montee continue. */
+        /** Debit obtenu tres en dessous du debit offert, alors que la montee continue et que le reservoir de VUs suit. */
         THROUGHPUT
     }
 
@@ -27,11 +27,11 @@ public final class BreakpointDetector {
     }
 
     /**
-     * Une fenetre terminee : ses compteurs, le debit offert moyen, l'etat de la montee a sa fin et le niveau de charge
-     * a son debut (null s'il n'a pas ete note).
+     * Une fenetre terminee : ses compteurs, le debit offert moyen, l'etat de la montee a sa fin, le niveau de charge
+     * a son debut (null s'il n'a pas ete note) et si le reservoir de VUs a ete en retard sur le besoin pendant la fenetre.
      */
     public record WindowView(long startSecond, LiveStats.Window stats, double offeredRps, boolean rising, boolean poolAtLimit,
-            LiveStats.LoadLevel loadAtStart) {
+            LiveStats.LoadLevel loadAtStart, boolean poolBehind) {
 
         long endSecond() {
             return startSecond + stats.seconds();
@@ -132,8 +132,9 @@ public final class BreakpointDetector {
             case REFUSALS -> view.completed() < StressSettings.MIN_WINDOW_REQUESTS ? null
                     : view.refusalPercent() >= StressSettings.REFUSAL_PERCENT;
             case THROUGHPUT -> {
-                // Critere suspendu quand la montee ne monte plus ou que LoadPilot ne peut plus ajouter de VU.
-                if (!view.rising() || view.poolAtLimit()
+                // Critere suspendu quand la montee ne monte plus ou que LoadPilot ne fournit pas assez de VUs (limite
+                // atteinte ou retard sur le besoin) : le deficit viendrait de LoadPilot, pas de l'application.
+                if (!view.rising() || view.poolAtLimit() || view.poolBehind()
                         || view.offeredRps() * view.stats().seconds() < StressSettings.MIN_WINDOW_REQUESTS) {
                     yield null;
                 }

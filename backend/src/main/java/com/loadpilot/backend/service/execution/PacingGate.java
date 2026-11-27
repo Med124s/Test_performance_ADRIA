@@ -1,7 +1,6 @@
 package com.loadpilot.backend.service.execution;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongSupplier;
@@ -20,7 +19,6 @@ final class PacingGate {
     private final boolean adjustable;
     private final LongSupplier nanoClock;
     private final LongAdder missedSlots = new LongAdder();
-    private final AtomicInteger waiting = new AtomicInteger();
 
     PacingGate(int targetRps) {
         this.intervalNanos = SECOND_NANOS / targetRps;
@@ -56,11 +54,6 @@ final class PacingGate {
         return (double) SECOND_NANOS / intervalNanos;
     }
 
-    /** Utilisateurs virtuels qui attendent leur creneau en ce moment. */
-    int waiting() {
-        return waiting.get();
-    }
-
     /** Creneaux passes sans preneur depuis le dernier appel (porte reglable) ; recale la porte si elle est en retard. */
     long drainMissedSlots() {
         realign(nanoClock.getAsLong());
@@ -74,15 +67,12 @@ final class PacingGate {
         if (waitNanos <= 0) {
             return true;
         }
-        waiting.incrementAndGet();
         try {
             TimeUnit.NANOSECONDS.sleep(waitNanos);
             return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
-        } finally {
-            waiting.decrementAndGet();
         }
     }
 

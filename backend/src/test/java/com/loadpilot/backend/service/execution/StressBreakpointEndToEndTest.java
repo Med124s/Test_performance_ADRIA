@@ -22,7 +22,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Chaine complete du mode stress (environ une minute : 40 s d'echauffement et de baseline) : la cible ralentit au-dela de
- * CAPACITY_RPS, la surveillance confirme la rupture et arrete le test, au niveau de charge ou l'anomalie a commence.
+ * CAPACITY_RPS, la surveillance confirme la rupture et arrete le test, au niveau de charge ou l'anomalie a commence ;
+ * une cible saine, meme lente et sous une montee rapide, n'est jamais une rupture.
  */
 class StressBreakpointEndToEndTest {
 
@@ -40,6 +41,16 @@ class StressBreakpointEndToEndTest {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         // Cible saine : toujours rapide, sans limite de capacite.
         server.createContext("/healthy", ex -> {
+            ex.sendResponseHeaders(200, -1);
+            ex.close();
+        });
+        // Cible saine a 200 ms, sans limite de capacite : il faut beaucoup de VUs pour une montee rapide.
+        server.createContext("/healthy-200ms", ex -> {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             ex.sendResponseHeaders(200, -1);
             ex.close();
         });
@@ -124,5 +135,28 @@ class StressBreakpointEndToEndTest {
         assertThat(handle.stressOutcome()).as("aucune rupture sur une cible saine").isNull();
         assertThat(handle.stressRamp().limitReached()).isEqualTo(StressRamp.Limit.DURATION);
         assertThat(handle.stressRamp().peakOfferedRps()).isGreaterThan(40.0);
+    }
+
+    @Test
+    void fastRampOnAHealthySlowTarget_isNeverABreakpoint_theVirtualUsersKeepUp() {
+        RunningExecutionHandle handle = new RunningExecutionHandle();
+        BreakpointWatcher.Session watcher = BreakpointWatcher.start(handle, decision -> {
+            handle.stressOutcome(decision);
+            handle.requestStop();
+        });
+        List<StepExecutionSpec> steps = List.of(new StepExecutionSpec(UUID.randomUUID(), "etape", HttpMethod.GET, "/healthy-200ms",
+                null, null, null, null, null, null, null, null, null));
+        // +20 req/s chaque seconde pendant 25 s (jusqu'a ~500 req/s, ~120 VUs) : le reservoir doit suivre, sans quoi le
+        // critere de debit verrait une rupture la ou LoadPilot est seulement en retard.
+        new HttpClientExecutionEngine(5, new ObjectMapper(), EXECUTOR).execute(steps, baseUrl, ApplicationAuthSpec.none(),
+                LoadTestSpec.stress(new StressRamp.Limits(1000, 5000, 65, 20), 0), handle,
+                new VariableSources(List.of(), CsvDistribution.PER_VIRTUAL_USER, Map.of(), steps));
+        watcher.stop();
+
+        assertThat(handle.stressOutcome()).as("aucune rupture sur une cible saine, meme a +20 req/s par seconde").isNull();
+        assertThat(handle.stressRamp().limitReached()).isEqualTo(StressRamp.Limit.DURATION);
+        assertThat(handle.stressRamp().peakOfferedRps()).isGreaterThan(400.0);
+        // Loi de Little : ~500 req/s x 0,2 s, marge comprise ; loin de la limite de 1 000.
+        assertThat(handle.stressRamp().peakVirtualUsers()).isBetween(80, 400);
     }
 }

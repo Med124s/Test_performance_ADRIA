@@ -50,17 +50,4 @@ class PacingGateTest {
         PacingGate gate = new PacingGate(10);
         assertThatThrownBy(() -> gate.setRate(20)).isInstanceOf(IllegalStateException.class);
     }
-
-    @Test
-    void waiting_countsVirtualUsersBlockedOnTheirSlot() throws Exception {
-        PacingGate gate = PacingGate.adjustable(2);
-        assertThat(gate.acquire()).isTrue();
-        Thread second = Thread.ofVirtual().start(gate::acquire);
-        long deadline = System.nanoTime() + 300 * MS;
-        while (gate.waiting() == 0 && System.nanoTime() < deadline) Thread.onSpinWait();
-
-        assertThat(gate.waiting()).isEqualTo(1);
-        second.join();
-        assertThat(gate.waiting()).isZero();
-    }
 }
