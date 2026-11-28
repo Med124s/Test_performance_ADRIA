@@ -14,12 +14,13 @@ import { ApiError } from '../../services/api/httpClient'
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ authProvider: 'keycloak', rawRoles: ['ROLE_PERFORMANCE_ENGINEER'] }) }))
 
 const app = { id: 'app-1', name: 'Banking', url: 'http://localhost:8888', status: 'CONNECTED', auth: null } as unknown as BackendApplicationResponse
-const scenarios = vi.hoisted(() => ({ getById: vi.fn(), updateFull: vi.fn(), testRunDraftStream: vi.fn(), testRunDraft: vi.fn(), testRunStream: vi.fn(), create: vi.fn(), update: vi.fn() }))
-const steps = vi.hoisted(() => ({ getByScenario: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() }))
+const scenarios = vi.hoisted(() => ({ getById: vi.fn(), updateFull: vi.fn(), testRunDraftStream: vi.fn(), testRunDraft: vi.fn(), testRunStream: vi.fn(), create: vi.fn(), update: vi.fn(), getAll: vi.fn() }))
+const steps = vi.hoisted(() => ({ getByScenario: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(), getAll: vi.fn() }))
 vi.mock('../../services/api/applicationsBackend', () => ({ applicationsBackendApi: { getAll: () => Promise.resolve([app]) } }))
 vi.mock('../../services/api/scenariosBackend', () => ({ scenariosBackendApi: scenarios }))
 vi.mock('../../services/api/stepsBackend', () => ({ stepsBackendApi: steps }))
-vi.mock('../../services/api/executionsBackend', () => ({ executionsBackendApi: { execute: vi.fn() } }))
+const execute = vi.hoisted(() => vi.fn())
+vi.mock('../../services/api/executionsBackend', () => ({ executionsBackendApi: { execute } }))
 // Limites du serveur lues par l'assistant (plages et validation de « Charge & résumé »).
 vi.mock('../../services/api/settingsBackend', () => ({ settingsBackendApi: {
   loadLimits: () => Promise.resolve({ maxVirtualUsers: 200, maxDurationSeconds: 3600, maxIterations: 10000, maxTargetRps: 500 }),
@@ -143,6 +144,24 @@ describe('Page « Modifier le scénario »', () => {
     expect(await screen.findByText('Liste des scénarios')).toBeTruthy()
     expect(router.state.location.pathname).toBe('/scenarios')
     expect(scenarios.updateFull).not.toHaveBeenCalled()
+  })
+
+  it('mode stress : « Lancer » ouvre la fenêtre de lancement (nombre d’essais) ; la fermer laisse sur la page', async () => {
+    const stress = scenario({ loadMode: 'STRESS', stressRampStep: 1, virtualUsers: 1, durationSeconds: null, iterations: null })
+    scenarios.getById.mockResolvedValue(stress)
+    scenarios.getAll.mockResolvedValue([stress])
+    steps.getAll.mockResolvedValue([step('st-1', 1, 'Virement', '/api/transfers/national')])
+    const router = renderEdit()
+    expect(await screen.findByText('Modifier le scénario')).toBeTruthy()
+
+    fireEvent.click(button(/^.*Lancer$/))
+    const dialog = await screen.findByRole('dialog', { name: /Lancer un test/ })
+    expect(await within(dialog).findByText(/Nombre d’essais/)).toBeTruthy()
+    expect(execute).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Annuler' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Lancer un test/ })).toBeNull())
+    expect(router.state.location.pathname).toBe('/scenarios/sc-1/edit')
   })
 
   it('message clair si le scénario n’existe pas', async () => {

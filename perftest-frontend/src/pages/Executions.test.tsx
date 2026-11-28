@@ -225,6 +225,34 @@ describe('Page Exécutions', () => {
     expect(api.retry).toHaveBeenCalledWith('ex-1')
   })
 
+  it('annuler un essai de série : confirmation qui annonce l’interruption de la série ; test seul : annulation directe', async () => {
+    api.getPage.mockResolvedValue(page([row({ id: 'ex-run', status: 'RUNNING', duration: null, series: { id: 's1', index: 2 } }),
+      row({ id: 'ex-solo', status: 'RUNNING', duration: null })], { running: 2 }))
+    api.cancel.mockResolvedValue({})
+    renderAt()
+    await screen.findAllByRole('link', { name: 'Suivre' })
+    const rows = screen.getAllByTestId('execution-row')
+
+    openMenu(rows[0])
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /Annuler l’exécution/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByTestId('series-cancel-warning').textContent).toMatch(/l’annuler interrompt la série, les essais suivants ne sont pas lancés/)
+    expect(api.cancel).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Continuer la série' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    openMenu(rows[0])
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /Annuler l’exécution/ }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /Annuler l’essai et la série/ }))
+    await waitFor(() => expect(api.cancel).toHaveBeenCalledWith('ex-run'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    openMenu(rows[1])
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /Annuler l’exécution/ }))
+    await waitFor(() => expect(api.cancel).toHaveBeenCalledWith('ex-solo'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('suppression simple (menu) et groupée : impact, confirmation, succès partiel expliqué', async () => {
     api.getPage.mockResolvedValue(page([row({ id: 'ex-1' }), row({ id: 'ex-2', status: 'FAILED' })], { success: 1, failed: 1 }))
     api.deletionImpact.mockResolvedValue({ executions: 2, results: 1200, metrics: 1200, active: 0 })

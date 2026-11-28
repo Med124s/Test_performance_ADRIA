@@ -20,6 +20,7 @@ import StepEditor from './StepEditor'
 import { authTypeLabel } from '../../components/application-auth/ApplicationAuthFields'
 import TestRunPanel, { INITIAL_TEST_RUN, TestRunState } from './TestRunPanel'
 import LoadSummaryPanel from './LoadSummaryPanel'
+import LaunchTestModal from '../../components/LaunchTestModal'
 import CsvPanel from './CsvPanel'
 import ScenarioVariablesPanel from './ScenarioVariablesPanel'
 import { availableVariables, laterCaptures, validateScenarioVariables, variablesToJson } from './variablesModel'
@@ -116,6 +117,8 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
   /** Version qui a réussi le test complet (toutes les étapes PASSED). */
   const [passedSignature, setPassedSignature] = useState<string | null>(null)
   const [finalSaving, setFinalSaving] = useState<null | 'save' | 'launch'>(null)
+  // Mode stress : « Enregistrer et lancer » ouvre la fenêtre de lancement (nombre d'essais).
+  const [stressLaunch, setStressLaunch] = useState<{ scenarioId: string; leaveOnDismiss: boolean } | null>(null)
   const [finalError, setFinalError] = useState<string | null>(null)
   const [draftSaving, setDraftSaving] = useState(false)
   const [leaveError, setLeaveError] = useState<string | null>(null)
@@ -642,7 +645,10 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
       await scenariosBackendApi.publish(id)
       allowLeaveRef.current = true
       needsConfirmRef.current = false
-      if (launch) {
+      if (launch && isStress(info)) {
+        showToast(`Scénario « ${info.name.trim()} » enregistré : choisissez le nombre d’essais.`, 'success')
+        setStressLaunch({ scenarioId: id, leaveOnDismiss: true })
+      } else if (launch) {
         const execution = await executionsBackendApi.execute({ scenarioId: id })
         monitor.track(execution.id, info.name.trim())
         showToast(`Scénario « ${info.name.trim()} » enregistré et lancé.`, 'success')
@@ -679,7 +685,12 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
         setBaseline(workSnapshot(info, updatedSteps, load))
         setSectionBaseline(sectionSnapshots(info, updatedSteps, load))
       }
-      if (launch) {
+      if (launch && isStress(info)) {
+        allowLeaveRef.current = true
+        needsConfirmRef.current = false
+        if (dirty) showToast(`Modifications de « ${info.name.trim()} » enregistrées.`, 'success')
+        setStressLaunch({ scenarioId, leaveOnDismiss: false })
+      } else if (launch) {
         allowLeaveRef.current = true
         needsConfirmRef.current = false
         const execution = await executionsBackendApi.execute({ scenarioId })
@@ -1152,6 +1163,15 @@ function ScenarioWizard({ mode = 'create' }: { mode?: 'create' | 'edit' }) {
             </div>
           </div>
         </div>
+      )}
+
+      {stressLaunch && (
+        <LaunchTestModal initialScenarioId={stressLaunch.scenarioId} onClose={(launched) => {
+          setStressLaunch(null)
+          if (launched) return
+          if (stressLaunch.leaveOnDismiss) navigate('/scenarios')
+          else allowLeaveRef.current = false
+        }} />
       )}
     </div>
   )

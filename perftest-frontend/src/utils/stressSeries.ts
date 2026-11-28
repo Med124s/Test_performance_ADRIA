@@ -6,6 +6,10 @@ import { formatRps } from './stressResult'
 /** Nombres d'essais proposés au lancement (StressSettings.SERIES_RUNS) ; 1 = test seul, sans série. */
 export const SERIES_RUNS = [1, 3, 5] as const
 
+/** Annuler un essai interrompt la série (StressSeriesService : essai annulé = non concluant). */
+export const SERIES_RUN_CANCEL_WARNING = 'Cet essai fait partie d’une série : l’annuler interrompt la série, les essais suivants ne sont pas lancés. '
+  + 'Les essais déjà terminés restent dans le résultat consolidé.'
+
 export const SERIES_STATUS_LABELS: Record<BackendStressSeriesStatus, string> = {
   RUNNING: 'En cours',
   COMPLETED: 'Terminée',

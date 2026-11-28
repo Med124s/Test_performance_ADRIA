@@ -34,6 +34,7 @@ import {
 import RowActionsMenu, { RowAction } from './executions/RowActionsMenu'
 import FrDateInput from './executions/FrDateInput'
 import ExecutionDeletionDialog, { bulkDeletionMessage, describeExecutionError as describeApiError } from './executions/ExecutionDeletionDialog'
+import SeriesRunCancelDialog from '../components/SeriesRunCancelDialog'
 import './applications.css'
 import './executions/executions.css'
 
@@ -281,6 +282,8 @@ function Executions() {
     }
   }
 
+  // Essai d'une série : confirmation, l'annulation interrompt la série.
+  const [seriesCancel, setSeriesCancel] = useState<BackendExecutionHistoryResponse | null>(null)
   const handleCancel = async (exec: { id: string; scenarioName: string; status: BackendExecutionStatus }) => {
     if (!canWrite || cancellingId || !isActive(exec.status)) return
     setCancellingId(exec.id)
@@ -292,6 +295,7 @@ function Executions() {
       showToast(describeApiError(err, "Erreur lors de l'annulation."), 'danger')
     } finally {
       setCancellingId(null)
+      setSeriesCancel(null)
     }
   }
 
@@ -366,7 +370,8 @@ function Executions() {
     const active = isActive(exec.status)
     return [
       { label: 'Relancer', icon: 'bi-arrow-repeat', onSelect: () => setRetryConfirm(exec) },
-      ...(active ? [{ label: cancellingId === exec.id ? 'Annulation…' : 'Annuler l’exécution', icon: 'bi-slash-circle', onSelect: () => handleCancel(exec),
+      ...(active ? [{ label: cancellingId === exec.id ? 'Annulation…' : 'Annuler l’exécution', icon: 'bi-slash-circle',
+        onSelect: () => (exec.series ? setSeriesCancel(exec) : handleCancel(exec)),
         disabled: cancellingId === exec.id }] : []),
       ...(exec.resultsPurgedAt ? [] : [{ label: exec.keepResults ? 'Ne plus conserver' : 'Conserver', icon: exec.keepResults ? 'bi-bookmark-x' : 'bi-bookmark',
         onSelect: () => handleKeep(exec) }]),
@@ -624,6 +629,11 @@ function Executions() {
       </div>
 
       {deletion && <ExecutionDeletionDialog ids={deletion} onConfirm={confirmDeletion} onClose={() => setDeletion(null)} />}
+
+      {seriesCancel && (
+        <SeriesRunCancelDialog scenarioName={seriesCancel.scenarioName} busy={cancellingId === seriesCancel.id}
+          onConfirm={() => handleCancel(seriesCancel)} onClose={() => setSeriesCancel(null)} />
+      )}
 
       {/* Relance : confirmation, puis suivi en direct de la NOUVELLE exécution. */}
       {retryConfirm && (

@@ -11,11 +11,14 @@ const api = vi.hoisted(() => ({
   getPage: vi.fn(), activate: vi.fn(), deactivate: vi.fn(), bulkStatus: vi.fn(), bulkDeletionImpact: vi.fn(),
   bulkArchive: vi.fn(), bulkRestore: vi.fn(), bulkDelete: vi.fn(), bulkResumeSchedules: vi.fn(), resumeSchedules: vi.fn(),
   archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), removeDraft: vi.fn(), deletionImpact: vi.fn(), update: vi.fn(), create: vi.fn(),
+  getAll: vi.fn((): Promise<BackendScenarioResponse[]> => Promise.resolve([])),
 }))
 vi.mock('../services/api/scenariosBackend', () => ({ scenariosBackendApi: api }))
 vi.mock('../services/api/applicationsBackend', () => ({ applicationsBackendApi: { getAll: () => Promise.resolve([]) } }))
-vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: { getAll: () => Promise.resolve([]), execute: vi.fn() } }))
-vi.mock('../services/api/stepsBackend', () => ({ stepsBackendApi: { getAll: () => Promise.resolve([]), getByScenario: () => Promise.resolve([]) } }))
+const execute = vi.hoisted(() => vi.fn())
+vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: { getAll: () => Promise.resolve([]), execute } }))
+const allSteps = vi.hoisted(() => vi.fn(() => Promise.resolve([] as { id: string; scenarioId: string }[])))
+vi.mock('../services/api/stepsBackend', () => ({ stepsBackendApi: { getAll: allSteps, getByScenario: () => Promise.resolve([]) } }))
 
 import Scenarios from './Scenarios'
 
@@ -151,5 +154,23 @@ describe('Scénarios — pagination serveur, sélection et actions groupées', (
     expect(await screen.findByText(/2 planification\(s\) suspendue\(s\) reprennent leur cours/)).toBeTruthy()
     expect(screen.queryByText('Réactiver les planifications ?')).toBeNull()
     expect(api.bulkResumeSchedules).not.toHaveBeenCalled()
+  })
+
+  it('« Exécuter » d’un scénario en mode stress : fenêtre de lancement avec le scénario choisi et le nombre d’essais, sans lancement direct', async () => {
+    const stress = scenario({ id: 'st', name: 'Rupture', loadMode: 'STRESS', stressRampStep: 1 })
+    serve([stress])
+    api.getAll.mockResolvedValue([stress])
+    allSteps.mockResolvedValue([{ id: 'step-1', scenarioId: 'st' }])
+    renderPage()
+    await screen.findByText('Rupture')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exécuter Rupture' }))
+    const dialog = await screen.findByRole('dialog', { name: /Lancer un test/ })
+    expect(await within(dialog).findByText(/montée automatique \(\+1 req\/s par seconde\)/)).toBeTruthy()
+    expect(within(dialog).getAllByRole('radio').map((r) => (r as HTMLInputElement).value)).toEqual(['1', '3', '5'])
+    expect(execute).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Annuler' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Lancer un test/ })).toBeNull())
   })
 })

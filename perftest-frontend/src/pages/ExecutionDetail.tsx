@@ -23,6 +23,7 @@ import StepRequestsExplorer from './execution-detail/StepRequestsExplorer'
 import { RetentionNotice } from './execution-report/Retention'
 import StressResultCard from '../components/StressResultCard'
 import StressSeriesPanel from '../components/StressSeriesPanel'
+import SeriesRunCancelDialog from '../components/SeriesRunCancelDialog'
 import { executionsBackendApi } from '../services/api/executionsBackend'
 import { ApiError } from '../services/api/httpClient'
 import { executionStatusMeta } from '../utils/executionStatus'
@@ -83,6 +84,8 @@ function SpringExecutionDetail({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  // Essai d'une série : confirmation, l'annulation interrompt la série.
+  const [confirmSeriesCancel, setConfirmSeriesCancel] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -143,6 +146,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
       setError(describeApiError(err, "Erreur lors de l'annulation."))
     } finally {
       setCancelling(false)
+      setConfirmSeriesCancel(false)
     }
   }
 
@@ -206,7 +210,7 @@ function SpringExecutionDetail({ id }: { id: string }) {
         </div>
         <div className="header-actions d-flex gap-2">
           {canWrite && isActive && (
-            <button className="pt-btn-outline" style={{ color: 'var(--pt-danger)', borderColor: 'var(--pt-danger)' }} onClick={handleCancel} disabled={cancelling}>
+            <button className="pt-btn-outline" style={{ color: 'var(--pt-danger)', borderColor: 'var(--pt-danger)' }} onClick={() => (execution.series ? setConfirmSeriesCancel(true) : handleCancel())} disabled={cancelling}>
               <i className={`bi ${cancelling ? 'bi-arrow-repeat pt-spin' : 'bi-slash-circle'}`}></i> {cancelling ? 'Annulation...' : 'Annuler'}
             </button>
           )}
@@ -275,6 +279,10 @@ function SpringExecutionDetail({ id }: { id: string }) {
         detailedFailures={execution.detailedFailures ?? 0}
         detailedSamples={execution.detailedSamples ?? 0}
       />
+      {confirmSeriesCancel && (
+        <SeriesRunCancelDialog scenarioName={execution.scenarioName} busy={cancelling} onConfirm={handleCancel}
+          onClose={() => setConfirmSeriesCancel(false)} />
+      )}
     </div>
   )
 }

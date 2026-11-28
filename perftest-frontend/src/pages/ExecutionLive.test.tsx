@@ -10,6 +10,7 @@ const auth = vi.hoisted(() => ({ roles: ['ROLE_PERFORMANCE_ENGINEER'] }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ authProvider: 'keycloak', rawRoles: auth.roles }) }))
 const api = vi.hoisted(() => ({ getStatus: vi.fn(), getReport: vi.fn(), cancel: vi.fn(), pause: vi.fn(), resume: vi.fn() }))
 vi.mock('../services/api/executionsBackend', () => ({ executionsBackendApi: api }))
+vi.mock('../services/api/stressSeriesBackend', () => ({ stressSeriesBackendApi: { get: () => new Promise(() => {}) } }))
 
 import ExecutionLive, { describeActionError } from './ExecutionLive'
 import { ApiError } from '../services/api/httpClient'
@@ -100,6 +101,21 @@ describe('Suivi en direct', () => {
     expect(screen.getByText('Annuler l’exécution ?')).toBeTruthy()
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Annuler l’exécution/ }))
     await waitFor(() => expect(api.cancel).toHaveBeenCalledWith('ex-1'))
+  })
+
+  it('annulation d’un essai de série : la confirmation annonce l’interruption de la série', async () => {
+    api.getStatus.mockResolvedValue(status({ loadMode: 'STRESS', series: { id: 's1', index: 2 } }))
+    renderAt('/executions/live/ex-1')
+    fireEvent.click(await screen.findByRole('button', { name: /Annuler l’exécution/ }))
+    expect(within(screen.getByRole('dialog')).getByTestId('series-cancel-warning').textContent)
+      .toMatch(/l’annuler interrompt la série/)
+  })
+
+  it('annulation d’un test seul : pas d’avertissement de série', async () => {
+    api.getStatus.mockResolvedValue(status())
+    renderAt('/executions/live/ex-1')
+    fireEvent.click(await screen.findByRole('button', { name: /Annuler l’exécution/ }))
+    expect(within(screen.getByRole('dialog')).queryByTestId('series-cancel-warning')).toBeNull()
   })
 
   it('panneau flottant sur une autre page, puis modale de résultat avec liens détail / rapport ; suivi conservé en sessionStorage', async () => {

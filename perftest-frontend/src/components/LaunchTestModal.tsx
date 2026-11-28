@@ -22,14 +22,22 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : 'Lancement impossible.'
 }
 
-export default function LaunchTestModal({ onClose }: { onClose: () => void }) {
+interface Props {
+  /** "launched" : un test ou une série vient d'être lancé (le suivi en direct s'ouvre). */
+  onClose: (launched: boolean) => void
+  /** Scénario déjà choisi (« Exécuter » d'un scénario en mode stress, « Enregistrer et lancer »). */
+  initialScenarioId?: string
+}
+
+export default function LaunchTestModal({ onClose: close, initialScenarioId }: Props) {
   const navigate = useNavigate()
   const monitor = useExecutionMonitor()
   const { showToast } = useToast()
   const titleId = useId()
   const [scenarios, setScenarios] = useState<BackendScenarioResponse[] | null>(null)
   const [stepCounts, setStepCounts] = useState<Map<string, number>>(new Map())
-  const [scenarioId, setScenarioId] = useState('')
+  const [scenarioId, setScenarioId] = useState(initialScenarioId ?? '')
+  const onClose = () => close(false)
   // Test de stress : un essai, ou une série de 3 ou 5.
   const [runs, setRuns] = useState(1)
   const [launching, setLaunching] = useState(false)
@@ -70,7 +78,7 @@ export default function LaunchTestModal({ onClose }: { onClose: () => void }) {
         const series = await stressSeriesBackendApi.start(selected.id, runs)
         const first = series.currentExecutionId ?? series.runs[0]?.executionId
         showToast(`Série de ${runs} essais de « ${series.scenarioName} » lancée.`, 'success')
-        onClose()
+        close(true)
         if (first) {
           monitor.track(first, series.scenarioName)
           navigate(`/executions/live/${first}`)
@@ -80,7 +88,7 @@ export default function LaunchTestModal({ onClose }: { onClose: () => void }) {
       const result = await executionsBackendApi.execute({ scenarioId: selected.id })
       monitor.track(result.id, result.scenarioName)
       showToast(`Exécution de « ${result.scenarioName} » lancée.`, 'success')
-      onClose()
+      close(true)
       navigate(`/executions/live/${result.id}`)
     } catch (err) {
       setError(describe(err))

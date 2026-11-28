@@ -25,6 +25,7 @@ import { ApiError } from '../services/api/httpClient'
 import { useApiList } from '../hooks/useApiResource'
 import DeletionDialog, { DeletionMode } from '../components/deletion/DeletionDialog'
 import Pagination from '../components/Pagination'
+import LaunchTestModal from '../components/LaunchTestModal'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useExecutionMonitor } from '../context/ExecutionMonitorContext'
@@ -230,6 +231,8 @@ function Scenarios() {
   }, [executions])
 
   const [launchingScenarioId, setLaunchingScenarioId] = useState<string | null>(null)
+  // Mode stress : fenêtre de lancement (nombre d'essais) au lieu d'un lancement direct.
+  const [stressLaunchId, setStressLaunchId] = useState<string | null>(null)
 
   // Scénario sans étape : message sans appel au serveur.
   const handleExecuteScenario = async (scenario: BackendScenarioResponse) => {
@@ -239,6 +242,10 @@ function Scenarios() {
       showToast('Ce scénario ne contient aucune étape.', 'danger')
       return
     }
+    if (scenario.loadMode === 'STRESS') {
+      setStressLaunchId(scenario.id)
+      return
+    }
     setLaunchingScenarioId(scenario.id)
     try {
       // Le backend répond tout de suite (202) ; le suivi se fait sur la page Exécutions.
@@ -246,7 +253,7 @@ function Scenarios() {
       monitor.track(execution.id, scenario.name)
       await refetchExecutions()
       showToast(
-        `Exécution de « ${scenario.name} » lancée (${scenario.loadMode === 'STRESS' ? 'mode stress, montée automatique' : `${scenario.virtualUsers} utilisateur(s) virtuel(s)`}). Suivez sa progression depuis la page Exécutions.`,
+        `Exécution de « ${scenario.name} » lancée (${scenario.virtualUsers} utilisateur(s) virtuel(s)). Suivez sa progression depuis la page Exécutions.`,
         'success'
       )
     } catch (err) {
@@ -1000,6 +1007,8 @@ function Scenarios() {
           </div>
         </div>
       )}
+
+      {stressLaunchId && <LaunchTestModal initialScenarioId={stressLaunchId} onClose={() => setStressLaunchId(null)} />}
     </div>
   )
 }

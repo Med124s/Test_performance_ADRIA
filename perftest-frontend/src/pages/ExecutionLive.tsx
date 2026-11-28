@@ -5,6 +5,7 @@ import { ApiError } from '../services/api/httpClient'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { liveStatusLabel, isTerminal, progressOf, useExecutionMonitor } from '../context/ExecutionMonitorContext'
+import { SERIES_RUN_CANCEL_WARNING } from '../utils/stressSeries'
 import { executionStatusMeta } from '../utils/executionStatus'
 import { NoFailedSteps, OnlyFailedToggle, StepPagerFooter, useStepPaging } from '../components/StepTablePager'
 import LiveResources from '../components/application-monitoring/LiveResources'
@@ -240,6 +241,7 @@ function ExecutionLive() {
                   Les utilisateurs virtuels s’arrêtent immédiatement et l’exécution passe à « Annulé ».
                   Ses résultats partiels ne sont pas conservés (ni détail ni rapport).
                 </p>
+                {status?.series && <p className="em-muted mt-2 mb-0" data-testid="series-cancel-warning"><strong>{SERIES_RUN_CANCEL_WARNING}</strong></p>}
               </div>
               <div className="modal-footer">
                 <button type="button" className="pt-btn-ghost" onClick={() => setConfirmCancel(false)} disabled={busy === 'cancel'}>
