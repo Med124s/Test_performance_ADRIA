@@ -140,6 +140,8 @@ Un seul essai peut varier avec la charge du poste ou le réseau. La série relan
 
 **Lancer un test** → `Démo — point de rupture` → **Nombre d'essais : 3 essais** → **Lancer**.
 
+La même fenêtre s'ouvre depuis **Scénarios** (bouton « Exécuter » du scénario) et depuis « Enregistrer et lancer » de l'assistant. « Relancer » (liste et détail des exécutions) lance toujours un essai seul.
+
 | Moment | Ce qu'on voit |
 |---|---|
 | essai 1 (≈ 2 min) | suivi en direct habituel ; encadré « Série de 3 essais · essai 1/3 en cours » |
@@ -151,7 +153,8 @@ Un seul essai peut varier avec la charge du poste ou le réseau. La série relan
 
 - pendant la pause, lancer un autre scénario : refus « Une série d'essais de stress est en pause entre deux essais : le serveur lui reste réservé » ;
 - le scénario ne se modifie pas pendant la série ;
-- **Annuler la série** arrête l'essai en cours ou la pause (variante, à faire sur une autre série) ;
+- **Annuler la série** arrête l'essai en cours ou la pause (variante, à faire sur une autre série) ; « Annuler » sur un essai demande confirmation et interrompt aussi la série ;
+- en quittant le suivi en direct, le panneau en bas de l'écran suit la série : essai en cours, pause avec compte à rebours, puis une seule fenêtre de résultat à la fin, avec le point de rupture consolidé ;
 - dans **Exécutions**, chaque essai porte le badge « Essai n » ; **Comparer** deux essais donne le même résultat consolidé ;
 - le **PDF de la série** : verdict, moyenne, minimum, maximum, écart, précision, tableau des essais et méthode.
 

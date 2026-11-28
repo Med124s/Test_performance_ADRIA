@@ -473,14 +473,16 @@ Le script affiche les options retenues, mots de passe masqués. Il refuse de dé
   - **Durée** : à +1 req/s par seconde, atteindre 500 req/s prend environ 9 minutes et 3 000 req/s dépasseraient la durée maximale de 1 h ; à +20, 5 000 req/s sont atteints en environ 5 minutes.
   - **Banc de capacité** : chaque utilisateur virtuel a ses propres clients HTTP. Un banc de capacité est recommandé avant de relever fortement le plafond d'utilisateurs virtuels.
 - **Série d'essais (point de rupture consolidé)** : au lancement d'un scénario « Point de rupture », « Nombre d'essais » propose 1 (test seul), 3 ou 5.
+  - **Lancement** : fenêtre « Lancer un test », « Nouvelle exécution » (page Exécutions), « Exécuter » (page Scénarios) ou « Enregistrer et lancer » (assistant). « Relancer » lance toujours un essai seul.
   - **Enchaînement** : le même test, puis une pause de 30 s pour que l'application récupère, puis l'essai suivant. Pendant la pause, le serveur reste réservé à la série : tout autre lancement est refusé (429).
-  - **Arrêt** : un essai non concluant (« Échouée », annulé, LoadPilot saturé) interrompt la série. « Annuler la série » arrête l'essai en cours ou la pause. Un redémarrage du serveur interrompt la série.
+  - **Arrêt** : un essai non concluant (« Échouée », annulé, LoadPilot saturé) interrompt la série. « Annuler la série » arrête l'essai en cours ou la pause ; annuler un essai demande confirmation et interrompt aussi la série. Un redémarrage du serveur interrompt la série.
   - **Scénario figé** : pendant la série, le scénario ne se modifie, ne s'archive ni ne se supprime.
   - **Résultat consolidé** (essais concluants seulement) : moyenne, minimum et maximum du débit offert au début de la rupture, écart (max − min) / moyenne, précision (± 5 × la vitesse de montée).
     - « Point de rupture confirmé autour de X req/s, entre Y et Z sur N essais » : au moins 2 essais, tous en rupture, écart ≤ 20 % ;
     - « Résultats dispersés » au-delà de 20 % ; « non confirmé » si un seul essai est en rupture ou si certains n'ont pas rompu ; « Aucune rupture » si aucun n'a rompu.
     - Quelques essais montrent que le chiffre est reproductible ; ce n'est pas un intervalle de confiance statistique.
   - **Affichage** : suivi en direct (essai n/N, compte à rebours de la pause), détail et rapport de chaque essai, badge « Essai n » dans la liste, rapport PDF de la série (`GET /api/stress-series/{id}/report/pdf`).
+  - **Panneau de suivi** (bas de l'écran, hors de la page de suivi) : il passe seul à l'essai suivant, affiche la pause, et n'ouvre qu'une fenêtre de résultat, à la fin de la série, avec le point de rupture consolidé.
   - **Comparaison** : comparer des tests de stress d'un même scénario donne le même résultat consolidé.
   - **API** : `POST /api/stress-series` (`scenarioId`, `runs` = 3 ou 5), `GET /api/stress-series/{id}`, `POST /api/stress-series/{id}/cancel`.
 - **HTTPS non fourni** (voir section 13).
